@@ -239,6 +239,45 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(plugin.config()["providers"]["gateway"], self.initial_config["providers"]["gateway"])
         self.assertNotIn("default", plugin.config()["providers"]["codex-subscription"])
 
+    def test_merge_repairs_a_missing_standard_cli_path_after_engine_moves(self):
+        import yaml
+
+        binary = self.home / "new-bin" / "claude"
+        binary.parent.mkdir()
+        binary.write_text("#!/bin/sh\nexit 0\n")
+        binary.chmod(0o755)
+        old = str(self.home / "old-bin" / "claude")
+        self.initial_config["harness"] = {"claude-native": {"command": old, "launch_args": ["--verbose"]}}
+        (self.config_home / "config.yaml").write_text(yaml.safe_dump(self.initial_config))
+        plugin = self.plugin()
+        with patch.object(adapter.shutil, "which", side_effect=lambda key: str(binary) if key == "claude" else None):
+            plugin.merge_config("https://server.example")
+        self.assertEqual(plugin.config()["harness"]["claude-native"], {"command": str(binary), "launch_args": ["--verbose"]})
+        self.assertEqual(plugin.config()["host"]["host_id"], "this-machine")
+
+    def test_merge_preserves_working_or_custom_harness_commands(self):
+        import yaml
+
+        binary = self.home / "claude"
+        binary.write_text("#!/bin/sh\nexit 0\n")
+        binary.chmod(0o755)
+        for command in (str(binary), str(self.home / "custom-launcher")):
+            self.initial_config["harness"] = {"claude-native": {"command": command}}
+            (self.config_home / "config.yaml").write_text(yaml.safe_dump(self.initial_config))
+            plugin = self.plugin()
+            with patch.object(adapter.shutil, "which", return_value=str(binary)):
+                plugin.merge_config("https://server.example")
+            self.assertEqual(plugin.config()["harness"]["claude-native"]["command"], command)
+
+    def test_verify_reports_native_start_failure_without_waiting_for_reply_timeout(self):
+        self.client.items = [{"type": "error", "code": "native_terminal_start_failed", "message": "sensitive raw error"}]
+        result = self.plugin(engine="claude").verify()
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "NATIVE_TERMINAL_START_FAILED")
+        self.assertEqual(result["cleanup"], "stopped")
+        self.assertEqual(self.clock.value, 0)
+        self.assertNotIn("sensitive raw error", json.dumps(result))
+
     def test_config_backup_is_private_exact_and_only_when_changed(self):
         original = (self.config_home / "config.yaml").read_bytes()
         plugin = self.plugin()

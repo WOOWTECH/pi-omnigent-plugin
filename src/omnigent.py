@@ -426,6 +426,21 @@ class Plugin:
                     parsed = load_providers(config)
             except Exception:
                 raise PluginError("invalid_providers", "現有 Omnigent providers 設定無法安全合併。") from None
+            # CLI installers can relocate a standard executable. Repair only
+            # a dead absolute path whose basename is the engine's normal name;
+            # live commands and custom wrappers remain user-owned.
+            harnesses = config.get("harness", {})
+            if isinstance(harnesses, dict):
+                for key, spec in ENGINES.items():
+                    entry = harnesses.get(spec["harness"])
+                    command = entry.get("command") if isinstance(entry, dict) else None
+                    if not isinstance(command, str) or not Path(command).is_absolute() or Path(command).name != key:
+                        continue
+                    if Path(command).is_file() and os.access(command, os.X_OK):
+                        continue
+                    replacement = shutil.which(key)
+                    if replacement and Path(replacement).is_file() and os.access(replacement, os.X_OK):
+                        entry["command"] = replacement
             config["server"] = server
             name = self.request.get("hostName")
             if name is not None:
@@ -661,6 +676,13 @@ class Plugin:
                 page = client.request("GET", f"/v1/sessions/{quote(session_id, safe='')}/items?limit=100&order=desc")
                 if self.assistant_sentinel(page.get("data")):
                     result.update(ok=True, reply=SENTINEL, reason=None)
+                    break
+                failure = next((item.get("code") for item in page.get("data", [])
+                                if isinstance(item, dict) and item.get("type") == "error"
+                                and isinstance(item.get("code"), str)
+                                and re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]{0,63}", item["code"])), None)
+                if failure:
+                    result["reason"] = failure.upper()
                     break
                 if self.clock() >= deadline:
                     break

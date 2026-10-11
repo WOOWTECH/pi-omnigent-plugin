@@ -54,6 +54,8 @@ Omnigent 介面仍提供原有模型、Skills、MCP、Agent 模板與政策選�
 
 可設定 `PI_OMNIGENT_STATE_DIR`、`PI_OMNIGENT_VERSION`、`PI_OMNIGENT_SDK_ROOT`、`PI_OMNIGENT_PI_WEB_URL`。為避免安裝包驗證時自動啟動，設定 `PI_OMNIGENT_SKIP_ACTIVATION=1`。
 
+若引擎更新後移動了執行檔，`/omnigent repair` 會將失效的標準 CLI 絕對路徑改成目前已安裝的位置；有效命令與自訂啟動器會保留。原生引擎啟動錯誤會立即回報安全的錯誤代碼，方便繼續修復。
+
 ```bash
 npm test
 npm run check
