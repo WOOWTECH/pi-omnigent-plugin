@@ -195,6 +195,78 @@ class AdapterTests(unittest.TestCase):
         self.plugin().catalog()
         self.assertFalse(any(call[1].endswith('/model-options') for call in self.client.calls))
 
+    def test_only_complete_fixed_probe_inside_last_composer_can_be_recovered(self):
+        rule = '─' * 80
+        self.assertTrue(adapter.Plugin.exact_probe_draft(f'{rule}\n❯ {adapter.PROBE_PROMPT}\n{rule}'))
+        self.assertTrue(adapter.Plugin.exact_probe_draft(f'{rule}\n❯ \n  {adapter.PROBE_PROMPT}\n\n{rule}'))
+        for text in [f'❯ {adapter.PROBE_PROMPT}\n{rule}\n❯ \n{rule}',
+                     f'{rule}\n❯ {adapter.PROBE_PROMPT} extra\n{rule}',
+                     f'{rule}\n❯ 2. Yes\n{rule}',
+                     f'{rule}\n❯ Reply exactly\n{rule}', adapter.PROBE_PROMPT]:
+            self.assertFalse(adapter.Plugin.exact_probe_draft(text))
+
+    def test_native_probe_recovers_one_submit_without_posting_another_message(self):
+        self.client.items = []
+        calls = []
+        def recover(sid):
+            calls.append(sid)
+            self.client.items = [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": adapter.SENTINEL}]}]
+            return True
+        p = self.plugin(engine='claude');p.probe_submit = recover
+        result = p.verify()
+        self.assertTrue(result['ok']);self.assertTrue(result['nativeSubmitRecovered'])
+        self.assertEqual(calls, ['own-verification-session'])
+        self.assertEqual(sum(call[1].endswith('/events') and call[2].get('type') == 'message' for call in self.client.calls), 1)
+
+    def test_default_verification_preserves_existing_native_model_configuration(self):
+        result = self.plugin(engine='codex').verify()
+        self.assertIsNone(result['model'])
+        self.assertNotIn('model_override',next(call[2] for call in self.client.calls if call[1] == '/v1/sessions'))
+
+    def test_submit_guard_never_types_into_another_session_or_pending_dialog(self):
+        from omnigent.harnesses.claude_native import bridge
+        root=self.home/'bridges';directory=root/'own';directory.mkdir(parents=True)
+        (directory/'tmux.json').write_text(json.dumps({'socket_path':'/own/socket','tmux_target':'own'}))
+        p=self.plugin()
+        with patch.object(bridge, '_BRIDGE_ROOT', root), patch.object(bridge, 'read_active_session_id', return_value='other'):
+            with patch.object(adapter.subprocess, 'run', side_effect=AssertionError('must not touch other sessions')):
+                self.assertFalse(p.submit_owned_probe_draft('own'))
+        with patch.object(bridge, '_BRIDGE_ROOT', root), patch.object(bridge, 'read_active_session_id', return_value='own'), \
+                patch.object(bridge, 'has_pending_user_prompt', return_value=True):
+            with patch.object(adapter.subprocess, 'run', side_effect=AssertionError('must not answer dialogs')):
+                self.assertFalse(p.submit_owned_probe_draft('own'))
+
+    def test_submit_guard_checks_stable_exact_draft_then_sends_only_one_enter(self):
+        from omnigent.harnesses.claude_native import bridge
+        root=self.home/'bridges';directory=root/'own';directory.mkdir(parents=True)
+        (directory/'tmux.json').write_text(json.dumps({'socket_path':'/own/socket','tmux_target':'own'}))
+        rule='─'*80;pane=f'{rule}\n❯ \n {adapter.PROBE_PROMPT}\n{rule}'
+        result=types.SimpleNamespace(returncode=0,stdout=pane)
+        with patch.object(bridge, '_BRIDGE_ROOT', root), patch.object(bridge, 'read_active_session_id', return_value='own'), \
+                patch.object(bridge, 'has_pending_user_prompt', return_value=False), \
+                patch.object(bridge, '_terminal_dialog_headline', return_value=None), \
+                patch.object(bridge, 'auto_mode_billing_notice_visible', return_value=False), \
+                patch.object(bridge, '_history_search_footer_shown', return_value=False), \
+                patch.object(adapter.time, 'sleep'), patch.object(adapter.subprocess, 'run', return_value=result) as run:
+            self.assertTrue(self.plugin().submit_owned_probe_draft('own'))
+        self.assertEqual(run.call_count,4)
+        self.assertEqual(run.call_args_list[-1].args[0],['tmux','-S','/own/socket','send-keys','-t','own','Enter'])
+
+    def test_submit_guard_rejects_a_draft_that_changes_during_capture(self):
+        from omnigent.harnesses.claude_native import bridge
+        root=self.home/'bridges';directory=root/'own';directory.mkdir(parents=True)
+        (directory/'tmux.json').write_text(json.dumps({'socket_path':'/own/socket','tmux_target':'own'}))
+        rule='─'*80;pane=f'{rule}\n❯ {adapter.PROBE_PROMPT}\n{rule}'
+        results=[types.SimpleNamespace(returncode=0,stdout=pane),types.SimpleNamespace(returncode=0,stdout=f'{rule}\n❯\n{rule}')]
+        with patch.object(bridge, '_BRIDGE_ROOT', root), patch.object(bridge, 'read_active_session_id', return_value='own'), \
+                patch.object(bridge, 'has_pending_user_prompt', return_value=False), \
+                patch.object(bridge, '_terminal_dialog_headline', return_value=None), \
+                patch.object(bridge, 'auto_mode_billing_notice_visible', return_value=False), \
+                patch.object(bridge, '_history_search_footer_shown', return_value=False), \
+                patch.object(adapter.time, 'sleep'), patch.object(adapter.subprocess, 'run', side_effect=results) as run:
+            self.assertFalse(self.plugin().submit_owned_probe_draft('own'))
+        self.assertEqual(run.call_count,2)
+
     def test_disconnect_clears_exact_server_and_checks_own_host_offline(self):
         before = (self.config_home / "config.yaml").read_bytes()
         self.client.offline = True

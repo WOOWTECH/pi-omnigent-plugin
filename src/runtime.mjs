@@ -105,6 +105,7 @@ async function verifyInternal(ctx, { engine, model } = {}) {
       ...(proof.sessionId ? { sessionId: proof.sessionId, url: proof.url } : {}),
       ...(proof.model ? { model: proof.model } : {}),
       ...(proof.cleanup ? { cleanup: proof.cleanup } : {}),
+      ...(proof.nativeSubmitRecovered === true ? { nativeSubmitRecovered: true } : {}),
       ...(proof.reply === 'OMNIGENT_CONNECTION_OK' ? { reply: proof.reply } : {}),
       ...(proof.ok !== true || proof.cleanup === 'stop_failed' ? { reason: proof.cleanup === 'stop_failed' ? 'SESSION_STOP_FAILED' : proof.reason || result.error?.code || 'NO_REPLY' } : {}) };
     saveJSON(receiptPath, receipts);

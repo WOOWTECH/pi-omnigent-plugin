@@ -27,7 +27,9 @@ export async function acceptance(options = {}) {
         const receipt = result.verification?.[engine];
         check(`chat-${engine}`, !result.busy && !!result.verification && receipt?.ok === true && receipt.reply === 'OMNIGENT_CONNECTION_OK' && receipt.cleanup === 'stopped',
           { ...(receipt?.sessionId ? { sessionId: receipt.sessionId, url: receipt.url } : {}),
-            ...(receipt?.model ? { model: receipt.model } : {}), ...(receipt?.reason || result.error?.code ? { error: receipt?.reason || result.error?.code } : {}) });
+            ...(receipt?.model ? { model: receipt.model } : {}),
+            ...(receipt?.nativeSubmitRecovered ? { nativeSubmitRecovered: true } : {}),
+            ...(receipt?.reason || result.error?.code ? { error: receipt?.reason || result.error?.code } : {}) });
       }
       current = await runtime.status(options);
     }

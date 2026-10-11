@@ -15,7 +15,7 @@ Repository 為公開，可直接安裝，不需要 GitHub token。安裝會自�
 商業部署請固定版本，避免不同容器在更新時取得不同程式：
 
 ```text
-git:github.com/WOOWTECH/pi-omnigent-plugin@v0.2.0
+git:github.com/WOOWTECH/pi-omnigent-plugin@v0.2.1
 ```
 
 ```bash
@@ -46,7 +46,7 @@ Pi Web 0.10 沒有套件安裝／啟用生命週期鉤子，所以插件包含�
 
 ## 完成標準
 
-主機在線不代表引擎可以對話。插件針對當下已安裝的引擎，透過 Omnigent 建立短驗證對話，要求各引擎回覆 `OMNIGENT_CONNECTION_OK`；這些引擎都收到實際回覆才標記 `ready`。驗證對話會留在 Omnigent，方便打開檢查，驗證完成後停止執行。Claude 驗證專用對話使用 Default 權限模式及短暫啟動緩衝，避免首次 Auto mode 提示阻塞；一般對話保留既有設定，Auto mode 的限制見驗收紀錄。
+主機在線不代表引擎可以對話。插件針對當下已安裝的引擎，透過 Omnigent 建立短驗證對話，要求各引擎回覆 `OMNIGENT_CONNECTION_OK`；這些引擎都收到實際回覆才標記 `ready`。驗證對話會留在 Omnigent，方便打開檢查，驗證完成後停止執行。Claude 驗證專用對話使用 Default 權限模式及短暫啟動緩衝，並檢查固定驗證提示是否仍在本次對話的跨行草稿中；只有精確匹配且沒有待回答視窗，才補一次 Enter。一般對話保留既有設定，原生對話限制見驗收紀錄。
 
 Omnigent 介面仍提供原有模型、Skills、MCP、Agent 模板與政策選擇；插件沿用容器既有的模型登入／API 配置。缺少訂閱登入或模型時，狀態會指出該引擎尚未通過驗證。
 

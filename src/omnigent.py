@@ -204,7 +204,7 @@ class Client:
 
 
 class Plugin:
-    def __init__(self, request: dict, *, auth=None, client_factory=None, sleeper=time.sleep, clock=time.monotonic):
+    def __init__(self, request: dict, *, auth=None, client_factory=None, sleeper=time.sleep, clock=time.monotonic, probe_submit=None):
         self.request = request
         self.home = Path(os.environ.get("HOME", str(Path.home())))
         self.config_home = Path(request.get("configHome") or os.environ.get("OMNIGENT_CONFIG_HOME") or self.home / ".omnigent")
@@ -228,6 +228,7 @@ class Plugin:
         self.client_factory = tracked_client
         self.sleep = sleeper
         self.clock = clock
+        self.probe_submit = probe_submit or self.submit_owned_probe_draft
 
     def close(self) -> None:
         for client in self._clients:
@@ -661,6 +662,64 @@ class Plugin:
                     return True
         return False
 
+    @staticmethod
+    def exact_probe_draft(pane: str) -> bool:
+        """Match the entire fixed probe in the last framed chat composer.
+
+        Claude can wrap a pasted draft below a blank glyph row. Omnigent
+        0.16's draft check only examines the glyph row, missing that case.
+        History, menus, partial text and extra draft content never qualify.
+        """
+        lines = pane.splitlines()
+        def rule(line):
+            text = line.strip().strip('│┃┌┐└┘├┤╭╮╰╯')
+            return len(text) >= 8 and set(text) <= set('─━═╌-')
+        boundaries = [i for i, line in enumerate(lines) if rule(line)]
+        if len(boundaries) < 2:
+            return False
+        region = lines[boundaries[-2] + 1:boundaries[-1]]
+        if not region or not region[0].strip().startswith('❯'):
+            return False
+        text = region[0].strip()[1:] + '\n' + '\n'.join(region[1:])
+        return ' '.join(text.split()) == PROBE_PROMPT
+
+    def submit_owned_probe_draft(self, session_id: str) -> bool:
+        """Recover one unsent health-check draft, never send/approve a dialog."""
+        try:
+            from omnigent.harnesses.claude_native import bridge
+            root = Path(bridge._BRIDGE_ROOT)
+            for file in root.glob('*/tmux.json'):
+                directory = file.parent
+                if directory.is_symlink() or directory.stat().st_uid != os.getuid():
+                    continue
+                if bridge.read_active_session_id(directory) != session_id:
+                    continue
+                info = read_json(file)
+                socket, target = info.get('socket_path'), info.get('tmux_target')
+                if not isinstance(socket, str) or not isinstance(target, str):
+                    continue
+                # Two stable captures plus a final read keep torn repaints and
+                # a just-delivered prompt from spending Enter on another UI.
+                for capture in range(3):
+                    if bridge.read_active_session_id(directory) != session_id or bridge.has_pending_user_prompt(directory):
+                        return False
+                    pane = subprocess.run(['tmux', '-S', socket, 'capture-pane', '-p', '-t', target],
+                                          capture_output=True, text=True, timeout=2)
+                    text = pane.stdout
+                    if pane.returncode or not self.exact_probe_draft(text) or bridge._terminal_dialog_headline(text) \
+                            or bridge.auto_mode_billing_notice_visible(text) or bridge._history_search_footer_shown(text):
+                        return False
+                    if capture < 2:
+                        time.sleep(0.15)
+                if bridge.read_active_session_id(directory) != session_id or bridge.has_pending_user_prompt(directory):
+                    return False
+                command = subprocess.run(['tmux', '-S', socket, 'send-keys', '-t', target, 'Enter'],
+                                         capture_output=True, timeout=2)
+                return command.returncode == 0
+        except (ImportError, AttributeError, OSError, subprocess.TimeoutExpired):
+            pass
+        return False
+
     def verify(self) -> dict:
         deadline = self.clock() + self.timeout()
         key = self.request.get("engine")
@@ -677,6 +736,8 @@ class Plugin:
         if engine["configured"] is not True:
             raise PluginError("engine_not_ready", "此引擎尚未完成安裝或供應商登入。")
         selected = self.request.get("model")
+        if selected is None and not engine['models']:
+            raise PluginError('models_unavailable', '此引擎尚未提供可驗證的模型。')
         if selected is not None and selected not in {row["id"] for row in engine["models"]}:
             raise PluginError("invalid_model", "選取的模型不在此 host 的實際模型清單內。")
         if self.clock() >= deadline:
@@ -713,6 +774,7 @@ class Plugin:
             client.request("POST", f"/v1/sessions/{quote(session_id, safe='')}/events", {
                 "type": "message", "data": {"role": "user", "content": [
                     {"type": "input_text", "text": PROBE_PROMPT}]}})
+            recover_after = self.clock() + 8.0
             while True:
                 page = client.request("GET", f"/v1/sessions/{quote(session_id, safe='')}/items?limit=100&order=desc")
                 if self.assistant_sentinel(page.get("data")):
@@ -727,6 +789,10 @@ class Plugin:
                     break
                 if self.clock() >= deadline:
                     break
+                if key == 'claude' and self.clock() >= recover_after and deadline - self.clock() > 10 \
+                        and not result.get('nativeSubmitRecovered'):
+                    if self.probe_submit(session_id):
+                        result['nativeSubmitRecovered'] = True
                 self.sleep(2)
         except PluginError as error:
             result["reason"] = error.code

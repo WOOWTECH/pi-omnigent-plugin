@@ -1,4 +1,4 @@
-# v0.2.0 商業部署驗收
+# v0.2.1 商業部署驗收
 
 驗證日期：2026-10-11 UTC。公開來源：WOOWTECH/pi-omnigent-plugin。
 
@@ -18,13 +18,17 @@ CI 固定 action commit，測試 Node 22.19.0 與 22.23.3，執行語法檢查�
 
 測試環境為 Pi 5 的 Pi Web 容器，既有 Pi SDK 1.0.0、Omnigent 0.16.0、Claude 2.1.296、Codex 0.162.1、Pi 1.0.0。沒有補裝任何引擎。
 
-87 個 Node 測試、35 個 Python 測試全數通過；完整 npm audit 與乾淨安裝的正式依賴 audit 均為零漏洞。安裝包乾淨安裝成功，Pi Web API 可載入 `/omnigent` 命令。
+87 個 Node 測試、41 個 Python 測試全數通過；完整 npm audit 與乾淨安裝的正式依賴 audit 均為零漏洞。安裝包乾淨安裝成功，Pi Web API 可載入 `/omnigent` 命令。
 
 | 引擎／指定模型 | 實際回覆驗證 | 驗收耗時（含目錄與狀態查詢） |
 | --- | --- | --- |
 | Claude／opus | 連續三次通過，測試對話均停止 | 20.3、13.9、15.2 秒 |
 | Codex／gpt-5.6-sol | 通過，測試對話停止 | 20.2 秒 |
 | Pi／openai-codex/gpt-5.6-sol | 通過，測試對話停止 | 16.3 秒 |
+
+指定模型測試為 v0.2.0 的首輪證據。v0.2.1 再用各原生引擎預設設定驗證：Claude 連續三次通過（15.2、12.7、13.8 秒），Codex 18.6 秒、Pi 18.8 秒，五次驗收均完成。
+
+另有一個 Claude 指定模型測試實際觸發跨行草稿恢復，回條為 `nativeSubmitRecovered: true`，24.6 秒收到真實回覆並停止。預設與恢復證據見 [v0.2.1 實測](evidence/pi5-2026-10-11-default.json)。瀏覽器可打開 Pi 5 專屬對話，展開 Claude 模型子選單；沒有 page error。
 
 本機 host 在線；可用模型數為 Claude 4、Codex 7、Pi 9，三種原生 Agent 模組均可用。最終狀態為 `ready`。驗證提示不使用工具。
 
@@ -35,10 +39,11 @@ CI 固定 action commit，測試 Node 22.19.0 與 22.23.3，執行語法檢查�
 ## 支援邊界與維運
 
 - 遠端 server 必須 HTTPS；不跟隨登入或 bearer 的 HTTP redirect。OIDC 帳號需官方瀏覽器流程，不能用帳密精靈宣稱完成。
-- 商業部署固定 `git:github.com/WOOWTECH/pi-omnigent-plugin@v0.2.0`。升級由 Plugins 更新操作觸發，缺少引擎不會被安裝。尚未發佈 npm registry。
+- 商業部署固定 `git:github.com/WOOWTECH/pi-omnigent-plugin@v0.2.1`。升級由 Plugins 更新操作觸發，缺少引擎不會被安裝。尚未發佈 npm registry。
 - 需 util-linux flock、Node >=22.19、Pi SDK 1.x、原生引擎需要的 tmux >=3.3，以及其既有 sandbox／供應商登入。容器需持久掛載 Pi 與 Omnigent 資料目錄。
 - 本輪實機為 Linux x64、accounts 登入、現成 Omnigent host supervisor。arm64、OIDC 與一般容器自管 host 有合約測試，尚未實機驗證，不擴大宣稱。
-- Claude 2.1.296／Omnigent 0.16 的 Auto mode 首次對話存在啟動提示攔截 Enter 的問題，實測提示留在草稿，只有 3 秒緩衝仍會失敗。本版的 Claude 驗證專用對話固定 `--permission-mode default` 並保留 3 秒緩衝，連續三次通過；不修改全域政策或一般對話。一般 Auto mode 對話仍可能需要在原生終端確認提示，不能以此驗收宣稱 Auto mode 也已修復。
+- v0.2.0 正式部署後，Default 模式也重現未提交的跨行草稿，因此只切換模式不足以修復。根因是原生 bridge 只檢查 `❯` 所在行；提示換到下一行時，誤認草稿已送出。v0.2.1 對新建的驗證 session 讀取整個最後輸入框，精確匹配唯一的固定測試提示，確認三次穩定讀取、相同 session 綁定與沒有待回答視窗，才補一次 Enter；不重送 API 訊息或回答任何核准視窗。完成仍要求真正的 assistant sentinel 與成功停止。
+- 此恢復僅適用插件自己建立的固定驗證對話。一般 Claude 原生對話可能仍需手動提交或確認啟動提示；插件沒有修改全域 Omnigent／Claude 程式或一般對話，不能宣稱原生 bridge 的通用缺陷已修復。
 - 主機／帳號故障仍可能造成對話逾時。驗收成功表示本次測試收到回覆，並非可用率保證；部署與維運可重新執行 `acceptance --chat`。
 - 原生設定監看約 500 ms；若停用與啟用都發生在監看程序不存在期間，啟動後只看得到最終設定。部署應保留啟動介接器，正常以 UI 完成停用再啟用。
 - Omnigent 0.16 沒有公開 DELETE host API。取消連結清除此 server 的本機 token，確認本機 host 離線；註冊及歷史對話保留。
@@ -47,6 +52,8 @@ CI 固定 action commit，測試 Node 22.19.0 與 22.23.3，執行語法檢查�
 ## 效能設計
 
 CLI 版本探測同程序合併並重用 15 秒，每次查詢仍檢查執行檔身分；更新與移除即失效。Python status 使用同次 Node 探測結果，省去再次執行三個 CLI。驗證只抓指定引擎的模型，HTTPX client 在一次操作內重用連線，結束一定關閉。登入與主機在線狀態不快取。
+
+未指定模型時，驗證沿用原生引擎既有模型設定；指定模型時，必須出現在此 host 的模型清單中。清單可列出此帳號或引擎當下不能執行的模型：本輪 Pi 的 `openai-codex/gpt-5.3-codex-spark` 回傳 RUNTIMEERROR，`openai-codex/gpt-5.6-sol` 則通過。部署應驗證實際選用的模型，而非以出現在清單中作為成功證據。
 
 HTTP 連線池行為依據 [HTTPX 官方文件](https://www.python-httpx.org/advanced/clients/)。效能數字只代表本次 Pi 5 與網路條件，不作為 SLA。
 

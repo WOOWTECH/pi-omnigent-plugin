@@ -1,0 +1,354 @@
+{
+  "schema": 1,
+  "candidateVersion": "0.2.1",
+  "mode": "Native engine defaults, no model override",
+  "verification": {
+    "checkedAt": "2026-10-11T20:56:21.583Z",
+    "runs": [
+      {
+        "schema": 1,
+        "checkedAt": "2026-10-11T20:56:36.764Z",
+        "ok": true,
+        "phase": "ready",
+        "server": "https://omnigent.woowtech.io",
+        "hostId": "0ffa6b695eb1469fa074ea2b1085bd0b",
+        "chatRequested": true,
+        "checks": [
+          {
+            "name": "enabled",
+            "ok": true
+          },
+          {
+            "name": "fresh-login-approved",
+            "ok": true
+          },
+          {
+            "name": "host-online",
+            "ok": true
+          },
+          {
+            "name": "installed-engines",
+            "ok": true,
+            "engines": [
+              "claude",
+              "codex",
+              "pi"
+            ]
+          },
+          {
+            "name": "catalog-access",
+            "ok": true
+          },
+          {
+            "name": "catalog-claude",
+            "ok": true,
+            "modelCount": 4,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-codex",
+            "ok": true,
+            "modelCount": 7,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-pi",
+            "ok": true,
+            "modelCount": 9,
+            "moduleAvailable": true
+          },
+          {
+            "name": "chat-claude",
+            "ok": true,
+            "sessionId": "d885ecf38f2f4cee8fffc200687e735d",
+            "url": "https://omnigent.woowtech.io/c/d885ecf38f2f4cee8fffc200687e735d"
+          },
+          {
+            "name": "ready",
+            "ok": true
+          }
+        ],
+        "durationMs": 15178
+      },
+      {
+        "schema": 1,
+        "checkedAt": "2026-10-11T20:56:49.473Z",
+        "ok": true,
+        "phase": "ready",
+        "server": "https://omnigent.woowtech.io",
+        "hostId": "0ffa6b695eb1469fa074ea2b1085bd0b",
+        "chatRequested": true,
+        "checks": [
+          {
+            "name": "enabled",
+            "ok": true
+          },
+          {
+            "name": "fresh-login-approved",
+            "ok": true
+          },
+          {
+            "name": "host-online",
+            "ok": true
+          },
+          {
+            "name": "installed-engines",
+            "ok": true,
+            "engines": [
+              "claude",
+              "codex",
+              "pi"
+            ]
+          },
+          {
+            "name": "catalog-access",
+            "ok": true
+          },
+          {
+            "name": "catalog-claude",
+            "ok": true,
+            "modelCount": 4,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-codex",
+            "ok": true,
+            "modelCount": 7,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-pi",
+            "ok": true,
+            "modelCount": 9,
+            "moduleAvailable": true
+          },
+          {
+            "name": "chat-claude",
+            "ok": true,
+            "sessionId": "dbb3e92625b64548852d0ac1778d547a",
+            "url": "https://omnigent.woowtech.io/c/dbb3e92625b64548852d0ac1778d547a"
+          },
+          {
+            "name": "ready",
+            "ok": true
+          }
+        ],
+        "durationMs": 12697
+      },
+      {
+        "schema": 1,
+        "checkedAt": "2026-10-11T20:57:03.264Z",
+        "ok": true,
+        "phase": "ready",
+        "server": "https://omnigent.woowtech.io",
+        "hostId": "0ffa6b695eb1469fa074ea2b1085bd0b",
+        "chatRequested": true,
+        "checks": [
+          {
+            "name": "enabled",
+            "ok": true
+          },
+          {
+            "name": "fresh-login-approved",
+            "ok": true
+          },
+          {
+            "name": "host-online",
+            "ok": true
+          },
+          {
+            "name": "installed-engines",
+            "ok": true,
+            "engines": [
+              "claude",
+              "codex",
+              "pi"
+            ]
+          },
+          {
+            "name": "catalog-access",
+            "ok": true
+          },
+          {
+            "name": "catalog-claude",
+            "ok": true,
+            "modelCount": 4,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-codex",
+            "ok": true,
+            "modelCount": 7,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-pi",
+            "ok": true,
+            "modelCount": 9,
+            "moduleAvailable": true
+          },
+          {
+            "name": "chat-claude",
+            "ok": true,
+            "sessionId": "9d0a73b673c84dc5bd27a82d5059c22a",
+            "url": "https://omnigent.woowtech.io/c/9d0a73b673c84dc5bd27a82d5059c22a"
+          },
+          {
+            "name": "ready",
+            "ok": true
+          }
+        ],
+        "durationMs": 13780
+      },
+      {
+        "schema": 1,
+        "checkedAt": "2026-10-11T20:57:21.911Z",
+        "ok": true,
+        "phase": "ready",
+        "server": "https://omnigent.woowtech.io",
+        "hostId": "0ffa6b695eb1469fa074ea2b1085bd0b",
+        "chatRequested": true,
+        "checks": [
+          {
+            "name": "enabled",
+            "ok": true
+          },
+          {
+            "name": "fresh-login-approved",
+            "ok": true
+          },
+          {
+            "name": "host-online",
+            "ok": true
+          },
+          {
+            "name": "installed-engines",
+            "ok": true,
+            "engines": [
+              "claude",
+              "codex",
+              "pi"
+            ]
+          },
+          {
+            "name": "catalog-access",
+            "ok": true
+          },
+          {
+            "name": "catalog-claude",
+            "ok": true,
+            "modelCount": 4,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-codex",
+            "ok": true,
+            "modelCount": 7,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-pi",
+            "ok": true,
+            "modelCount": 9,
+            "moduleAvailable": true
+          },
+          {
+            "name": "chat-codex",
+            "ok": true,
+            "sessionId": "d02ae7b3d64b4023a3d9c0dbffe50fd7",
+            "url": "https://omnigent.woowtech.io/c/d02ae7b3d64b4023a3d9c0dbffe50fd7"
+          },
+          {
+            "name": "ready",
+            "ok": true
+          }
+        ],
+        "durationMs": 18630
+      },
+      {
+        "schema": 1,
+        "checkedAt": "2026-10-11T20:57:40.747Z",
+        "ok": true,
+        "phase": "ready",
+        "server": "https://omnigent.woowtech.io",
+        "hostId": "0ffa6b695eb1469fa074ea2b1085bd0b",
+        "chatRequested": true,
+        "checks": [
+          {
+            "name": "enabled",
+            "ok": true
+          },
+          {
+            "name": "fresh-login-approved",
+            "ok": true
+          },
+          {
+            "name": "host-online",
+            "ok": true
+          },
+          {
+            "name": "installed-engines",
+            "ok": true,
+            "engines": [
+              "claude",
+              "codex",
+              "pi"
+            ]
+          },
+          {
+            "name": "catalog-access",
+            "ok": true
+          },
+          {
+            "name": "catalog-claude",
+            "ok": true,
+            "modelCount": 4,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-codex",
+            "ok": true,
+            "modelCount": 7,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-pi",
+            "ok": true,
+            "modelCount": 9,
+            "moduleAvailable": true
+          },
+          {
+            "name": "chat-pi",
+            "ok": true,
+            "sessionId": "ce6bb1c064e1424898913226c2e0e0b0",
+            "url": "https://omnigent.woowtech.io/c/ce6bb1c064e1424898913226c2e0e0b0"
+          },
+          {
+            "name": "ready",
+            "ok": true
+          }
+        ],
+        "durationMs": 18818
+      }
+    ]
+  },
+  "recoveryExample": {
+    "sessionId": "f065a508ad2a4096ac9b77698771248d",
+    "engine": "claude",
+    "model": "opus",
+    "nativeSubmitRecovered": true,
+    "reply": "OMNIGENT_CONNECTION_OK",
+    "cleanup": "stopped",
+    "checkedAt": "2026-10-11T20:52:55.033Z"
+  },
+  "automatedTests": {
+    "node": 87,
+    "python": 41,
+    "total": 128
+  },
+  "browser": {
+    "ownPi5SessionLoaded": true,
+    "modelSubmenuVisible": true,
+    "pageErrors": 0
+  }
+}
