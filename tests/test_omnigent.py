@@ -25,6 +25,7 @@ class FakeAuth:
         self.value = token
         self.saved = []
         self.reads = []
+        self.cleared = []
 
     def token(self, server, *, refresh=True):
         self.reads.append((server, refresh))
@@ -33,6 +34,10 @@ class FakeAuth:
     def save(self, server, body):
         self.saved.append((server, body))
         self.value = body["token"]
+
+    def clear(self, server):
+        self.cleared.append(server)
+        self.value = None
 
 
 class FakeClient:
@@ -45,6 +50,10 @@ class FakeClient:
         self.poll_error = None
         self.stop_error = None
         self.cleanup_options = None
+        self.held_token = None
+
+    def hold_token(self, token):
+        self.held_token = token
 
     def auth_probe(self):
         return self.auth_mode
@@ -141,6 +150,30 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(set(result["engines"]), {"claude", "codex", "pi"})
         self.client.offline = True
         self.assertFalse(self.plugin().status()["host"]["connected"])
+
+    def test_disconnect_clears_exact_server_and_checks_own_host_offline(self):
+        before = (self.config_home / "config.yaml").read_bytes()
+        self.client.offline = True
+        result = self.plugin().disconnect()
+        self.assertEqual(self.auth.cleared, ["https://server.example"])
+        self.assertEqual(self.client.held_token, "existing-test-token")
+        self.assertFalse(result["host"]["connected"])
+        self.assertEqual(result["host"]["id"], "this-machine")
+        self.assertTrue(result["registrationRetained"])
+        self.assertEqual(before, (self.config_home / "config.yaml").read_bytes())
+        self.assertTrue(all(call[0] == "GET" for call in self.client.calls))
+        self.assertNotIn("existing-test-token", json.dumps(result))
+
+    def test_disconnect_timeout_does_not_claim_offline(self):
+        self.assert_code("HOST_DISCONNECT_TIMEOUT", self.plugin(timeoutSeconds=2).disconnect)
+        self.assertEqual(self.auth.cleared, ["https://server.example"])
+
+    def test_disconnect_rejects_wrong_deployment_server_before_clearing_login(self):
+        plugin = self.plugin(server="https://other.example")
+        with patch.dict(os.environ, {"OG_SERVER_URL": "https://deployment.example"}), patch.object(plugin, "local_host", return_value={"managerRunning": True}):
+            self.assert_code("SERVER_MANAGED_BY_DEPLOYMENT", plugin.disconnect)
+        self.assertEqual(self.auth.cleared, [])
+        self.assertEqual(self.client.calls, [])
 
     def test_catalog_only_queries_own_host_and_whitelists_fields(self):
         result = self.plugin().catalog()
@@ -321,6 +354,35 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(events[1][0], "stored")
         self.assertEqual(events[1][2], {"refresh_token": "refresh"})
         self.assertEqual(events[-1], "unlocked")
+
+    def test_official_clear_preserves_other_server_login_and_uses_lock(self):
+        import omnigent.cli_auth
+
+        events = []
+        tokens = {"https://server.example": {"token": "remove"}, "https://other.example": {"token": "keep"}}
+        path = self.config_home / "auth_tokens.json"
+        path.write_text(json.dumps(tokens))
+
+        @contextlib.contextmanager
+        def lock():
+            events.append("locked")
+            yield
+            events.append("unlocked")
+
+        with patch.object(omnigent.cli_auth, "_token_file_lock", lock):
+            adapter.OfficialAuth.clear("https://server.example")
+        self.assertEqual(json.loads(path.read_text()), {"https://other.example": {"token": "keep"}})
+        self.assertEqual(events, ["locked", "unlocked"])
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_disconnect_refuses_a_process_record_for_another_server(self):
+        plugin = self.plugin()
+        plugin.state_dir.mkdir(parents=True)
+        adapter.atomic_json(plugin.state_dir / "host-process.json", {"pid": os.getpid(), "server": "https://other.example"})
+        with patch.object(plugin, "process_matches", return_value=True), patch.object(plugin, "local_host", return_value={"id": "this-machine", "managerRunning": False}):
+            self.assert_code("HOST_PROCESS_MISMATCH", plugin.disconnect)
+        self.assertEqual(self.auth.cleared, [])
+        self.assertEqual(self.client.calls, [])
 
     def test_json_boundary_sanitizes_exception_and_uses_uppercase_codes(self):
         stdout = io.StringIO()

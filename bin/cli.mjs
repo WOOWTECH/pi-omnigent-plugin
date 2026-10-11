@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { locations, saveJSON, safeError } from '../src/common.mjs';
 import path from 'node:path';
-import { initialize, status, catalog, verify, repair, setEnabled, enabled } from '../src/runtime.mjs';
+import { initialize, status, catalog, verify, repair, disconnect, setEnabled, enabled } from '../src/runtime.mjs';
 import { ensureOnboarding, installHost, uninstallHost, packageLifecycle, boot, launchWeb } from '../src/web.mjs';
 import { installDependencies } from '../src/installer.mjs';
 
@@ -12,11 +12,12 @@ const loc = locations();
 function option(name) { const index = args.indexOf(name); return index < 0 ? undefined : args[index + 1]; }
 function print(value) {
   process.stdout.write(JSON.stringify(value, null, 2) + '\n');
-  if (['verify', 'initialize', 'repair', 'install-dependencies'].includes(command) && value?.ok === false) process.exitCode = 1;
+  if (['verify', 'initialize', 'repair', 'disconnect', 'install-dependencies'].includes(command) && value?.ok === false) process.exitCode = 1;
 }
 try {
   if (command === 'status') print(await status());
   else if (command === 'catalog') print(await catalog());
+  else if (command === 'disconnect') print(await disconnect());
   else if (command === 'verify') print(await verify({ engine: option('--engine'), model: option('--model') }));
   else if (command === 'initialize' || command === 'repair') {
     // Passwords are collected by the Pi extension's masked component, never argv.
@@ -48,7 +49,7 @@ try {
       print({ phase: 'activated', host, onboarding });
     }
   } else {
-    print({ usage: 'pi-omnigent activate | status | catalog | verify [--engine claude|codex|pi] | initialize [--server URL] | repair | install-dependencies | install-host | onboarding | launch-web | enable | disable' });
+    print({ usage: 'pi-omnigent activate | status | catalog | verify [--engine claude|codex|pi] | initialize [--server URL] | disconnect | repair | install-dependencies | install-host | onboarding | launch-web | enable | disable' });
     process.exitCode = 2;
   }
 } catch (error) {

@@ -148,6 +148,24 @@ export async function initialize(options = {}) {
   });
 }
 export async function repair(options = {}) { return initialize({ ...options, enable: true }); }
+/** Remove only this server's local login and wait for this host to go offline. */
+export async function disconnect(options = {}) {
+  const ctx = await context(options); const { loc, call } = ctx;
+  return locked(path.join(loc.stateDir, 'initialize.lock'), async () => {
+    const previous = stateOf(loc);
+    writeState(loc, { phase: 'disconnecting', loginConfirmed: false, issue: null });
+    saveJSON(path.join(loc.stateDir, 'verification.json'), {});
+    for (const name of ['connection.json', 'catalog.json']) {
+      try { fs.unlinkSync(path.join(loc.stateDir, name)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    }
+    const result = await call('disconnect', { ...(previous.server ? { server: previous.server } : {}) });
+    writeState(loc, { phase: 'needs-login', issue: result.ok ? null : result.error });
+    if (!result.ok) return { ok: false, phase: 'needs-login', error: result.error };
+    const receipt = { ...result.data, checkedAt: new Date().toISOString() };
+    saveJSON(path.join(loc.stateDir, 'disconnection.json'), receipt);
+    return { ok: true, phase: 'needs-login', ...receipt };
+  });
+}
 /** Startup installs dependencies only. An existing host login is never consent. */
 export async function prepare(options = {}) {
   const ctx = await context(options); const { loc, env } = ctx;

@@ -18,6 +18,7 @@ import math
 import os
 from pathlib import Path
 import re
+import signal
 import shutil
 import subprocess
 import sys
@@ -129,12 +130,25 @@ class OfficialAuth:
         with _token_file_lock():
             store_token(server, token, user_id, time.time() + expires, refresh_token=refresh_token)
 
+    @staticmethod
+    def clear(server: str) -> None:
+        from omnigent.cli_auth import _token_file_lock, clear_token
+
+        with _token_file_lock():
+            clear_token(server)
+
 
 class Client:
     def __init__(self, server: str, auth: OfficialAuth, *, read_only: bool = False):
         self.server = server
         self.auth = auth
         self.read_only = read_only
+        self._held_token = None
+
+    def hold_token(self, token: str) -> None:
+        # A logout check needs an in-memory bearer after the local entry is
+        # removed. Never refresh or write it back to the credential store.
+        self._held_token = token
 
     def request(self, method: str, path: str, payload: dict | None = None, *, authenticated: bool = True,
                 timeout_seconds: float = 15.0, refresh_auth: bool | None = None) -> dict:
@@ -142,7 +156,7 @@ class Client:
 
         headers = {"Accept": "application/json"}
         if authenticated:
-            token = self.auth.token(self.server, refresh=not self.read_only if refresh_auth is None else refresh_auth)
+            token = self._held_token or self.auth.token(self.server, refresh=not self.read_only if refresh_auth is None else refresh_auth)
             if token:
                 headers["Authorization"] = f"Bearer {token}"
         try:
@@ -534,6 +548,65 @@ class Plugin:
                 raise PluginError("host_connect_timeout", "登入已完成，host 尚未在線；請查看插件狀態與 host supervisor。")
             self.sleep(2)
 
+    def managed_host_pid(self, server: str) -> int | None:
+        record = read_json(self.state_dir / "host-process.json")
+        pid = record.get("pid")
+        if not self.process_matches(pid, "omnigent"):
+            return None
+        try:
+            pid = int(pid)
+            process = Path(f"/proc/{pid}")
+            argv = (process / "cmdline").read_bytes().decode().split("\0")
+            environ = dict(entry.split("=", 1) for entry in (process / "environ").read_bytes().decode().split("\0") if "=" in entry)
+            start = argv.index("host")
+            valid = argv[start + 1:start + 3] == ["--server", server]
+            valid = valid and record.get("server") == server and process.stat().st_uid == os.getuid()
+            valid = valid and environ.get("OMNIGENT_CONFIG_HOME") == str(self.config_home)
+            valid = valid and environ.get("OMNIGENT_DATA_DIR") == str(self.data_dir)
+        except (OSError, ValueError, UnicodeError):
+            valid = False
+        if not valid:
+            raise PluginError("host_process_mismatch", "無法確認插件管理的 host 程序；取消連結前請先檢查主機狀態。")
+        return pid
+
+    def disconnect(self) -> dict:
+        server = self.server()
+        self.require_compatible_kit_server(server)
+        host = self.local_host()
+        if not host["id"]:
+            raise PluginError("missing_host_id", "目前沒有可取消連結的本機 host ID。")
+        pid = None if host["managerRunning"] else self.managed_host_pid(server)
+        token = self.auth.token(server, refresh=False)
+        if not token:
+            raise PluginError("needs_login", "無法以目前登入查核主機離線狀態；請先檢查登入。")
+        client = self.client_factory(server, True)
+        client.hold_token(token)
+        # Validate access before removing anything. The list and all polling
+        # are GETs; only this host's exact identity is considered.
+        hosts = client.request("GET", "/v1/hosts").get("hosts")
+        if not isinstance(hosts, list):
+            raise PluginError("invalid_response", "Omnigent hosts 清單格式不正確。")
+        self.auth.clear(server)
+        if pid is not None:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        # The deployment supervisor notices the missing credential and stops
+        # its host. It stays alive to accept a fresh login from setup.
+        deadline = self.clock() + self.timeout(default=90)
+        while True:
+            rows = client.request("GET", "/v1/hosts").get("hosts")
+            if not isinstance(rows, list):
+                raise PluginError("invalid_response", "Omnigent hosts 清單格式不正確。")
+            matching = next((row for row in rows if isinstance(row, dict) and row.get("host_id") == host["id"]), None)
+            if not matching or matching.get("status") == "offline":
+                return {"server": server, "host": {"id": host["id"], "name": host["name"], "connected": False},
+                        "credentialsCleared": True, "registrationRetained": True}
+            if self.clock() >= deadline:
+                raise PluginError("host_disconnect_timeout", "本機登入已清除，但 server 尚未確認此 host 離線；請檢查 supervisor。")
+            self.sleep(2)
+
     @staticmethod
     def assistant_sentinel(items: object) -> bool:
         if not isinstance(items, list):
@@ -608,7 +681,7 @@ def dispatch(request: dict, **dependencies) -> dict:
     if not isinstance(request, dict):
         raise PluginError("invalid_request", "請提供 JSON object。")
     action = request.get("action")
-    if action not in ("status", "catalog", "connect", "verify"):
+    if action not in ("status", "catalog", "connect", "verify", "disconnect"):
         raise PluginError("invalid_action", "不支援此 Omnigent 操作。")
     return getattr(Plugin(request, **dependencies), action)()
 

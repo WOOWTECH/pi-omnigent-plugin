@@ -10,7 +10,7 @@
 git:github.com/WOOWTECH/pi-omnigent-plugin
 ```
 
-Repository 為私人，安裝環境需先具備此 repository 的 GitHub 讀取權限。安裝會自動啟動設定對話。也可使用本機路徑或 npm source；本機開發目錄可用：
+Repository 為公開，可直接安裝，不需要 GitHub token。安裝會自動啟動設定對話。也可使用本機路徑或 npm source；本機開發目錄可用：
 
 ```bash
 pi install /path/to/pi-omnigent-plugin
@@ -26,13 +26,17 @@ Pi Web 0.10 沒有套件安裝／啟用生命週期鉤子，所以插件包含�
 ## Pi Web 內操作
 
 - `/omnigent setup`：設定或重新登入。
+- `/omnigent disconnect`：清除此容器對該 server 的登入，並等待此 host 離線。
+- `/omnigent reconnect`：先取消連結，再重新詢問 server、帳號與遮罩密碼。
 - `/omnigent status`：主機、三種引擎與驗證狀態。
 - `/omnigent open`：取得 Omnigent 介面連結，在瀏覽器開啟。
 - `/omnigent repair`：重新連線並驗證。
-- `/omnigent verify`：驗證三種引擎的實際回覆。
+- `/omnigent verify`：驗證當下已安裝引擎的實際回覆。
 - `/omnigent catalog`：查看主機可用模型、引擎與 Agent 模板。
 
 模型可調用 `omnigent_status`、`omnigent_catalog`、`omnigent_verify`、`omnigent_open`。登入只使用設定 UI，不接受模型傳入密碼。
+
+取消連結只處理本機 host 與該 server 的本機登入，不撤銷帳號在其他容器的登入。Omnigent 0.16 的公開 API 未提供刪除 host 註冊紀錄；插件保留 host ID 與歷史對話，重連後沿用同一筆主機。取消後會清除插件的驗證結果，重新登入並收到實際回覆才能再次標記 ready。
 
 ## 完成標準
 

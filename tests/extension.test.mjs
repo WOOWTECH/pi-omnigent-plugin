@@ -32,6 +32,7 @@ function harness({ phase = 'needs-login', id = Math.random().toString(36), hasUI
     catalog: async () => ({ models: ['example-model'], modules: ['code'] }),
     verify: async () => ({ ok: true }),
     repair: async () => ({ ok: true }),
+    disconnect: async () => { calls.push({ action: 'disconnect' }); state.phase = 'needs-login'; return { ok: true }; },
   };
   const web = { ensureOnboarding: async () => ({ sessionId: id, url: `/?session=${id}` }), readOnboarding: () => ({ sessionId: id }) };
   const ctx = { cwd: '/fixture', mode, hasUI, sessionManager: { getSessionId: () => id }, ui: {
@@ -135,4 +136,22 @@ test('catalog and verify are callable as explicit slash commands and model tools
   assert.ok(h.messages.some(message => message.content.includes('example-model')));
   assert.deepEqual((await h.tools.omnigent_verify.execute()).details, { ok: true });
   assert.equal(JSON.parse((await h.tools.omnigent_open.execute()).content[0].text).url, h.state.server);
+});
+
+test('reconnect first disconnects then asks fresh URL, account and masked password', async () => {
+  const h = harness({ phase: 'ready' });
+  await h.commands.omnigent.handler('reconnect', h.ctx);
+  assert.deepEqual(h.calls.map(call => call.action || 'initialize'), ['disconnect', 'initialize']);
+  assert.equal(h.calls[1].username, 'fixture-account');
+  assert.equal(h.calls[1].password, 'fixture-secret');
+  assert.equal(JSON.stringify(h.messages).includes('fixture-secret'), false);
+});
+
+test('reconnect refuses to login before a failed disconnect is resolved', async () => {
+  const h = harness({ phase: 'ready' });
+  h.backend.disconnect = async () => ({ ok: false, error: { code: 'HOST_DISCONNECT_TIMEOUT' } });
+  h.ctx.ui.input = () => assert.fail('must not reconnect a host whose disconnection failed');
+  await h.commands.omnigent.handler('reconnect', h.ctx);
+  assert.equal(h.calls.length, 0);
+  assert.ok(h.messages[0].content.includes('HOST_DISCONNECT_TIMEOUT'));
 });

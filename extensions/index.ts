@@ -12,6 +12,7 @@ type Backend = {
   catalog(): Promise<any>;
   verify(): Promise<any>;
   repair(): Promise<any>;
+  disconnect(): Promise<any>;
 };
 
 function jsonResult(value: any) {
@@ -76,11 +77,17 @@ export function registerOmnigent(pi: ExtensionAPI, backend: Backend, web = { ens
   });
 
   pi.registerCommand('omnigent', {
-    description: '設定、檢查、模型目錄、驗證、開啟與修復：setup | status | catalog | verify | open | repair',
+    description: 'Omnigent 連線管理：setup | status | catalog | verify | open | disconnect | reconnect | repair',
     handler: async (args, ctx) => {
       const action = args.trim() || 'status';
       try {
         if (action === 'setup') { await wizard(ctx, { force: true }); return; }
+        if (action === 'disconnect' || action === 'reconnect') {
+          const result = await backend.disconnect();
+          show('Omnigent 取消連結結果', result);
+          if (action === 'reconnect' && result.ok === true) await wizard(ctx, { force: true });
+          return;
+        }
         if (action === 'status') { show('Omnigent 連線狀態', await backend.status()); return; }
         if (action === 'catalog') { show('Omnigent 模型與模組', await backend.catalog()); return; }
         if (action === 'verify') { show('Omnigent 對話驗證結果', await backend.verify()); return; }
@@ -90,7 +97,7 @@ export function registerOmnigent(pi: ExtensionAPI, backend: Backend, web = { ens
           show(`[開啟 Omnigent](${current.server})`); return;
         }
         if (action === 'repair') { show('Omnigent 修復結果', await backend.repair()); return; }
-        ctx.ui.notify('使用 /omnigent setup、status、catalog、verify、open 或 repair。', 'info');
+        ctx.ui.notify('使用 /omnigent setup、status、catalog、verify、open、disconnect、reconnect 或 repair。', 'info');
       } catch { safeFailure(ctx); }
     },
   });

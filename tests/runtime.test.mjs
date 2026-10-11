@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { initialize, verify, status, prepare } from '../src/runtime.mjs';
+import { initialize, verify, status, prepare, disconnect } from '../src/runtime.mjs';
 import { normalizeServer, saveJSON, locked } from '../src/common.mjs';
 
 function fixture(t, failed) {
@@ -92,4 +92,28 @@ test('an environment without engines cannot claim chat readiness', async t => {
   const ctx = fixture(t); for (const engine of ['claude', 'codex', 'pi']) ctx.dependencies[engine].available = false;
   assert.equal((await initialize(ctx)).phase, 'needs-engine');
   assert.equal(ctx.calls.some(c => c.action === 'verify'), false);
+});
+
+test('disconnect invalidates login and all chat receipts; reconnect requires fresh credentials', async t => {
+  const ctx = fixture(t); await initialize(ctx);
+  const base = ctx.callAdapter;
+  ctx.callAdapter = input => input.action === 'disconnect'
+    ? Promise.resolve({ ok: true, data: { host: { id: 'host-1', connected: false }, credentialsCleared: true } }) : base(input);
+  const result = await disconnect(ctx);
+  assert.equal(result.ok, true); assert.equal(result.phase, 'needs-login');
+  const current = await status(ctx);
+  assert.equal(current.loginConfirmed, false); assert.deepEqual(current.verification, {});
+  assert.equal(fs.existsSync(path.join(ctx.loc.stateDir, 'connection.json')), false);
+  assert.equal((await initialize({ ...ctx, username: undefined, password: undefined })).phase, 'needs-login');
+});
+
+test('failed disconnection cannot leave stale success receipts or a confirmed login', async t => {
+  const ctx = fixture(t); await initialize(ctx);
+  const base = ctx.callAdapter;
+  ctx.callAdapter = input => input.action === 'disconnect'
+    ? Promise.resolve({ ok: false, error: { code: 'HOST_DISCONNECT_TIMEOUT', message: 'Still online' } }) : base(input);
+  const result = await disconnect(ctx);
+  assert.equal(result.ok, false); assert.equal(result.error.code, 'HOST_DISCONNECT_TIMEOUT');
+  assert.equal((await status(ctx)).loginConfirmed, false);
+  assert.deepEqual((await status(ctx)).verification, {});
 });
