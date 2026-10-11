@@ -1,0 +1,10 @@
+node_modules/
+__pycache__/
+*.pyc
+*.tgz
+.pytest_cache/
+.coverage
+dist/
+release/
+.env
+.env.*

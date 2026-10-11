@@ -1,0 +1,334 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const launcherMarker = 'pi-omnigent-plugin web launcher';
+const onboardingTitle = 'Omnigent 連線設定';
+
+export function webLocations(options = {}) {
+  const source = options.loc || options;
+  const env = options.env || process.env;
+  const home = source.home || env.HOME || os.homedir();
+  const agentDir = source.agentDir || env.PI_CODING_AGENT_DIR || env.PI_AGENT_DATA_DIR || path.join(home, '.pi/agent');
+  const omniDir = source.omniDir || env.OMNIGENT_CONFIG_HOME || path.join(home, '.omnigent');
+  return { home, agentDir, stateDir: source.stateDir || env.PI_OMNIGENT_STATE_DIR || path.join(agentDir, 'omnigent-plugin'), root: source.root || root,
+    omniDir, omniDataDir: source.omniDataDir || env.OMNIGENT_DATA_DIR || env.OMNIGENT_CONFIG_HOME || omniDir };
+}
+
+function readJson(file) {
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
+  catch (error) { if (error.code === 'ENOENT') return {}; throw new Error('Plugin metadata is unreadable; inspect the plugin state directory.'); }
+}
+
+function writeJson(file, value) {
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const temporary = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+  try {
+    fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+    fs.renameSync(temporary, file);
+  } finally {
+    try { fs.unlinkSync(temporary); } catch {}
+  }
+}
+
+async function withOnboardingLock(stateDir, callback) {
+  fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  const lock = path.join(stateDir, 'onboarding.lock');
+  for (let attempt = 0; attempt < 100; attempt++) {
+    try {
+      fs.mkdirSync(lock, { mode: 0o700 });
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      let alive = true;
+      try {
+        const owner = readJson(path.join(lock, 'owner.json'));
+        if (Number.isInteger(owner.pid)) {
+          try { process.kill(owner.pid, 0); } catch (failure) { if (failure.code === 'ESRCH') alive = false; }
+        } else if (Date.now() - fs.statSync(lock).mtimeMs > 60_000) alive = false;
+      } catch {}
+      if (!alive) { fs.rmSync(lock, { recursive: true, force: true }); continue; }
+      await new Promise(resolve => setTimeout(resolve, 50));
+      continue;
+    }
+    try {
+      writeJson(path.join(lock, 'owner.json'), { pid: process.pid });
+      return await callback();
+    } finally { fs.rmSync(lock, { recursive: true, force: true }); }
+  }
+  throw new Error('Another process is preparing the Omnigent onboarding conversation.');
+}
+
+export async function loadPiSdk(options = {}) {
+  if (options.sdk) return options.sdk;
+  const bases = [webLocations(options).root, options.env?.PI_OMNIGENT_SDK_ROOT || process.env.PI_OMNIGENT_SDK_ROOT, process.cwd(), '/usr/local/lib/node_modules/@agegr/pi-web', '/usr/local/lib/node_modules', '/opt/pi-web'].filter(Boolean);
+  for (const base of bases) {
+    try {
+      const directory = path.join(base, path.basename(base) === 'node_modules' ? '' : 'node_modules', '@earendil-works/pi-coding-agent');
+      const manifest = JSON.parse(fs.readFileSync(path.join(directory, 'package.json'), 'utf8'));
+      const entry = manifest.exports?.['.']?.import || manifest.module || manifest.main;
+      if (typeof entry !== 'string') continue;
+      return await import(pathToFileURL(path.resolve(directory, entry)).href);
+    } catch (error) {
+      if (!['MODULE_NOT_FOUND', 'ERR_MODULE_NOT_FOUND', 'ENOENT'].includes(error.code)) throw error;
+    }
+  }
+  throw new Error('Pi SDK is unavailable. Install this plugin in the Pi Agent / Pi Web container.');
+}
+
+export function readOnboarding(options = {}) {
+  return readJson(path.join(webLocations(options).stateDir, 'onboarding.json'));
+}
+
+/** Read native Pi package state; no extension is loaded or dependency installed. */
+export async function packageLifecycle(options = {}) {
+  if (options.lifecycle) return typeof options.lifecycle === 'function' ? options.lifecycle() : options.lifecycle;
+  const loc = webLocations(options);
+  try {
+    const sdk = await loadPiSdk(options);
+    const settings = sdk.SettingsManager.create(options.cwd || loc.home, loc.agentDir, { projectTrusted: false });
+    const manager = new sdk.DefaultPackageManager({ cwd: options.cwd || loc.home, agentDir: loc.agentDir, settingsManager: settings });
+    const configured = manager.listConfiguredPackages();
+    let packageName = '@woowtech/pi-omnigent-plugin';
+    try { packageName = JSON.parse(fs.readFileSync(path.join(loc.root, 'package.json'), 'utf8')).name || packageName; } catch {}
+    const canonical = file => { try { return fs.realpathSync(file); } catch { return path.resolve(file); } };
+    const candidates = configured.filter(entry => entry.installedPath && canonical(entry.installedPath) === canonical(loc.root)
+      || entry.source === `npm:${packageName}` || entry.source.startsWith(`npm:${packageName}@`)
+      || (!entry.source.includes(':') && canonical(path.resolve(entry.scope === 'project' ? options.cwd || loc.home : loc.agentDir, entry.source)) === canonical(loc.root)));
+    if (settings.drainErrors?.().length) return { active: false, registered: false, reason: 'package-settings-unreadable' };
+    const candidate = candidates.at(-1);
+    if (!candidate) return options.allowUnregistered === true
+      ? { active: true, registered: false, reason: 'explicit-activation-window' }
+      : { active: false, registered: false, reason: 'package-removed-or-unregistered' };
+    const values = candidate.scope === 'project' ? settings.getProjectSettings() : settings.getGlobalSettings();
+    const entry = (values.packages || []).find(value => (typeof value === 'string' ? value : value.source) === candidate.source);
+    const disabled = typeof entry === 'object' && Array.isArray(entry.extensions) && entry.extensions.length === 0;
+    return { active: !disabled, registered: true, source: candidate.source, scope: candidate.scope, reason: disabled ? 'native-plugin-disabled' : 'native-plugin-enabled' };
+  } catch { return { active: false, registered: false, reason: 'package-lifecycle-unavailable' }; }
+}
+
+/** Create a real SDK session without spending model tokens or storing account data. */
+export async function ensureOnboarding(options = {}) {
+  const loc = webLocations(options);
+  return withOnboardingLock(loc.stateDir, async () => {
+    const file = path.join(loc.stateDir, 'onboarding.json');
+    const current = readJson(file);
+    if (current.sessionId && current.sessionFile && fs.existsSync(current.sessionFile)) {
+      return { ...current, status: 'reused', url: `/?session=${encodeURIComponent(current.sessionId)}` };
+    }
+    if (options.ready) return { status: 'ready', sessionId: null };
+    const sdk = await loadPiSdk(options);
+    const cwd = path.resolve(options.cwd || loc.home);
+    const safePath = `--${cwd.replace(/^[/\\]/, '').replace(/[/\\:]/g, '-')}--`;
+    const session = sdk.SessionManager.create(cwd, path.join(loc.agentDir, 'sessions', safePath));
+    session.appendSessionInfo(onboardingTitle);
+    session.appendCustomEntry('omnigent-onboarding', { version: 1 });
+    // Pi does not persist name/custom-only sessions. A harmless initial user message
+    // creates the file; no model turn is submitted by this module.
+    session.appendMessage({ role: 'user', content: '啟動 Omnigent 連線設定精靈。伺服器與帳號資訊請在設定面板填寫，密碼不要貼在對話裡。', timestamp: Date.now() });
+    const record = { version: 1, sessionId: session.getSessionId(), sessionFile: session.getSessionFile(), cwd, createdAt: new Date().toISOString() };
+    writeJson(file, record);
+    return { ...record, status: 'created', url: `/?session=${encodeURIComponent(record.sessionId)}` };
+  });
+}
+
+function findExecutable(command, env, exclude = []) {
+  for (const directory of (env.PATH || '').split(path.delimiter)) {
+    if (!directory) continue;
+    const file = path.resolve(directory, command);
+    if (exclude.includes(file)) continue;
+    try { fs.accessSync(file, fs.constants.X_OK); if (fs.statSync(file).isFile()) return file; } catch {}
+  }
+  return null;
+}
+
+function isOwnedLauncher(file) {
+  try { return fs.readFileSync(file, 'utf8').includes(launcherMarker); } catch { return false; }
+}
+
+function writeLauncher(file, pluginRoot, realWeb) {
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o755 });
+  const body = `#!/usr/bin/env node\n// ${launcherMarker}\nimport {spawn} from 'node:child_process';\nimport {existsSync} from 'node:fs';\nconst cli=${JSON.stringify(path.join(pluginRoot, 'bin/cli.mjs'))};\nconst native=${JSON.stringify(realWeb)};\nconst child=existsSync(cli)?spawn(${JSON.stringify(process.execPath)},[cli,'launch-web',...process.argv.slice(2)],{stdio:'inherit',env:process.env}):spawn(native,process.argv.slice(2),{stdio:'inherit',env:process.env});\nfor(const signal of ['SIGINT','SIGTERM','SIGHUP'])process.on(signal,()=>child.kill(signal));\nchild.on('error',()=>{process.stderr.write('Omnigent web launcher failed.\\n');process.exitCode=1;});\nchild.on('exit',(code,signal)=>{process.exitCode=code??(signal?1:0);});\n`;
+  const temporary = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, body, { mode: 0o755, flag: 'wx' });
+  fs.renameSync(temporary, file);
+}
+
+function captureKnownUpstream(shim, stateDir) {
+  let contents;
+  try { contents = fs.readFileSync(shim, 'utf8'); } catch { return null; }
+  if (!contents.includes('// pi-agent-shared-runtime launcher')) return null;
+  // The sibling's generated launcher uses absolute executable and CLI paths.
+  // Other source with the same comment still remains an unknown user launcher.
+  const match = contents.match(/spawn\(("(?:[^"\\]|\\.)*"),\[("(?:[^"\\]|\\.)*"),'launch-web'/);
+  if (!match) return null;
+  let executable, cli;
+  try { executable = JSON.parse(match[1]); cli = JSON.parse(match[2]); } catch { return null; }
+  if (!path.isAbsolute(executable) || !path.isAbsolute(cli) || !cli.endsWith('/bin/cli.mjs')) return null;
+  const hash = createHash('sha256').update(contents).digest('hex');
+  const directory = path.join(stateDir, 'launchers');
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  let backup = path.join(directory, 'pi-web-before-omnigent');
+  if (fs.existsSync(backup) && fs.readFileSync(backup, 'utf8') !== contents) backup = `${backup}-${hash.slice(0, 12)}`;
+  if (!fs.existsSync(backup)) fs.writeFileSync(backup, contents, { mode: 0o700, flag: 'wx' });
+  return { backup, backupHash: hash, originalShim: shim };
+}
+
+/** Capture and wrap the existing Pi Web command. Foreign launchers are preserved. */
+export async function installHost(options = {}) {
+  const loc = webLocations(options);
+  const env = options.env || process.env;
+  const shim = path.join(loc.home, '.local/bin/pi-web');
+  const namedShim = path.join(loc.home, '.local/bin/pi-omnigent-web');
+  const file = path.join(loc.stateDir, 'host.json');
+  const previous = readJson(file);
+  const owned = isOwnedLauncher(shim);
+  const upstream = !owned && fs.existsSync(shim) ? captureKnownUpstream(shim, loc.stateDir) : null;
+  const foreign = fs.existsSync(shim) && !owned && !upstream;
+  const realWeb = options.realWeb || upstream?.backup || (foreign ? shim : previous.realWeb || findExecutable('pi-web', env, [shim, namedShim]));
+  if (!realWeb || path.resolve(realWeb) === namedShim || (owned && path.resolve(realWeb) === shim)) {
+    return { status: 'host-unavailable', reason: 'Pi Web executable was not found.', launchCommand: 'pi-omnigent launch-web' };
+  }
+  if (fs.existsSync(namedShim) && !isOwnedLauncher(namedShim)) {
+    return { status: 'conflict', reason: 'Existing pi-omnigent-web command was preserved.', realWeb };
+  }
+  writeLauncher(namedShim, loc.root, realWeb);
+  if (!foreign) writeLauncher(shim, loc.root, realWeb);
+  const backup = upstream || (owned && previous.backup ? { backup: previous.backup, backupHash: previous.backupHash, originalShim: previous.originalShim } : {});
+  const record = { version: 1, realWeb, shim: foreign ? namedShim : shim, namedShim, ...backup,
+    mode: foreign ? 'named-wrapper' : backup.backup ? 'chained-path-wrapper' : 'path-wrapper', installedAt: new Date().toISOString() };
+  writeJson(file, record);
+  return { ...record, status: foreign ? 'composable-wrapper' : 'installed', launchCommand: foreign ? 'pi-omnigent-web' : 'pi-web', ...(foreign ? { reason: 'Existing Pi Web launcher preserved; the named wrapper runs it.' } : {}) };
+}
+
+export async function uninstallHost(options = {}) {
+  const loc = webLocations(options);
+  const metadata = path.join(loc.stateDir, 'host.json');
+  const host = readJson(metadata);
+  const shim = path.join(loc.home, '.local/bin/pi-web');
+  const namedShim = path.join(loc.home, '.local/bin/pi-omnigent-web');
+  let status = 'removed';
+  if (isOwnedLauncher(shim)) {
+    if (host.backup) {
+      const contents = fs.readFileSync(host.backup, 'utf8');
+      if (createHash('sha256').update(contents).digest('hex') !== host.backupHash) {
+        return { status: 'conflict', reason: 'Saved upstream launcher changed; current wrapper was preserved.' };
+      }
+      const temporary = `${shim}.${process.pid}.restore`;
+      fs.writeFileSync(temporary, contents, { mode: 0o755, flag: 'wx' });
+      fs.renameSync(temporary, shim);
+      status = 'restored';
+    } else fs.unlinkSync(shim);
+  } else if (host.mode !== 'named-wrapper' && fs.existsSync(shim)) {
+    return { status: 'conflict', reason: 'Current Pi Web launcher is not owned by this plugin and was preserved.' };
+  }
+  if (isOwnedLauncher(namedShim)) fs.unlinkSync(namedShim);
+  if (Object.keys(host).length) writeJson(metadata, { ...host, mode: 'uninstalled', uninstalledAt: new Date().toISOString() });
+  return { status };
+}
+
+function localWebUrl(options) {
+  const env = options.env || process.env;
+  const base = new URL(options.webUrl || env.PI_OMNIGENT_PI_WEB_URL || `http://127.0.0.1:${options.port || env.PORT || env.PI_WEB_PORT || '30141'}`);
+  if (base.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(base.hostname) || base.username || base.password || base.pathname !== '/' || base.search || base.hash) {
+    throw new Error('Pi Web boot endpoint must be a local HTTP origin.');
+  }
+  return base;
+}
+
+/** Start only the saved setup session. The API call does not submit an LLM prompt. */
+export async function startOnboardingSession(sessionId, options = {}) {
+  const base = localWebUrl(options);
+  const env = options.env || process.env;
+  const fetchImpl = options.fetch || fetch;
+  const password = env.PI_WEB_PASSWORD;
+  const headers = { 'Content-Type': 'application/json', ...(password ? { Authorization: `Basic ${Buffer.from(`pi:${password}`).toString('base64')}` } : {}) };
+  const request = command => fetchImpl(new URL(`/api/agent/${encodeURIComponent(sessionId)}`, base), {
+    method: 'POST', headers, body: JSON.stringify(command), signal: AbortSignal.timeout(5000),
+  });
+  const attempts = options.attempts ?? 30;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const response = await request({ type: 'get_commands' });
+      if (response.ok) {
+        const body = await response.json();
+        if (body.data?.commands?.some(command => command.name === 'omnigent')) return { status: 'started', sessionId };
+        // npm postinstall runs before installAndPersist writes the package entry.
+        // Reload only this generated setup session until its extension is present.
+        const reload = await request({ type: 'reload' });
+        if ([401, 403].includes(reload.status)) return { status: 'manual-open-required', reason: 'Pi Web did not accept local authentication.', sessionId };
+      }
+      if ([401, 403].includes(response.status)) return { status: 'manual-open-required', reason: 'Pi Web did not accept local authentication.', sessionId };
+    } catch {}
+    if (attempt + 1 < attempts) await new Promise(resolve => setTimeout(resolve, options.retryDelay ?? 500));
+  }
+  return { status: 'manual-open-required', reason: 'Pi Web or the plugin was not ready. Reload and open the saved onboarding conversation.', sessionId };
+}
+
+export async function boot(options = {}) {
+  const lifecycle = await packageLifecycle(options);
+  if (!lifecycle.active) return { initialization: { phase: 'inactive' }, onboarding: { status: 'inactive' }, startup: { status: 'inactive', reason: lifecycle.reason } };
+  const runtime = options.runtime || await import('./runtime.mjs');
+  const runtimeOptions = { loc: webLocations(options), ...(options.env ? { env: options.env } : {}) };
+  let current = await runtime.status(runtimeOptions);
+  if (current.phase === 'disabled') return { initialization: { phase: 'disabled' }, onboarding: { status: 'disabled' }, startup: { status: 'disabled' } };
+  if (current.phase === 'ready') return { initialization: { phase: 'ready', checked: true }, onboarding: { status: 'ready' }, startup: { status: 'ready' } };
+  let initialization;
+  try { initialization = typeof runtime.prepare === 'function'
+    ? await runtime.prepare(runtimeOptions)
+    : { phase: 'needs-login', prepared: false }; }
+  catch { initialization = { phase: 'error', reason: 'Omnigent initialization needs attention in its setup conversation.' }; }
+  current = await runtime.status(runtimeOptions);
+  const onboarding = await ensureOnboarding({ ...options, ready: current.phase === 'ready' });
+  const startup = current.phase !== 'ready' && onboarding.sessionId
+    ? await startOnboardingSession(onboarding.sessionId, options)
+    : { status: 'ready' };
+  return { initialization, onboarding, startup };
+}
+
+/** Compose with any captured executable, including another plugin's Pi Web shim. */
+export async function launchWeb(args = [], options = {}) {
+  const loc = webLocations(options);
+  const host = readJson(path.join(loc.stateDir, 'host.json'));
+  if (!host.realWeb) throw new Error('Run pi-omnigent install-host before launch-web.');
+  const spawnImpl = options.spawn || spawn;
+  const env = options.env || process.env;
+  const lifecycle = await packageLifecycle(options);
+  const child = spawnImpl(host.realWeb, args, { stdio: 'inherit', env });
+  const parsedPort = args.findIndex(argument => argument === '--port' || argument === '-p');
+  const port = parsedPort >= 0 ? args[parsedPort + 1] : args.find(argument => argument.startsWith('--port='))?.slice(7);
+  const workerEnv = { ...env, PI_CODING_AGENT_DIR: loc.agentDir, PI_OMNIGENT_STATE_DIR: loc.stateDir,
+    OMNIGENT_CONFIG_HOME: loc.omniDir, OMNIGENT_DATA_DIR: loc.omniDataDir,
+    ...(options.webUrl ? { PI_OMNIGENT_PI_WEB_URL: options.webUrl } : port ? { PI_OMNIGENT_PI_WEB_URL: `http://127.0.0.1:${port}` } : {}) };
+  // Keep installers/API polling out of the launcher process. The worker owns a
+  // process group so stopping Pi Web also stops its unfinished downloads.
+  const worker = lifecycle.active ? spawnImpl(process.execPath, [path.join(loc.root, 'bin/cli.mjs'), 'boot'], { stdio: 'ignore', env: workerEnv, detached: true }) : null;
+  let workerExited = !worker;
+  let startup = { status: worker ? 'worker-running' : 'inactive', ...(worker ? {} : { reason: lifecycle.reason }) };
+  worker?.once('error', () => { workerExited = true; startup = { status: 'setup-required' }; });
+  worker?.once('exit', code => { workerExited = true; startup = { status: 'worker-exited', code }; });
+  const stopWorker = signal => {
+    if (workerExited || !worker) return;
+    if (process.platform !== 'win32' && !options.spawn && worker.pid) {
+      try { process.kill(-worker.pid, signal); return; } catch {}
+    }
+    worker.kill(signal);
+  };
+  const forward = signal => { child.kill(signal); stopWorker(signal); };
+  const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+  const handlers = signals.map(signal => { const handler = () => forward(signal); process.on(signal, handler); return [signal, handler]; });
+  try {
+    const result = await new Promise((resolve, reject) => {
+      child.once('error', reject);
+      child.once('exit', (code, signal) => resolve({ code: code ?? (signal ? 1 : 0), signal }));
+    });
+    stopWorker('SIGTERM');
+    return { status: 'web-exited', ...result, boot: startup };
+  } finally {
+    stopWorker('SIGTERM');
+    for (const [signal, handler] of handlers) process.off(signal, handler);
+  }
+}
