@@ -7,7 +7,7 @@ import { EventEmitter } from 'node:events';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { ensureOnboarding, installHost, uninstallHost, loadPiSdk, boot, startOnboardingSession, launchWeb, packageLifecycle } from '../src/web.mjs';
+import { ensureOnboarding, installHost, uninstallHost, loadPiSdk, boot, startOnboardingSession, launchWeb, packageLifecycle, watchPackageLifecycle } from '../src/web.mjs';
 
 function fixture(t) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-omnigent-web-'));
@@ -169,6 +169,36 @@ test('launcher propagates port and terminates its supervised boot worker when Pi
   assert.ok(processes[1].signals.includes('SIGTERM'));
 });
 
+test('launcher observes re-enable without any loaded extension and stops only its boot worker on disable', async t => {
+  const options = fixture(t);
+  fs.mkdirSync(options.stateDir, { recursive: true });
+  fs.writeFileSync(path.join(options.stateDir, 'host.json'), JSON.stringify({ realWeb: '/fixture/pi-web' }));
+  const settings = path.join(options.agentDir, 'settings.json');
+  fs.writeFileSync(settings, '{}');
+  let active = false;
+  const processes = [], observed = [];
+  const spawn = () => {
+    const child = new EventEmitter(); child.signals = [];
+    child.kill = signal => { child.signals.push(signal); child.emit('exit', 0); };
+    processes.push(child); return child;
+  };
+  const result = launchWeb([], { ...options, spawn,
+    lifecycle: () => ({ active, reason: active ? 'native-plugin-enabled' : 'native-plugin-disabled' }),
+    runtime: { observeLifecycle: async value => observed.push(value.active) },
+  });
+  await new Promise(resolve => setTimeout(resolve, 600));
+  assert.equal(processes.length, 1);
+  active = true; fs.writeFileSync(settings, '{"enabled":true}');
+  for (let i = 0; i < 20 && processes.length < 2; i++) await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(processes.length, 2);
+  active = false; fs.writeFileSync(settings, '{"enabled":false}');
+  for (let i = 0; i < 20 && !processes[1].signals.length; i++) await new Promise(resolve => setTimeout(resolve, 100));
+  assert.ok(processes[1].signals.includes('SIGTERM'));
+  assert.equal(processes[0].signals.length, 0);
+  assert.ok(observed.includes(true));
+  processes[0].emit('exit', 0); await result;
+});
+
 test('native package disable and removal stop lifecycle activation without loading extension code', async t => {
   const options = fixture(t);
   const sdk = await loadPiSdk();
@@ -199,4 +229,25 @@ test('deleted plugin CLI falls back to captured native Pi Web executable', async
   const installed = await installHost({ ...options, root: path.join(options.home, 'removed-package'), realWeb });
   const result = await promisify(execFile)(process.execPath, [installed.shim, 'argument-preserved'], { timeout: 5000 });
   assert.equal(result.stdout.trim(), 'fallback-ok:argument-preserved');
+});
+
+test('native settings watcher observes atomic disable and enable replacements and stops cleanly', async t => {
+  const options = fixture(t); const sdk = await loadPiSdk();
+  const settings = sdk.SettingsManager.create(options.home, options.agentDir, { projectTrusted: false });
+  settings.setPackages([options.root]); await settings.flush();
+  const observed = [];
+  const stop = watchPackageLifecycle(value => observed.push(value.active), { ...options, lifecycle: undefined, sdk });
+  t.after(stop);
+  // watchFile takes an initial stat asynchronously.
+  await new Promise(resolve => setTimeout(resolve, 600));
+  settings.setPackages([{ source: options.root, extensions: [] }]); await settings.flush();
+  for (let i = 0; i < 20 && !observed.includes(false); i++) await new Promise(resolve => setTimeout(resolve, 100));
+  assert.ok(observed.includes(false));
+  settings.setPackages([options.root]); await settings.flush();
+  for (let i = 0; i < 20 && observed.at(-1) !== true; i++) await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(observed.at(-1), true);
+  await stop(); const count = observed.length;
+  settings.setPackages([]); await settings.flush();
+  await new Promise(resolve => setTimeout(resolve, 600));
+  assert.equal(observed.length, count);
 });

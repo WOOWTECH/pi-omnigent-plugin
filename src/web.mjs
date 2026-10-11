@@ -4,6 +4,7 @@ import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { locked } from './common.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const launcherMarker = 'pi-omnigent-plugin web launcher';
@@ -36,28 +37,11 @@ function writeJson(file, value) {
 }
 
 async function withOnboardingLock(stateDir, callback) {
-  fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
   const lock = path.join(stateDir, 'onboarding.lock');
   for (let attempt = 0; attempt < 100; attempt++) {
-    try {
-      fs.mkdirSync(lock, { mode: 0o700 });
-    } catch (error) {
-      if (error.code !== 'EEXIST') throw error;
-      let alive = true;
-      try {
-        const owner = readJson(path.join(lock, 'owner.json'));
-        if (Number.isInteger(owner.pid)) {
-          try { process.kill(owner.pid, 0); } catch (failure) { if (failure.code === 'ESRCH') alive = false; }
-        } else if (Date.now() - fs.statSync(lock).mtimeMs > 60_000) alive = false;
-      } catch {}
-      if (!alive) { fs.rmSync(lock, { recursive: true, force: true }); continue; }
-      await new Promise(resolve => setTimeout(resolve, 50));
-      continue;
-    }
-    try {
-      writeJson(path.join(lock, 'owner.json'), { pid: process.pid });
-      return await callback();
-    } finally { fs.rmSync(lock, { recursive: true, force: true }); }
+    const result = await locked(lock, callback);
+    if (!result?.busy) return result;
+    await new Promise(resolve => setTimeout(resolve, 50));
   }
   throw new Error('Another process is preparing the Omnigent onboarding conversation.');
 }
@@ -108,6 +92,18 @@ export async function packageLifecycle(options = {}) {
     const disabled = typeof entry === 'object' && Array.isArray(entry.extensions) && entry.extensions.length === 0;
     return { active: !disabled, registered: true, source: candidate.source, scope: candidate.scope, reason: disabled ? 'native-plugin-disabled' : 'native-plugin-enabled' };
   } catch { return { active: false, registered: false, reason: 'package-lifecycle-unavailable' }; }
+}
+
+/** Observe atomic settings replacement, including native disable/re-enable. */
+export function watchPackageLifecycle(onChange, options = {}) {
+  const loc = webLocations(options);
+  const files = [...new Set([path.join(loc.agentDir, 'settings.json'), path.join(options.cwd || loc.home, '.pi/settings.json')])];
+  let pending = Promise.resolve(), closed = false;
+  const listener = () => {
+    pending = pending.then(async () => { if (!closed) await onChange(await packageLifecycle(options)); }).catch(() => {});
+  };
+  for (const file of files) fs.watchFile(file, { persistent: false, interval: 500 }, listener);
+  return async () => { closed = true; for (const file of files) fs.unwatchFile(file, listener); await pending; };
 }
 
 /** Create a real SDK session without spending model tokens or storing account data. */
@@ -270,9 +266,10 @@ export async function startOnboardingSession(sessionId, options = {}) {
 
 export async function boot(options = {}) {
   const lifecycle = await packageLifecycle(options);
-  if (!lifecycle.active) return { initialization: { phase: 'inactive' }, onboarding: { status: 'inactive' }, startup: { status: 'inactive', reason: lifecycle.reason } };
   const runtime = options.runtime || await import('./runtime.mjs');
   const runtimeOptions = { loc: webLocations(options), ...(options.env ? { env: options.env } : {}) };
+  await runtime.observeLifecycle?.(lifecycle, runtimeOptions);
+  if (!lifecycle.active) return { initialization: { phase: 'inactive' }, onboarding: { status: 'inactive' }, startup: { status: 'inactive', reason: lifecycle.reason } };
   let current = await runtime.status(runtimeOptions);
   if (current.phase === 'disabled') return { initialization: { phase: 'disabled' }, onboarding: { status: 'disabled' }, startup: { status: 'disabled' } };
   if (current.phase === 'ready') return { initialization: { phase: 'ready', checked: true }, onboarding: { status: 'ready' }, startup: { status: 'ready' } };
@@ -297,6 +294,9 @@ export async function launchWeb(args = [], options = {}) {
   const spawnImpl = options.spawn || spawn;
   const env = options.env || process.env;
   const lifecycle = await packageLifecycle(options);
+  const runtime = options.runtime || await import('./runtime.mjs');
+  const lifecycleOptions = { loc, env };
+  await runtime.observeLifecycle?.(lifecycle, lifecycleOptions);
   const child = spawnImpl(host.realWeb, args, { stdio: 'inherit', env });
   const parsedPort = args.findIndex(argument => argument === '--port' || argument === '-p');
   const port = parsedPort >= 0 ? args[parsedPort + 1] : args.find(argument => argument.startsWith('--port='))?.slice(7);
@@ -305,11 +305,16 @@ export async function launchWeb(args = [], options = {}) {
     ...(options.webUrl ? { PI_OMNIGENT_PI_WEB_URL: options.webUrl } : port ? { PI_OMNIGENT_PI_WEB_URL: `http://127.0.0.1:${port}` } : {}) };
   // Keep installers/API polling out of the launcher process. The worker owns a
   // process group so stopping Pi Web also stops its unfinished downloads.
-  const worker = lifecycle.active ? spawnImpl(process.execPath, [path.join(loc.root, 'bin/cli.mjs'), 'boot'], { stdio: 'ignore', env: workerEnv, detached: true }) : null;
-  let workerExited = !worker;
-  let startup = { status: worker ? 'worker-running' : 'inactive', ...(worker ? {} : { reason: lifecycle.reason }) };
-  worker?.once('error', () => { workerExited = true; startup = { status: 'setup-required' }; });
-  worker?.once('exit', code => { workerExited = true; startup = { status: 'worker-exited', code }; });
+  let worker = null, workerExited = true;
+  let startup = { status: 'inactive', reason: lifecycle.reason };
+  const startWorker = () => {
+    if (!workerExited) return;
+    worker = spawnImpl(process.execPath, [path.join(loc.root, 'bin/cli.mjs'), 'boot'], { stdio: 'ignore', env: workerEnv, detached: true });
+    workerExited = false; startup = { status: 'worker-running' };
+    worker.once('error', () => { workerExited = true; startup = { status: 'setup-required' }; });
+    worker.once('exit', code => { workerExited = true; startup = { status: 'worker-exited', code }; });
+  };
+  if (lifecycle.active) startWorker();
   const stopWorker = signal => {
     if (workerExited || !worker) return;
     if (process.platform !== 'win32' && !options.spawn && worker.pid) {
@@ -318,6 +323,13 @@ export async function launchWeb(args = [], options = {}) {
     worker.kill(signal);
   };
   const forward = signal => { child.kill(signal); stopWorker(signal); };
+  let active = lifecycle.active;
+  const stopWatching = watchPackageLifecycle(async next => {
+    await runtime.observeLifecycle?.(next, lifecycleOptions);
+    if (next.active && !active) startWorker();
+    if (!next.active && active) stopWorker('SIGTERM');
+    active = next.active;
+  }, options);
   const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
   const handlers = signals.map(signal => { const handler = () => forward(signal); process.on(signal, handler); return [signal, handler]; });
   try {
@@ -328,6 +340,7 @@ export async function launchWeb(args = [], options = {}) {
     stopWorker('SIGTERM');
     return { status: 'web-exited', ...result, boot: startup };
   } finally {
+    await stopWatching();
     stopWorker('SIGTERM');
     for (const [signal, handler] of handlers) process.off(signal, handler);
   }

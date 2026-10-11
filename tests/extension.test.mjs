@@ -28,7 +28,7 @@ function harness({ phase = 'needs-login', id = Math.random().toString(36), hasUI
   const pi = { on: (name, handler) => { handlers[name] = handler; }, registerCommand: (name, command) => { commands[name] = command; }, registerTool: tool => { tools[tool.name] = tool; }, sendMessage: message => { messages.push(message); } };
   const backend = {
     status: async () => ({ ...state }),
-    initialize: async input => { calls.push(input); state.phase = 'ready'; return { ...state }; },
+    initialize: async input => { calls.push(input); state.phase = 'ready'; return { ok: true, ...state }; },
     catalog: async () => ({ models: ['example-model'], modules: ['code'] }),
     verify: async () => ({ ok: true }),
     repair: async () => ({ ok: true }),
@@ -154,4 +154,13 @@ test('reconnect refuses to login before a failed disconnect is resolved', async 
   await h.commands.omnigent.handler('reconnect', h.ctx);
   assert.equal(h.calls.length, 0);
   assert.ok(h.messages[0].content.includes('HOST_DISCONNECT_TIMEOUT'));
+});
+
+test('wizard never announces success for rejected or busy setup on a previously ready host', async () => {
+  for (const outcome of [{ ok: false, error: { code: 'NEEDS_LOGIN' } }, { busy: true }]) {
+    const h = harness({ phase: 'ready' });
+    h.backend.initialize = async () => outcome;
+    await h.commands.omnigent.handler('setup', h.ctx);
+    assert.equal(h.messages.some(m => m.content.startsWith('Omnigent 連線與對話驗證完成。')), false);
+  }
 });

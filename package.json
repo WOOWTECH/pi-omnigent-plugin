@@ -1,6 +1,6 @@
 {
   "name": "@woowtech/pi-omnigent-plugin",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Install Omnigent and connect the engines already present in Pi Web, with fresh-login onboarding and actual conversation verification.",
   "type": "module",
   "license": "MIT",
@@ -23,17 +23,17 @@
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=1.0.0",
-    "typebox": "*"
+    "@earendil-works/pi-coding-agent": ">=1.0.0 <2.0.0",
+    "typebox": ">=1.3.27 <2.0.0"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "1.0.0",
+    "@earendil-works/pi-coding-agent": "1.1.0",
     "typebox": "1.3.27"
   },
   "scripts": {
     "postinstall": "node bin/cli.mjs activate --auto",
     "test": "node --test tests/*.test.mjs && node bin/test-python.mjs",
-    "check": "node --check bin/cli.mjs && node --check src/runtime.mjs && node --check src/common.mjs"
+    "check": "node bin/check.mjs"
   },
   "files": [
     "bin/cli.mjs",
@@ -42,6 +42,12 @@
     "src/*.py",
     "extensions/*.ts",
     "README.md",
-    "LICENSE"
-  ]
+    "LICENSE",
+    "bin/check.mjs",
+    "docs/commercial-readiness.md",
+    "docs/evidence/*.json"
+  ],
+  "overrides": {
+    "brace-expansion": "5.0.12"
+  }
 }

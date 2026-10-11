@@ -117,3 +117,65 @@ test('failed disconnection cannot leave stale success receipts or a confirmed lo
   assert.equal((await status(ctx)).loginConfirmed, false);
   assert.deepEqual((await status(ctx)).verification, {});
 });
+
+test('a rejected fresh login cannot inherit a previous successful approval', async t => {
+  const ctx = fixture(t); await initialize(ctx);
+  const base = ctx.callAdapter;
+  ctx.callAdapter = input => input.action === 'connect' ? { ok: false, error: { code: 'NEEDS_LOGIN', message: 'Rejected' } } : base(input);
+  const result = await initialize(ctx);
+  assert.equal(result.ok, false);
+  assert.equal((await status(ctx)).phase, 'needs-login');
+  assert.equal((await status(ctx)).loginConfirmed, false);
+});
+
+test('adapter termination leaves a safe error state rather than stuck connecting', async t => {
+  const ctx = fixture(t); const base = ctx.callAdapter;
+  ctx.callAdapter = input => input.action === 'connect' ? Promise.reject(Object.assign(new Error('secret transport body'), { code: 'ETIMEDOUT' })) : base(input);
+  const result = await initialize(ctx);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'ETIMEDOUT');
+  assert.equal((await status(ctx)).phase, 'error');
+  assert.equal(JSON.stringify(result).includes('secret transport body'), false);
+});
+
+test('single-engine verification cannot reuse receipts from an older engine binary', async t => {
+  const ctx = fixture(t); ctx.dependencies.claude.version = '2.1.0'; await initialize(ctx);
+  ctx.dependencies.claude.version = '2.2.0';
+  assert.equal((await verify({ ...ctx, engine: 'pi' })).ok, false);
+});
+
+test('a successful reply whose test session could not be stopped remains incomplete', async t => {
+  const ctx = fixture(t); const base = ctx.callAdapter;
+  ctx.callAdapter = async input => {
+    const result = await base(input);
+    if (input.action === 'verify') result.data.cleanup = 'stop_failed';
+    return result;
+  };
+  assert.equal((await initialize(ctx)).ok, false);
+  assert.notEqual((await status(ctx)).phase, 'ready');
+});
+
+test('disabled plugin never creates verification sessions', async t => {
+  const ctx = fixture(t); await initialize(ctx); ctx.calls.length = 0;
+  saveJSON(path.join(ctx.loc.stateDir, 'state.json'), { enabled: false, loginConfirmed: true, server: ctx.server });
+  assert.equal((await verify(ctx)).phase, 'disabled');
+  assert.equal(ctx.calls.length, 0);
+});
+
+test('concurrent initialization returns an actionable failed busy envelope', async t => {
+  const ctx = fixture(t);
+  await locked(path.join(ctx.loc.stateDir, 'initialize.lock'), async () => {
+    const result = await initialize(ctx);
+    assert.equal(result.ok, false); assert.equal(result.error.code, 'OPERATION_BUSY');
+  });
+});
+
+test('native disable and re-enable requires fresh approval without clearing host credentials', async t => {
+  const { observeLifecycle } = await import('../src/runtime.mjs');
+  const ctx = fixture(t); await initialize(ctx); ctx.calls.length = 0;
+  await observeLifecycle({ active: false, registered: true, reason: 'native-plugin-disabled' }, ctx);
+  await observeLifecycle({ active: true, registered: true, reason: 'native-plugin-enabled' }, ctx);
+  assert.equal((await status(ctx)).loginConfirmed, false);
+  assert.equal((await initialize({ ...ctx, username: undefined, password: undefined })).phase, 'needs-login');
+  assert.equal(ctx.calls.some(c => c.action === 'connect' || c.action === 'disconnect'), false);
+});

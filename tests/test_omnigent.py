@@ -151,6 +151,50 @@ class AdapterTests(unittest.TestCase):
         self.client.offline = True
         self.assertFalse(self.plugin().status()["host"]["connected"])
 
+    def test_status_uses_inventory_without_duplicate_cli_probes_but_checks_host_each_time(self):
+        inventory = {key: {"installed": True, "version": "1.2.3"} for key in adapter.ENGINES}
+        with patch.object(adapter.subprocess, "run", side_effect=AssertionError("duplicate version probe")):
+            self.assertTrue(self.plugin(engineInventory=inventory).status()["host"]["connected"])
+            self.client.offline = True
+            result = self.plugin(engineInventory=inventory).status()
+        self.assertFalse(result["host"]["connected"])
+        self.assertEqual(result["engines"]["pi"]["version"], "1.2.3")
+        self.assertEqual(sum(call[1] == "/v1/hosts" for call in self.client.calls), 2)
+
+    def test_verify_only_fetches_selected_engine_models(self):
+        result = self.plugin(engine="pi", model="real-model").verify()
+        self.assertTrue(result["ok"])
+        paths = [call[1] for call in self.client.calls]
+        self.assertEqual([path for path in paths if path.endswith("/model-options")],
+                         ["/v1/hosts/this-machine/harnesses/pi-native/model-options"])
+        self.assertNotIn("/v1/harnesses", paths)
+
+    def test_claude_probe_uses_session_default_mode_and_settles_before_its_only_prompt(self):
+        original = self.client.request
+        events = []
+        def request(method, path, payload=None, **kwargs):
+            if path.endswith('/events') and payload.get('type') == 'message':
+                events.append(self.clock.clock())
+            return original(method, path, payload, **kwargs)
+        self.client.request = request
+        self.assertTrue(self.plugin(engine='claude').verify()['ok'])
+        self.assertEqual(events, [3.0])
+        created = next(call[2] for call in self.client.calls if call[1] == '/v1/sessions')
+        self.assertNotIn('permission_mode', created)
+        self.assertNotIn('policy', created)
+        self.assertEqual(created['terminal_launch_args'], ['--permission-mode', 'default'])
+
+    def test_claude_startup_deadline_stops_session_without_sending_a_late_prompt(self):
+        result = self.plugin(engine='claude', timeoutSeconds=1).verify()
+        self.assertEqual(result['reason'], 'NATIVE_START_TIMEOUT')
+        self.assertEqual(result['cleanup'], 'stopped')
+        self.assertFalse(any(call[1].endswith('/events') and call[2].get('type') == 'message' for call in self.client.calls))
+
+    def test_unavailable_engines_do_not_request_model_options(self):
+        self.client.readiness = 'binary-missing'
+        self.plugin().catalog()
+        self.assertFalse(any(call[1].endswith('/model-options') for call in self.client.calls))
+
     def test_disconnect_clears_exact_server_and_checks_own_host_offline(self):
         before = (self.config_home / "config.yaml").read_bytes()
         self.client.offline = True
@@ -275,7 +319,7 @@ class AdapterTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["reason"], "NATIVE_TERMINAL_START_FAILED")
         self.assertEqual(result["cleanup"], "stopped")
-        self.assertEqual(self.clock.value, 0)
+        self.assertEqual(self.clock.value, 3.0)  # Startup settling only; no reply polling wait.
         self.assertNotIn("sensitive raw error", json.dumps(result))
 
     def test_config_backup_is_private_exact_and_only_when_changed(self):
@@ -435,6 +479,37 @@ class AdapterTests(unittest.TestCase):
             adapter.main()
         self.assertEqual(json.loads(stdout.getvalue())["error"]["code"], "INVALID_JSON")
 
+
+class ClientTests(unittest.TestCase):
+    def test_one_http_client_reuses_transport_and_does_not_redirect_credentials(self):
+        import httpx
+        requests = []
+        def respond(request):
+            requests.append(request)
+            return httpx.Response(200, json={"ok": True})
+        client = adapter.Client("https://server.example", FakeAuth(), read_only=True,
+                                transport=httpx.MockTransport(respond))
+        try:
+            self.assertEqual(client.auth_probe(), "header")
+            client.request("GET", "/v1/hosts")
+            client.request("GET", "/v1/agents")
+            self.assertEqual(len(requests), 3)
+            self.assertNotIn("authorization", requests[0].headers)
+            self.assertEqual(requests[1].headers["authorization"], "Bearer existing-test-token")
+            self.assertFalse(client._http.follow_redirects)
+        finally:
+            client.close()
+        self.assertTrue(client._http.is_closed)
+
+    def test_dispatch_closes_transport_on_failure(self):
+        client = types.SimpleNamespace(close=lambda: setattr(client, "closed", True), closed=False)
+        def fail(plugin):
+            plugin.client_factory("https://server.example")
+            raise adapter.PluginError("test_failure", "safe")
+        with patch.object(adapter.Plugin, "status", fail):
+            with self.assertRaises(adapter.PluginError):
+                adapter.dispatch({"action": "status"}, client_factory=lambda *args: client)
+        self.assertTrue(client.closed)
 
 if __name__ == "__main__":
     unittest.main()

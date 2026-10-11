@@ -89,16 +89,40 @@ export async function runCommand(command, args, { env = process.env, cwd, timeou
   });
 }
 
-async function probe(name, command, env) {
+const probeCaches = new WeakMap();
+async function probe(name, command, env, { run, now, cacheMs }) {
   if (!command) return { available: false, path: null };
+  // Re-stat the binary on every lookup. Updating/removing an engine invalidates
+  // the version immediately; authentication and host status are never cached.
+  let identity;
+  try {
+    const metadata = await stat(command);
+    identity = [metadata.dev, metadata.ino, metadata.size, metadata.mtimeMs, metadata.ctimeMs].join(':');
+  } catch { return { available: false, path: null }; }
+  let cache = probeCaches.get(run);
+  if (!cache) { cache = new Map(); probeCaches.set(run, cache); }
+  const key = JSON.stringify([name, command, env.HOME, env.PATH, env.PI_CODING_AGENT_DIR, identity]);
+  const previous = cache.get(key);
+  if (cacheMs > 0 && previous && (previous.pending || now() < previous.expires)) return { ...await previous.promise };
   const args = name === 'tmux' ? ['-V'] : ['--version'];
-  const result = await runCommand(command, args, { env, timeoutMs: 5_000 });
-  const version = `${result.stdout} ${result.stderr}`.match(VERSION)?.[1];
-  return { available: result.code === 0, path: command, ...(version ? { version } : {}) };
+  const entry = { pending: true, expires: 0 };
+  entry.promise = (async () => {
+    try {
+      const result = await run(command, args, { env, timeoutMs: 5_000 });
+      const version = `${result.stdout} ${result.stderr}`.match(VERSION)?.[1];
+      if (result.code !== 0) cache.delete(key);
+      return { available: result.code === 0, path: command, ...(version ? { version } : {}) };
+    } catch (error) { cache.delete(key); throw error; }
+    finally { entry.pending = false; entry.expires = now() + cacheMs; }
+  })();
+  // Bound a long-running Pi Web process even after repeated engine upgrades.
+  if (cache.size >= 128) cache.delete(cache.keys().next().value);
+  cache.set(key, entry);
+  return { ...await entry.promise };
 }
 
 /** Read-only CLI discovery. No login state or account configuration is opened. */
-export async function discover(env = process.env) {
+export async function discover(env = process.env, { run = runCommand, now = Date.now, cacheMs = 15_000 } = {}) {
   env = environment(env);
   const home = env.HOME || homedir();
   const stateDir = env.PI_OMNIGENT_STATE_DIR || defaultStateDir(env, home);
@@ -112,7 +136,7 @@ export async function discover(env = process.env) {
     if (name === 'node') return locate(name, discoveryEnv, [process.execPath]);
     return locate(name, discoveryEnv);
   }));
-  const entries = await Promise.all(DISCOVERY_NAMES.map((name, index) => probe(name, paths[index], discoveryEnv)));
+  const entries = await Promise.all(DISCOVERY_NAMES.map((name, index) => probe(name, paths[index], discoveryEnv, { run, now, cacheMs })));
   const result = Object.fromEntries(DISCOVERY_NAMES.map((name, index) => [name, entries[index]]));
   if (result.omnigent.available) {
     try {

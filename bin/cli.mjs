@@ -6,16 +6,21 @@ import path from 'node:path';
 import { initialize, status, catalog, verify, repair, disconnect, setEnabled, enabled } from '../src/runtime.mjs';
 import { ensureOnboarding, installHost, uninstallHost, packageLifecycle, boot, launchWeb } from '../src/web.mjs';
 import { installDependencies } from '../src/installer.mjs';
+import { acceptance } from '../src/acceptance.mjs';
 
 const [command = 'status', ...args] = process.argv.slice(2);
 const loc = locations();
 function option(name) { const index = args.indexOf(name); return index < 0 ? undefined : args[index + 1]; }
 function print(value) {
   process.stdout.write(JSON.stringify(value, null, 2) + '\n');
-  if (['verify', 'initialize', 'repair', 'disconnect', 'install-dependencies'].includes(command) && value?.ok === false) process.exitCode = 1;
+  if (['acceptance', 'catalog', 'verify', 'initialize', 'repair', 'disconnect', 'install-dependencies', 'enable', 'disable'].includes(command) && value?.ok === false) process.exitCode = 1;
 }
 try {
   if (command === 'status') print(await status());
+  else if (command === 'acceptance') {
+    const result = await acceptance({ chat: args.includes('--chat'), engine: option('--engine'), model: option('--model') });
+    saveJSON(path.join(loc.stateDir, 'acceptance.json'), result); print(result);
+  }
   else if (command === 'catalog') print(await catalog());
   else if (command === 'disconnect') print(await disconnect());
   else if (command === 'verify') print(await verify({ engine: option('--engine'), model: option('--model') }));
@@ -32,7 +37,7 @@ try {
     else print({ phase: 'disabled' });
   } else if (command === 'launch-web') {
     const result = await launchWeb(args, { loc }); process.exitCode = result.code;
-  } else if (command === 'enable' || command === 'disable') print(setEnabled(command === 'enable'));
+  } else if (command === 'enable' || command === 'disable') print(await setEnabled(command === 'enable'));
   else if (command === 'activate') {
     if (args.includes('--auto') && process.env.PI_OMNIGENT_SKIP_ACTIVATION === '1') {
       print({ phase: 'activation-skipped' });
@@ -49,7 +54,7 @@ try {
       print({ phase: 'activated', host, onboarding });
     }
   } else {
-    print({ usage: 'pi-omnigent activate | status | catalog | verify [--engine claude|codex|pi] | initialize [--server URL] | disconnect | repair | install-dependencies | install-host | onboarding | launch-web | enable | disable' });
+    print({ usage: 'pi-omnigent activate | acceptance [--chat] [--engine ENGINE --model MODEL] | status | catalog | verify [--engine claude|codex|pi] | initialize [--server URL] | disconnect | repair | install-dependencies | install-host | onboarding | launch-web | enable | disable' });
     process.exitCode = 2;
   }
 } catch (error) {

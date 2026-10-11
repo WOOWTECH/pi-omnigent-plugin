@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { requestPassword } from '../src/password.ts';
-import { ensureOnboarding, readOnboarding } from '../src/web.mjs';
+import { ensureOnboarding, readOnboarding, packageLifecycle, watchPackageLifecycle } from '../src/web.mjs';
 
 const singletonKey = Symbol.for('pi-omnigent-plugin/onboarding/v1');
 const registry: Set<string> = (globalThis as any)[singletonKey] ||= new Set<string>();
@@ -13,6 +13,7 @@ type Backend = {
   verify(): Promise<any>;
   repair(): Promise<any>;
   disconnect(): Promise<any>;
+  observeLifecycle?(lifecycle: any): Promise<any>;
 };
 
 function jsonResult(value: any) {
@@ -20,8 +21,9 @@ function jsonResult(value: any) {
 }
 
 /** Exposed separately so tests can inject a backend without touching a live host. */
-export function registerOmnigent(pi: ExtensionAPI, backend: Backend, web = { ensureOnboarding, readOnboarding }) {
+export function registerOmnigent(pi: ExtensionAPI, backend: Backend, web: any = { ensureOnboarding, readOnboarding, packageLifecycle, watchPackageLifecycle }) {
   let disposed = false;
+  let stopWatching: (() => Promise<void>) | undefined;
   const owned = new Set<string>();
   const show = (content: string, details?: any) => pi.sendMessage({ customType: 'omnigent-plugin', content: details ? `${content}\n\n\`\`\`json\n${JSON.stringify(details, null, 2)}\n\`\`\`` : content, display: true, ...(details ? { details } : {}) });
   const safeFailure = (ctx: any) => { if (!disposed) ctx.ui.notify('Omnigent 設定尚未完成。請執行 /omnigent setup 繼續。', 'warning'); };
@@ -47,16 +49,26 @@ export function registerOmnigent(pi: ExtensionAPI, backend: Backend, web = { ens
       finally { password = undefined; }
       if (disposed) return;
       const result = await backend.status();
-      show(result.phase === 'ready'
+      const completed = current.ok === true && result.phase === 'ready';
+      show(completed
         ? 'Omnigent 連線與對話驗證完成。使用 /omnigent open 開啟 Omnigent，選擇引擎、模型與模組開始對話。'
-        : 'Omnigent 設定已執行；仍有項目需要處理。使用 /omnigent status 查看結果，或 /omnigent repair 重試。', result);
-      ctx.ui.setStatus('omnigent', result.phase === 'ready' ? 'Omnigent：已連線' : 'Omnigent：需要處理');
+        : 'Omnigent 設定尚未完成。使用 /omnigent status 查看結果；登入失敗請重新執行 /omnigent setup。', completed ? result : { ...result, operation: current });
+      ctx.ui.setStatus('omnigent', completed ? 'Omnigent：已連線' : 'Omnigent：需要處理');
     } finally { registry.delete(key); owned.delete(key); }
   }
 
   pi.on('session_start', async (_event, ctx) => {
     disposed = false;
     if (!ctx.hasUI || process.env.OMNIGENT_PI_NATIVE_CONFIG || process.env.PI_OMNIGENT_CHILD === '1') return;
+    const observe = async (lifecycle: any) => {
+      const observed = await backend.observeLifecycle?.(lifecycle);
+      if (observed?.reset && lifecycle.active) {
+        const onboarding = await web.ensureOnboarding({ cwd: ctx.cwd });
+        if (onboarding.sessionId === ctx.sessionManager.getSessionId()) void wizard(ctx).catch(() => safeFailure(ctx));
+      }
+    };
+    if (web.packageLifecycle) await observe(await web.packageLifecycle({ cwd: ctx.cwd }));
+    if (web.watchPackageLifecycle && !stopWatching) stopWatching = web.watchPackageLifecycle(observe, { cwd: ctx.cwd });
     const current = await backend.status();
     if (current.phase === 'disabled') return;
     const onboarding = await web.ensureOnboarding({ cwd: ctx.cwd, ready: current.phase === 'ready' });
@@ -72,6 +84,8 @@ export function registerOmnigent(pi: ExtensionAPI, backend: Backend, web = { ens
 
   pi.on('session_shutdown', async () => {
     disposed = true;
+    await stopWatching?.(); stopWatching = undefined;
+    if (web.packageLifecycle) await backend.observeLifecycle?.(await web.packageLifecycle());
     for (const key of owned) registry.delete(key);
     owned.clear();
   });

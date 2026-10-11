@@ -139,11 +139,16 @@ class OfficialAuth:
 
 
 class Client:
-    def __init__(self, server: str, auth: OfficialAuth, *, read_only: bool = False):
+    def __init__(self, server: str, auth: OfficialAuth, *, read_only: bool = False, transport=None):
+        import httpx
         self.server = server
         self.auth = auth
         self.read_only = read_only
         self._held_token = None
+        self._http = httpx.Client(follow_redirects=False, transport=transport)
+
+    def close(self) -> None:
+        self._http.close()
 
     def hold_token(self, token: str) -> None:
         # A logout check needs an in-memory bearer after the local entry is
@@ -162,7 +167,7 @@ class Client:
         try:
             # Redirects never forward the entered password or a stored bearer
             # to an unexpected origin. A proxy/TLS error is reported generically.
-            response = httpx.request(method, f"{self.server}{path}", json=payload, headers=headers,
+            response = self._http.request(method, f"{self.server}{path}", json=payload, headers=headers,
                                      timeout=timeout_seconds, follow_redirects=False)
         except httpx.HTTPError:
             raise PluginError("server_unreachable", "無法連線 Omnigent server，請檢查網址、網路與 TLS。") from None
@@ -184,7 +189,7 @@ class Client:
         import httpx
 
         try:
-            response = httpx.get(f"{self.server}/v1/me", timeout=15.0, follow_redirects=False)
+            response = self._http.get(f"{self.server}/v1/me", timeout=15.0, follow_redirects=False)
         except httpx.HTTPError:
             raise PluginError("server_unreachable", "無法連線 Omnigent server，請檢查網址、網路與 TLS。") from None
         if response.status_code == 200:
@@ -214,9 +219,21 @@ class Plugin:
         os.environ["OMNIGENT_CONFIG_HOME"] = str(self.config_home)
         os.environ["OMNIGENT_DATA_DIR"] = str(self.data_dir)
         self.auth = auth or OfficialAuth()
-        self.client_factory = client_factory or (lambda server, readonly=False: Client(server, self.auth, read_only=readonly))
+        factory = client_factory or (lambda server, readonly=False: Client(server, self.auth, read_only=readonly))
+        self._clients = []
+        def tracked_client(server, readonly=False):
+            client = factory(server, readonly)
+            self._clients.append(client)
+            return client
+        self.client_factory = tracked_client
         self.sleep = sleeper
         self.clock = clock
+
+    def close(self) -> None:
+        for client in self._clients:
+            close = getattr(client, "close", None)
+            if close:
+                close()
 
     def config(self) -> dict:
         import yaml
@@ -286,6 +303,12 @@ class Plugin:
         host = self.local_host()
         engines = {}
         for key, spec in ENGINES.items():
+            inventory = self.request.get("engineInventory", {})
+            entry = inventory.get(key) if isinstance(inventory, dict) else None
+            if isinstance(entry, dict) and isinstance(entry.get("installed"), bool):
+                engines[key] = {"key": key, "harness": spec["harness"], "installed": entry["installed"],
+                                "version": safe_text(entry.get("version")), "configured": None, "ready": False}
+                continue
             binary = shutil.which(key)
             version_text = None
             if binary:
@@ -341,7 +364,7 @@ class Plugin:
                 break
         raise PluginError("agent_catalog_too_large", "Omnigent agents 清單過大或分頁格式不正確。")
 
-    def catalog(self, *, client=None, read_only=True) -> dict:
+    def catalog(self, *, client=None, read_only=True, engine_key=None) -> dict:
         server = self.server()
         client = client or self.client_factory(server, read_only)
         host = self.local_host()
@@ -354,10 +377,12 @@ class Plugin:
             host["name"] = safe_text(matching.get("name")) or host["name"]
         readiness = matching.get("configured_harnesses") if matching else {}
         readiness = readiness if isinstance(readiness, dict) else {}
-        harness_catalog = client.request("GET", "/v1/harnesses").get("data")
+        harness_catalog = client.request("GET", "/v1/harnesses").get("data") if engine_key is None else []
         agents = self.all_agents(client)
         engines = {}
         for key, spec in ENGINES.items():
+            if engine_key is not None and key != engine_key:
+                continue
             agent = next((row for row in agents if row.get("name") == spec["agent"]), None)
             if not agent:
                 agent = next((row for row in agents if row.get("harness") == spec["harness"]), None)
@@ -366,7 +391,7 @@ class Plugin:
                 available = None
             models = []
             model_error = None
-            if host["connected"]:
+            if host["connected"] and available is True:
                 try:
                     result = client.request("GET", f"/v1/hosts/{quote(host['id'], safe='')}/harnesses/{spec['harness']}/model-options")
                     for row in result.get("models", []):
@@ -643,7 +668,7 @@ class Plugin:
             raise PluginError("invalid_engine", "驗證引擎必須是 claude、codex 或 pi。")
         server = self.server()
         client = self.client_factory(server, False)
-        catalog = self.catalog(client=client, read_only=False)
+        catalog = self.catalog(client=client, read_only=False, engine_key=key)
         engine = catalog["engines"][key]
         if not catalog["host"]["connected"]:
             raise PluginError("host_offline", "此容器的 Omnigent host 尚未在線。")
@@ -660,6 +685,11 @@ class Plugin:
                 "title": f"Pi Web connection check · {key}", "harness_override": ENGINES[key]["harness"]}
         if selected:
             body["model_override"] = selected
+        if key == "claude":
+            # The no-tools health probe uses this session's ordinary attended
+            # mode. Auto mode can present a first-run dialog that consumes the
+            # native bridge's submit key; do not drive or approve that dialog.
+            body["terminal_launch_args"] = ["--permission-mode", "default"]
         created = client.request("POST", "/v1/sessions", body)
         session_id = created.get("id") or created.get("session_id")
         if not isinstance(session_id, str) or not session_id:
@@ -667,6 +697,17 @@ class Plugin:
         result = {"engine": key, "ok": False, "reply": None, "sessionId": session_id,
                   "url": f"{server}/c/{quote(session_id, safe='')}", "model": selected, "reason": "REPLY_TIMEOUT"}
         try:
+            # Claude 2.1 can mount its initial Auto mode dialog after the first
+            # composer paint. In live tests an immediate first event left the
+            # probe in the draft after that dialog consumed Enter. Allow the
+            # newly created TUI to settle before sending the one test message.
+            # This is bounded by the same deadline and never answers a dialog,
+            # retries a prompt, or changes the user's permission policy.
+            if key == "claude":
+                self.sleep(min(3.0, max(0.0, deadline - self.clock())))
+                if self.clock() >= deadline:
+                    result["reason"] = "NATIVE_START_TIMEOUT"
+                    return result
             # Follow the web composer: native TUI harnesses may never consume
             # initial_items passed on creation, so deliver one explicit event.
             client.request("POST", f"/v1/sessions/{quote(session_id, safe='')}/events", {
@@ -705,7 +746,11 @@ def dispatch(request: dict, **dependencies) -> dict:
     action = request.get("action")
     if action not in ("status", "catalog", "connect", "verify", "disconnect"):
         raise PluginError("invalid_action", "不支援此 Omnigent 操作。")
-    return getattr(Plugin(request, **dependencies), action)()
+    plugin = Plugin(request, **dependencies)
+    try:
+        return getattr(plugin, action)()
+    finally:
+        plugin.close()
 
 
 def main() -> None:

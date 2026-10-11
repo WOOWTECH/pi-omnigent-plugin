@@ -21,7 +21,13 @@ export function readJSON(file, fallback = {}) {
 export function atomic(file, contents, mode = 0o600) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const temp = `${file}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
-  try { fs.writeFileSync(temp, contents, { mode, flag: 'wx' }); fs.renameSync(temp, file); }
+  try {
+    const descriptor = fs.openSync(temp, 'wx', mode);
+    try { fs.writeFileSync(descriptor, contents); fs.fsyncSync(descriptor); } finally { fs.closeSync(descriptor); }
+    fs.renameSync(temp, file);
+    const directory = fs.openSync(path.dirname(file), 'r');
+    try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); }
+  }
   finally { try { fs.unlinkSync(temp); } catch (error) { if (error.code !== 'ENOENT') throw error; } }
 }
 export function saveJSON(file, data) { atomic(file, JSON.stringify(data, null, 2) + '\n'); }
@@ -40,37 +46,68 @@ export function safeError(error) {
   const code = error?.code;
   return code && /^[A-Z_0-9]+$/.test(code) ? `Operation failed (${code}).` : '操作未完成；請檢查插件狀態與登入／模型設定。';
 }
+function processIdentity(pid = process.pid) {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    return { processStart: stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19],
+      bootId: fs.readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim() };
+  } catch { return {}; }
+}
+function legacyLockAlive(file) {
+  if (!fs.existsSync(file)) return false;
+  try {
+    const owner = readJSON(path.join(file, 'owner.json'));
+    if (!Number.isInteger(owner.pid) || owner.pid <= 1) return Date.now() - fs.statSync(file).mtimeMs < 60_000;
+    const identity = processIdentity(owner.pid);
+    if (owner.bootId && identity.bootId && owner.bootId !== identity.bootId) return false;
+    if (owner.processStart && identity.processStart && owner.processStart !== identity.processStart) return false;
+    try { process.kill(owner.pid, 0); return true; } catch (error) { return error.code !== 'ESRCH'; }
+  } catch { return Date.now() - fs.statSync(file).mtimeMs < 60_000; }
+}
+/** Kernel lock: pipe closure on parent exit releases it, regardless of PID reuse. */
 export async function locked(file, callback) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  let acquired = false;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try { fs.mkdirSync(file, { mode: 0o700 }); acquired = true; break; }
-    catch (error) {
-      if (error.code !== 'EEXIST') throw error;
-      let owner;
-      try { owner = readJSON(path.join(file, 'owner.json')); } catch { return { busy: true }; }
-      // A missing receipt may mean another process is between mkdir and write.
-      if (!owner.pid) return { busy: true };
-      try { process.kill(owner.pid, 0); return { busy: true }; }
-      catch (probe) { if (probe.code !== 'ESRCH') return { busy: true }; }
-      fs.rmSync(file, { recursive: true, force: true });
-    }
-  }
-  if (!acquired) return { busy: true };
-  saveJSON(path.join(file, 'owner.json'), { pid: process.pid });
-  try { return await callback(); }
-  finally { fs.rmSync(file, { recursive: true, force: true }); }
+  const executable = ['/usr/bin/flock', '/bin/flock'].find(candidate => fs.existsSync(candidate));
+  if (!executable) throw Object.assign(new Error('Linux util-linux flock is required.'), { code: 'LOCK_UNAVAILABLE' });
+  const kernelFile = `${file}.flock`;
+  const descriptor = fs.openSync(kernelFile, 'a', 0o600); fs.closeSync(descriptor);
+  // This inode must never be removed: deleting it would permit two kernel locks.
+  const helper = spawn(executable, ['-n', '-E', '75', kernelFile, process.execPath, '-e',
+    "process.stdout.write('LOCKED\\n'); process.stdin.resume();"], { stdio: ['pipe', 'pipe', 'ignore'] });
+  const closed = new Promise(resolve => helper.once('close', resolve));
+  helper.stdin.on('error', () => {});
+  let acquired;
+  try {
+    acquired = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { helper.kill('SIGTERM'); reject(Object.assign(new Error('Lock helper timed out.'), { code: 'LOCK_UNAVAILABLE' })); }, 5000);
+      helper.once('error', error => { clearTimeout(timer); reject(error); });
+      helper.stdout.once('data', chunk => { clearTimeout(timer); resolve(String(chunk).startsWith('LOCKED')); });
+      helper.once('close', code => { clearTimeout(timer); code === 75 ? resolve(false) : reject(Object.assign(new Error('Lock helper failed.'), { code: 'LOCK_UNAVAILABLE' })); });
+    });
+    if (!acquired || legacyLockAlive(file)) return { busy: true };
+    fs.rmSync(file, { recursive: true, force: true });
+    saveJSON(path.join(file, 'owner.json'), { pid: process.pid, ...processIdentity() });
+    try { return await callback(); } finally { fs.rmSync(file, { recursive: true, force: true }); }
+  } finally { helper.stdin.end(); await closed; }
 }
-export function runJSON(command, args, input, { env = process.env, timeout = 120_000 } = {}) {
+export function runJSON(command, args, input, { env = process.env, timeout = 120_000, killGraceMs = 2_000 } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { env, stdio: ['pipe', 'pipe', 'pipe'] });
-    const output = []; let bytes = 0; let settled = false;
-    const finish = (error, result) => { if (settled) return; settled = true; clearTimeout(timer); error ? reject(error) : resolve(result); };
-    const timer = setTimeout(() => { child.kill('SIGTERM'); finish(Object.assign(new Error('Adapter timed out.'), { code: 'ETIMEDOUT' })); }, timeout);
-    child.stdout.on('data', chunk => { bytes += chunk.length; if (bytes > 1024 * 1024) { child.kill(); finish(new Error('Adapter result exceeded limit.')); } else output.push(chunk); });
+    const output = []; let bytes = 0; let settled = false, terminationError, killTimer;
+    const finish = (error, result) => { if (settled) return; settled = true; clearTimeout(timer); clearTimeout(killTimer); error ? reject(error) : resolve(result); };
+    const terminate = error => {
+      if (terminationError || settled) return;
+      terminationError = error;
+      child.kill('SIGTERM');
+      killTimer = setTimeout(() => child.kill('SIGKILL'), killGraceMs);
+    };
+    // Do not release the operation lock while an expired adapter is still alive.
+    const timer = setTimeout(() => terminate(Object.assign(new Error('Adapter timed out.'), { code: 'ETIMEDOUT' })), timeout);
+    child.stdout.on('data', chunk => { bytes += chunk.length; if (bytes > 1024 * 1024) terminate(Object.assign(new Error('Adapter result exceeded limit.'), { code: 'RESULT_TOO_LARGE' })); else output.push(chunk); });
     child.stderr.resume(); // Adapter logs and raw failures never enter the chat or CLI output.
     child.on('error', error => finish(error));
     child.on('close', code => {
+      if (terminationError) return finish(terminationError);
       if (code !== 0) return finish(Object.assign(new Error('Omnigent adapter failed.'), { code: 'ADAPTER_FAILED' }));
       try { finish(null, JSON.parse(Buffer.concat(output).toString('utf8'))); }
       catch { finish(new Error('Invalid adapter response.')); }

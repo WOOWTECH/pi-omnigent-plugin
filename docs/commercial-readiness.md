@@ -1,0 +1,57 @@
+# v0.2.0 商業部署驗收
+
+驗證日期：2026-10-11 UTC。公開來源：WOOWTECH/pi-omnigent-plugin。
+
+## 交付範圍
+
+Linux x64／arm64 的 Pi Agent／Pi Web 插件。首次安裝及重新啟用都必須重新輸入 server、帳號及遮罩密碼。只連結當下存在的 Claude Code、Codex、Pi；Omnigent 與 uv 缺少時才下載。沿用官方 token store、模型供應商登入及本機 host ID。
+
+本版加入可用於部署管線的 `acceptance` 指令、程序死亡後可恢復的核心鎖、私有原子狀態寫入、登入失敗後核准失效、清理失敗不得判定完成、原生停用／重新啟用觀察，以及避免重複 CLI／HTTP 工作的效能改善。
+
+## 自動化驗證
+
+Node 和 Python 合約測試涵蓋新安裝、錯誤密碼、舊驗證結果、不同 host、引擎更新、並行操作、SIGKILL／SIGTERM、停用與啟用、對話清理、模型指定、秘密遮罩及快取失效。
+
+CI 固定 action commit，測試 Node 22.19.0 與 22.23.3，執行語法檢查、完整 npm audit 及安裝包建立。測試 SDK 為 1.1.0；Pi 5 使用既有 SDK 1.0.0。
+
+## Pi 5 實測
+
+測試環境為 Pi 5 的 Pi Web 容器，既有 Pi SDK 1.0.0、Omnigent 0.16.0、Claude 2.1.296、Codex 0.162.1、Pi 1.0.0。沒有補裝任何引擎。
+
+87 個 Node 測試、35 個 Python 測試全數通過；完整 npm audit 與乾淨安裝的正式依賴 audit 均為零漏洞。安裝包乾淨安裝成功，Pi Web API 可載入 `/omnigent` 命令。
+
+| 引擎／指定模型 | 實際回覆驗證 | 驗收耗時（含目錄與狀態查詢） |
+| --- | --- | --- |
+| Claude／opus | 連續三次通過，測試對話均停止 | 20.3、13.9、15.2 秒 |
+| Codex／gpt-5.6-sol | 通過，測試對話停止 | 20.2 秒 |
+| Pi／openai-codex/gpt-5.6-sol | 通過，測試對話停止 | 16.3 秒 |
+
+本機 host 在線；可用模型數為 Claude 4、Codex 7、Pi 9，三種原生 Agent 模組均可用。最終狀態為 `ready`。驗證提示不使用工具。
+
+狀態查詢在同一容器交錯執行各五次，中位數從 v0.1.2 的 2142 ms 降至候選版 457 ms，減少 78.7%，包含候選版的首次冷啟動。原始樣本：舊版 `[2065,2624,2394,1999,2142]`，新版 `[1700,467,257,245,457]` ms。這是單機量測，沒有壓力測試或 SLA 保證。
+
+原始驗收資料見 [Pi 5 實測證據](evidence/pi5-2026-10-11.json)。
+
+## 支援邊界與維運
+
+- 遠端 server 必須 HTTPS；不跟隨登入或 bearer 的 HTTP redirect。OIDC 帳號需官方瀏覽器流程，不能用帳密精靈宣稱完成。
+- 商業部署固定 `git:github.com/WOOWTECH/pi-omnigent-plugin@v0.2.0`。升級由 Plugins 更新操作觸發，缺少引擎不會被安裝。尚未發佈 npm registry。
+- 需 util-linux flock、Node >=22.19、Pi SDK 1.x、原生引擎需要的 tmux >=3.3，以及其既有 sandbox／供應商登入。容器需持久掛載 Pi 與 Omnigent 資料目錄。
+- 本輪實機為 Linux x64、accounts 登入、現成 Omnigent host supervisor。arm64、OIDC 與一般容器自管 host 有合約測試，尚未實機驗證，不擴大宣稱。
+- Claude 2.1.296／Omnigent 0.16 的 Auto mode 首次對話存在啟動提示攔截 Enter 的問題，實測提示留在草稿，只有 3 秒緩衝仍會失敗。本版的 Claude 驗證專用對話固定 `--permission-mode default` 並保留 3 秒緩衝，連續三次通過；不修改全域政策或一般對話。一般 Auto mode 對話仍可能需要在原生終端確認提示，不能以此驗收宣稱 Auto mode 也已修復。
+- 主機／帳號故障仍可能造成對話逾時。驗收成功表示本次測試收到回覆，並非可用率保證；部署與維運可重新執行 `acceptance --chat`。
+- 原生設定監看約 500 ms；若停用與啟用都發生在監看程序不存在期間，啟動後只看得到最終設定。部署應保留啟動介接器，正常以 UI 完成停用再啟用。
+- Omnigent 0.16 沒有公開 DELETE host API。取消連結清除此 server 的本機 token，確認本機 host 離線；註冊及歷史對話保留。
+- 設定與驗收資料使用 0600。本機多使用者若共用同一 Unix 帳號及同一資料目錄，仍共用 host 與 token；每租戶應使用獨立容器與持久資料目錄。
+
+## 效能設計
+
+CLI 版本探測同程序合併並重用 15 秒，每次查詢仍檢查執行檔身分；更新與移除即失效。Python status 使用同次 Node 探測結果，省去再次執行三個 CLI。驗證只抓指定引擎的模型，HTTPX client 在一次操作內重用連線，結束一定關閉。登入與主機在線狀態不快取。
+
+HTTP 連線池行為依據 [HTTPX 官方文件](https://www.python-httpx.org/advanced/clients/)。效能數字只代表本次 Pi 5 與網路條件，不作為 SLA。
+
+## 更新與復原
+
+更新前保留 plugin state、Pi settings、Omnigent config 的私有備份。失敗時可以安裝前一版 `@v0.1.2`；核准及驗證檔格式維持相容。回退不自動恢復已取消的登入。設定損毀會明確報錯，需由私有備份還原；不以空白設定掩蓋問題。
+
+測試對話只發送固定無工具提示，完成後停止；歷史對話留下供查核。不得把密碼貼入對話、命令參數、GitHub、測試報告或應用日誌。

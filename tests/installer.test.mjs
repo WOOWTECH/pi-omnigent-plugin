@@ -27,6 +27,29 @@ function options(directory, overrides = {}) {
   return { stateDir: directory, home: path.join(directory, 'home'), env: { PATH: '/image/bin', SAFE: 'preserved' }, platform: 'linux', arch: 'x64', ...overrides };
 }
 
+test('coalesces version probes, expires them, and detects replaced or removed binaries immediately', async t => {
+  const directory = await isolated(t);
+  const binary = path.join(directory, 'claude');
+  await writeFile(binary, 'first', { mode: 0o700 });
+  let clock = 0, probes = 0;
+  const run = async command => {
+    if (command === binary) { probes++; await new Promise(resolve => setTimeout(resolve, 10)); }
+    return { code: 0, stdout: '1.0.0', stderr: '' };
+  };
+  const env = { HOME: directory, PATH: directory, PI_OMNIGENT_BIN: path.join(directory, 'missing') };
+  const options = { run, now: () => clock, cacheMs: 100 };
+  const first = await Promise.all([discover(env, options), discover(env, options)]);
+  assert.equal(probes, 1); assert.equal(first[0].claude.available, true);
+  first[0].claude.version = 'mutated';
+  assert.equal((await discover(env, options)).claude.version, '1.0.0');
+  clock = 101;
+  await discover(env, options); assert.equal(probes, 2);
+  await writeFile(binary, 'replacement is a different size');
+  await discover(env, options); assert.equal(probes, 3);
+  await rm(binary);
+  assert.equal((await discover(env, options)).claude.available, false);
+});
+
 test('preserves all existing image/global CLIs even when update is requested', async t => {
   const directory = await isolated(t);
   let runs = 0;

@@ -29,12 +29,24 @@ async function context(options = {}) {
     return runJSON(python, [path.join(loc.root, 'src', 'omnigent.py')], input,
       { env: runtimeEnv(dependencies, env), timeout: input.action === 'verify' ? 300_000 : 120_000 });
   });
-  const call = async (action, input = {}) => execute({ action, configHome: loc.omniDir, dataDir: loc.omniDataDir,
-    stateDir: loc.stateDir, workspace: loc.home, omnigentBin: dependencies.omnigent?.path, ...input });
+  const call = async (action, input = {}) => {
+    try { return await execute({ action, configHome: loc.omniDir, dataDir: loc.omniDataDir,
+      stateDir: loc.stateDir, workspace: loc.home, omnigentBin: dependencies.omnigent?.path,
+      engineInventory: Object.fromEntries(ENGINES.map(name => [name, {
+        installed: dependencies[name]?.available === true, version: dependencies[name]?.version || null,
+      }])), ...input }); }
+    catch (error) { return { ok: false, error: { code: /^[A-Z_0-9]+$/.test(error?.code || '') ? error.code : 'ADAPTER_FAILED',
+      message: 'Omnigent 程序未完成；請查看狀態並重試修復。' } }; }
+  };
   return { loc, env, dependencies, call };
 }
-function successfulReceipt(receipt, state, host) {
-  return receipt?.ok === true && receipt.server === state.server && receipt.hostId === host?.id;
+function successfulReceipt(receipt, state, host, dependency) {
+  return receipt?.ok === true && receipt.cleanup !== 'stop_failed' && receipt.server === state.server && receipt.hostId === host?.id
+    && (!receipt.cliVersion || receipt.cliVersion === dependency?.version);
+}
+async function operation(ctx, callback) {
+  const result = await locked(path.join(ctx.loc.stateDir, 'initialize.lock'), callback);
+  return result?.busy ? { ok: false, busy: true, phase: 'busy', error: { code: 'OPERATION_BUSY', message: '另一個 Omnigent 操作正在執行，請稍後重試。' } } : result;
 }
 export async function status(options = {}) {
   const { loc, call, dependencies } = await context(options);
@@ -46,11 +58,13 @@ export async function status(options = {}) {
   const verification = readJSON(path.join(loc.stateDir, 'verification.json'), {});
   const effective = { ...state, server };
   const installed = ENGINES.filter(engine => dependencies[engine]?.available === true);
-  const verified = installed.length > 0 && installed.every(engine => successfulReceipt(verification[engine], effective, host));
+  const verified = installed.length > 0 && installed.every(engine => successfulReceipt(verification[engine], effective, host, dependencies[engine]));
   const ready = state.loginConfirmed === true && verified && host.connected === true && response.ok === true
     && installed.every(engine => data.engines?.[engine]?.ready === true
       && (!verification[engine].cliVersion || verification[engine].cliVersion === dependencies[engine]?.version));
-  return { phase: state.enabled === false ? 'disabled' : ready ? 'ready' : state.phase === 'ready' ? 'needs-verification' : state.phase,
+  const phase = state.enabled === false ? 'disabled' : ['installing', 'connecting', 'verifying', 'disconnecting', 'error', 'needs-login'].includes(state.phase)
+    ? state.phase : ready ? 'ready' : state.phase === 'ready' ? 'needs-verification' : state.phase;
+  return { phase,
     enabled: state.enabled !== false, loginConfirmed: state.loginConfirmed === true, server, host,
     installedEngines: installed,
     engines: Object.fromEntries(ENGINES.map(engine => [engine, { ...dependencies[engine], ...(data.engines?.[engine] || {}) }])),
@@ -64,6 +78,7 @@ export async function catalog(options = {}) {
 }
 async function verifyInternal(ctx, { engine, model } = {}) {
   const { loc, call } = ctx; const state = stateOf(loc);
+  if (state.enabled === false) return { ok: false, phase: 'disabled' };
   if (state.loginConfirmed !== true) return { ok: false, phase: 'needs-login', error: { code: 'FRESH_LOGIN_REQUIRED', message: '請在設定對話重新輸入網址、帳號與密碼。' } };
   if (!state.server) return { ok: false, phase: 'needs-setup', error: { code: 'SERVER_REQUIRED', message: '請先設定 Omnigent Server。' } };
   if (engine && !ENGINES.includes(engine)) throw new Error('Unknown engine.');
@@ -91,26 +106,30 @@ async function verifyInternal(ctx, { engine, model } = {}) {
       ...(proof.model ? { model: proof.model } : {}),
       ...(proof.cleanup ? { cleanup: proof.cleanup } : {}),
       ...(proof.reply === 'OMNIGENT_CONNECTION_OK' ? { reply: proof.reply } : {}),
-      ...(proof.ok !== true ? { reason: proof.reason || result.error?.code || 'NO_REPLY' } : {}) };
+      ...(proof.ok !== true || proof.cleanup === 'stop_failed' ? { reason: proof.cleanup === 'stop_failed' ? 'SESSION_STOP_FAILED' : proof.reason || result.error?.code || 'NO_REPLY' } : {}) };
     saveJSON(receiptPath, receipts);
   }
-  const ok = !!hostId && installed.every(name => successfulReceipt(receipts[name], state, { id: hostId }));
+  const ok = !!hostId && installed.every(name => successfulReceipt(receipts[name], state, { id: hostId }, ctx.dependencies[name]));
   writeState(loc, { phase: ok ? 'ready' : 'needs-verification', issue: ok ? null : { code: 'INCOMPLETE_CHAT_VERIFICATION', message: '目前已安裝的引擎必須都收到實際回覆，才能完成設定。' } });
   return { ok, phase: stateOf(loc).phase, server: state.server, installedEngines: installed, verification: receipts };
 }
 export async function verify(options = {}) {
   const ctx = await context(options);
-  return locked(path.join(ctx.loc.stateDir, 'initialize.lock'), () => verifyInternal(ctx, options));
+  return operation(ctx, () => verifyInternal(ctx, options));
 }
 export async function initialize(options = {}) {
   const initial = await context(options); const { loc, env } = initial;
-  return locked(path.join(loc.stateDir, 'initialize.lock'), async () => {
+  return operation(initial, async () => {
     const previous = stateOf(loc);
     if (previous.enabled === false && !options.enable) return { ok: false, phase: 'disabled' };
     // Never persist login inputs: only the normalized non-secret server is state.
     const serverInput = options.server || previous.server;
     const server = serverInput ? normalizeServer(serverInput) : undefined;
-    writeState(loc, { phase: 'installing', ...(server ? { server } : {}), issue: null, enabled: true });
+    const submittedLogin = options.username !== undefined || options.password !== undefined;
+    const requireFresh = submittedLogin || (server && server !== previous.server);
+    writeState(loc, { phase: 'installing', ...(server ? { server } : {}), issue: null, enabled: true,
+      ...(requireFresh ? { loginConfirmed: false } : {}) });
+    if (requireFresh) saveJSON(path.join(loc.stateDir, 'verification.json'), {});
     const install = options.install || installDependencies;
     const dependencies = options.dependencies || await install({ env, home: loc.home, stateDir: loc.stateDir, update: options.update === true });
     if (dependencies.ok === false || !dependencies.omnigent?.available) {
@@ -127,7 +146,7 @@ export async function initialize(options = {}) {
     const normalized = normalizeServer(target);
     const freshLogin = typeof options.username === 'string' && options.username.trim()
       && typeof options.password === 'string' && options.password;
-    if (!freshLogin && previous.loginConfirmed !== true) {
+    if (!freshLogin && (requireFresh || previous.loginConfirmed !== true)) {
       writeState(loc, { phase: 'needs-login', server: normalized, loginConfirmed: false });
       return { ok: false, phase: 'needs-login', server: normalized, error: { code: 'FRESH_LOGIN_REQUIRED', message: '請在設定對話重新輸入網址、帳號與密碼。' } };
     }
@@ -137,7 +156,7 @@ export async function initialize(options = {}) {
       ...(options.password ? { password: options.password } : {}), allowManagedHost: true });
     if (!connected.ok) {
       const phase = ['NEEDS_LOGIN', 'NEEDS_BROWSER_AUTH', 'needs_login', 'needs_browser_auth'].includes(connected.error?.code) ? 'needs-login' : 'error';
-      writeState(loc, { phase, issue: connected.error });
+      writeState(loc, { phase, issue: connected.error, ...(phase === 'needs-login' ? { loginConfirmed: false } : {}) });
       return { ok: false, phase, server: normalized, error: connected.error };
     }
     writeState(loc, { phase: 'needs-verification', loginConfirmed: true, issue: null });
@@ -151,7 +170,7 @@ export async function repair(options = {}) { return initialize({ ...options, ena
 /** Remove only this server's local login and wait for this host to go offline. */
 export async function disconnect(options = {}) {
   const ctx = await context(options); const { loc, call } = ctx;
-  return locked(path.join(loc.stateDir, 'initialize.lock'), async () => {
+  return operation(ctx, async () => {
     const previous = stateOf(loc);
     writeState(loc, { phase: 'disconnecting', loginConfirmed: false, issue: null });
     saveJSON(path.join(loc.stateDir, 'verification.json'), {});
@@ -169,7 +188,7 @@ export async function disconnect(options = {}) {
 /** Startup installs dependencies only. An existing host login is never consent. */
 export async function prepare(options = {}) {
   const ctx = await context(options); const { loc, env } = ctx;
-  return locked(path.join(loc.stateDir, 'initialize.lock'), async () => {
+  return operation(ctx, async () => {
     if (stateOf(loc).enabled === false) return { ok: false, phase: 'disabled' };
     const install = options.install || installDependencies;
     const dependencies = options.dependencies || await install({ env, home: loc.home, stateDir: loc.stateDir });
@@ -182,8 +201,27 @@ export async function prepare(options = {}) {
     return { ok: true, phase: stateOf(loc).phase, dependencies: { changed: dependencies.changed, installed: dependencies.installed || [], warnings: dependencies.warnings || [] } };
   });
 }
-export function setEnabled(value, options = {}) {
-  const loc = options.loc || locations();
-  return writeState(loc, { enabled: value === true, loginConfirmed: false, phase: value === true ? 'needs-login' : 'disabled' });
+export async function setEnabled(value, options = {}) {
+  const loc = { ...locations(options.env || process.env), ...(options.loc || {}) };
+  return operation({ loc }, async () => {
+    saveJSON(path.join(loc.stateDir, 'verification.json'), {});
+    return writeState(loc, { enabled: value === true, loginConfirmed: false, phase: value === true ? 'needs-login' : 'disabled' });
+  });
 }
 export function enabled(options = {}) { return stateOf(options.loc || locations()).enabled !== false; }
+/** Native package visibility is independent of the explicit CLI enabled flag. */
+export async function observeLifecycle(lifecycle, options = {}) {
+  const loc = { ...locations(options.env || process.env), ...(options.loc || {}) };
+  if (!fs.existsSync(statePath(loc)) || !['native-plugin-enabled', 'native-plugin-disabled', 'package-removed-or-unregistered'].includes(lifecycle.reason)) return lifecycle;
+  return operation({ loc }, async () => {
+    const state = stateOf(loc);
+    const changed = state.nativeActive !== lifecycle.active;
+    const reset = lifecycle.active === false || state.nativeActive === false;
+    if (changed) {
+      writeState(loc, { nativeActive: lifecycle.active, ...(reset ? { loginConfirmed: false,
+        phase: state.enabled === false ? 'disabled' : 'needs-login', issue: null } : {}) });
+      if (reset) saveJSON(path.join(loc.stateDir, 'verification.json'), {});
+    }
+    return { ...lifecycle, changed, reset: changed && reset };
+  });
+}

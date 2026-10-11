@@ -1,0 +1,374 @@
+{
+  "schema": 1,
+  "date": "2026-10-11",
+  "environment": {
+    "platform": "Linux x64",
+    "piSdk": "1.0.0",
+    "omnigent": "0.16.0",
+    "claude": "2.1.296",
+    "codex": "0.162.1",
+    "pi": "1.0.0"
+  },
+  "benchmark": {
+    "samplesMs": {
+      "old": [
+        2065,
+        2624,
+        2394,
+        1999,
+        2142
+      ],
+      "candidate": [
+        1700,
+        467,
+        257,
+        245,
+        457
+      ]
+    },
+    "oldMedianMs": 2142,
+    "candidateMedianMs": 457,
+    "method": "Five sequential alternating status calls per version; includes the candidate cold call. No authentication or online-state cache."
+  },
+  "verification": {
+    "checkedAt": "2026-10-11T20:37:20.067Z",
+    "runs": [
+      {
+        "schema": 1,
+        "checkedAt": "2026-10-11T20:37:40.416Z",
+        "ok": true,
+        "phase": "ready",
+        "server": "https://omnigent.woowtech.io",
+        "hostId": "0ffa6b695eb1469fa074ea2b1085bd0b",
+        "chatRequested": true,
+        "checks": [
+          {
+            "name": "enabled",
+            "ok": true
+          },
+          {
+            "name": "fresh-login-approved",
+            "ok": true
+          },
+          {
+            "name": "host-online",
+            "ok": true
+          },
+          {
+            "name": "installed-engines",
+            "ok": true,
+            "engines": [
+              "claude",
+              "codex",
+              "pi"
+            ]
+          },
+          {
+            "name": "catalog-access",
+            "ok": true
+          },
+          {
+            "name": "catalog-claude",
+            "ok": true,
+            "modelCount": 4,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-codex",
+            "ok": true,
+            "modelCount": 7,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-pi",
+            "ok": true,
+            "modelCount": 9,
+            "moduleAvailable": true
+          },
+          {
+            "name": "chat-claude",
+            "ok": true,
+            "sessionId": "12d96d2659d840cf86c2a4d63595ef0e",
+            "url": "https://omnigent.woowtech.io/c/12d96d2659d840cf86c2a4d63595ef0e",
+            "model": "opus"
+          },
+          {
+            "name": "ready",
+            "ok": true
+          }
+        ],
+        "durationMs": 20347
+      },
+      {
+        "schema": 1,
+        "checkedAt": "2026-10-11T20:37:54.289Z",
+        "ok": true,
+        "phase": "ready",
+        "server": "https://omnigent.woowtech.io",
+        "hostId": "0ffa6b695eb1469fa074ea2b1085bd0b",
+        "chatRequested": true,
+        "checks": [
+          {
+            "name": "enabled",
+            "ok": true
+          },
+          {
+            "name": "fresh-login-approved",
+            "ok": true
+          },
+          {
+            "name": "host-online",
+            "ok": true
+          },
+          {
+            "name": "installed-engines",
+            "ok": true,
+            "engines": [
+              "claude",
+              "codex",
+              "pi"
+            ]
+          },
+          {
+            "name": "catalog-access",
+            "ok": true
+          },
+          {
+            "name": "catalog-claude",
+            "ok": true,
+            "modelCount": 4,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-codex",
+            "ok": true,
+            "modelCount": 7,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-pi",
+            "ok": true,
+            "modelCount": 9,
+            "moduleAvailable": true
+          },
+          {
+            "name": "chat-claude",
+            "ok": true,
+            "sessionId": "33b7e57056d144978d28720923ecb379",
+            "url": "https://omnigent.woowtech.io/c/33b7e57056d144978d28720923ecb379",
+            "model": "opus"
+          },
+          {
+            "name": "ready",
+            "ok": true
+          }
+        ],
+        "durationMs": 13854
+      },
+      {
+        "schema": 1,
+        "checkedAt": "2026-10-11T20:38:09.523Z",
+        "ok": true,
+        "phase": "ready",
+        "server": "https://omnigent.woowtech.io",
+        "hostId": "0ffa6b695eb1469fa074ea2b1085bd0b",
+        "chatRequested": true,
+        "checks": [
+          {
+            "name": "enabled",
+            "ok": true
+          },
+          {
+            "name": "fresh-login-approved",
+            "ok": true
+          },
+          {
+            "name": "host-online",
+            "ok": true
+          },
+          {
+            "name": "installed-engines",
+            "ok": true,
+            "engines": [
+              "claude",
+              "codex",
+              "pi"
+            ]
+          },
+          {
+            "name": "catalog-access",
+            "ok": true
+          },
+          {
+            "name": "catalog-claude",
+            "ok": true,
+            "modelCount": 4,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-codex",
+            "ok": true,
+            "modelCount": 7,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-pi",
+            "ok": true,
+            "modelCount": 9,
+            "moduleAvailable": true
+          },
+          {
+            "name": "chat-claude",
+            "ok": true,
+            "sessionId": "d1d2fd9bb0fc4594b75dc25e6f48ae11",
+            "url": "https://omnigent.woowtech.io/c/d1d2fd9bb0fc4594b75dc25e6f48ae11",
+            "model": "opus"
+          },
+          {
+            "name": "ready",
+            "ok": true
+          }
+        ],
+        "durationMs": 15224
+      },
+      {
+        "schema": 1,
+        "checkedAt": "2026-10-11T20:38:29.746Z",
+        "ok": true,
+        "phase": "ready",
+        "server": "https://omnigent.woowtech.io",
+        "hostId": "0ffa6b695eb1469fa074ea2b1085bd0b",
+        "chatRequested": true,
+        "checks": [
+          {
+            "name": "enabled",
+            "ok": true
+          },
+          {
+            "name": "fresh-login-approved",
+            "ok": true
+          },
+          {
+            "name": "host-online",
+            "ok": true
+          },
+          {
+            "name": "installed-engines",
+            "ok": true,
+            "engines": [
+              "claude",
+              "codex",
+              "pi"
+            ]
+          },
+          {
+            "name": "catalog-access",
+            "ok": true
+          },
+          {
+            "name": "catalog-claude",
+            "ok": true,
+            "modelCount": 4,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-codex",
+            "ok": true,
+            "modelCount": 7,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-pi",
+            "ok": true,
+            "modelCount": 9,
+            "moduleAvailable": true
+          },
+          {
+            "name": "chat-codex",
+            "ok": true,
+            "sessionId": "f021267a08904debb0212ea07f4f9579",
+            "url": "https://omnigent.woowtech.io/c/f021267a08904debb0212ea07f4f9579",
+            "model": "gpt-5.6-sol"
+          },
+          {
+            "name": "ready",
+            "ok": true
+          }
+        ],
+        "durationMs": 20214
+      },
+      {
+        "schema": 1,
+        "checkedAt": "2026-10-11T20:38:46.074Z",
+        "ok": true,
+        "phase": "ready",
+        "server": "https://omnigent.woowtech.io",
+        "hostId": "0ffa6b695eb1469fa074ea2b1085bd0b",
+        "chatRequested": true,
+        "checks": [
+          {
+            "name": "enabled",
+            "ok": true
+          },
+          {
+            "name": "fresh-login-approved",
+            "ok": true
+          },
+          {
+            "name": "host-online",
+            "ok": true
+          },
+          {
+            "name": "installed-engines",
+            "ok": true,
+            "engines": [
+              "claude",
+              "codex",
+              "pi"
+            ]
+          },
+          {
+            "name": "catalog-access",
+            "ok": true
+          },
+          {
+            "name": "catalog-claude",
+            "ok": true,
+            "modelCount": 4,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-codex",
+            "ok": true,
+            "modelCount": 7,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-pi",
+            "ok": true,
+            "modelCount": 9,
+            "moduleAvailable": true
+          },
+          {
+            "name": "chat-pi",
+            "ok": true,
+            "sessionId": "7af9923daddc456f97f59d8738f31522",
+            "url": "https://omnigent.woowtech.io/c/7af9923daddc456f97f59d8738f31522",
+            "model": "openai-codex/gpt-5.6-sol"
+          },
+          {
+            "name": "ready",
+            "ok": true
+          }
+        ],
+        "durationMs": 16315
+      }
+    ]
+  },
+  "knownIssue": {
+    "engine": "claude",
+    "mode": "auto",
+    "symptom": "First probe could remain in draft after a startup dialog; 3s delay alone did not make it reliable.",
+    "mitigation": "Verification-only sessions use --permission-mode default plus a bounded 3s startup settle. No automatic dialog answers or prompt retries."
+  }
+}

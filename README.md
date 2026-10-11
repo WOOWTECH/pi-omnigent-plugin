@@ -12,6 +12,12 @@ git:github.com/WOOWTECH/pi-omnigent-plugin
 
 Repository 為公開，可直接安裝，不需要 GitHub token。安裝會自動啟動設定對話。也可使用本機路徑或 npm source；本機開發目錄可用：
 
+商業部署請固定版本，避免不同容器在更新時取得不同程式：
+
+```text
+git:github.com/WOOWTECH/pi-omnigent-plugin@v0.2.0
+```
+
 ```bash
 pi install /path/to/pi-omnigent-plugin
 node /path/to/pi-omnigent-plugin/bin/cli.mjs activate
@@ -40,13 +46,15 @@ Pi Web 0.10 沒有套件安裝／啟用生命週期鉤子，所以插件包含�
 
 ## 完成標準
 
-主機在線不代表引擎可以對話。插件針對當下已安裝的引擎，透過 Omnigent 建立短驗證對話，要求各引擎回覆 `OMNIGENT_CONNECTION_OK`；這些引擎都收到實際回覆才標記 `ready`。驗證對話會留在 Omnigent，方便打開檢查，驗證完成後停止執行。
+主機在線不代表引擎可以對話。插件針對當下已安裝的引擎，透過 Omnigent 建立短驗證對話，要求各引擎回覆 `OMNIGENT_CONNECTION_OK`；這些引擎都收到實際回覆才標記 `ready`。驗證對話會留在 Omnigent，方便打開檢查，驗證完成後停止執行。Claude 驗證專用對話使用 Default 權限模式及短暫啟動緩衝，避免首次 Auto mode 提示阻塞；一般對話保留既有設定，Auto mode 的限制見驗收紀錄。
 
 Omnigent 介面仍提供原有模型、Skills、MCP、Agent 模板與政策選擇；插件沿用容器既有的模型登入／API 配置。缺少訂閱登入或模型時，狀態會指出該引擎尚未通過驗證。
 
 ## 執行環境
 
 需要 Node.js ≥ 22.19、Pi SDK ≥ 1.0、Python 3.12（uv 可下載）與原生引擎所需的 tmux。預設 Omnigent 版本為 0.16.0，介面合約以這個版本驗證。插件沿用已安裝的 Omnigent 版本與既有 host 身分；缺少的 Omnigent 套件裝在插件自己的資料目錄。有現成 `/etc/omnigent-host` 管理器時，直接沿用；一般容器則啟動插件管理的 host。
+
+Linux 容器須提供 util-linux 的 `flock`，插件用它避免多個設定／驗證操作同時改寫狀態。程序意外退出後，核心會釋放鎖；插件不刪除 `.flock` 檔。版本查詢可短暫重用 15 秒，執行檔變更或移除立即失效；登入與主機在線狀態每次重新查詢。
 
 若缺少 uv，插件會以既有 Python／pip 安裝私有的 uv，再下載 Omnigent 所需的 Python。若連 Python ≥3.8／pip 都沒有，或原生引擎缺少 tmux，會回報所需依賴。bubblewrap 的需求由引擎及伺服器既有隔離政策決定；插件不修改政策、系統套件或容器權限。實際對話驗證會反映執行結果。
 
@@ -62,4 +70,16 @@ npm run check
 npm pack --ignore-scripts
 ```
 
+部署驗收可直接執行：
+
+```bash
+pi-omnigent acceptance
+pi-omnigent acceptance --chat
+pi-omnigent acceptance --chat --engine claude --model opus
+```
+
+預設只查詢狀態、可用模型與模組；`--chat` 才會產生測試對話並使用既有模型額度。所有檢查都通過才回傳 exit code 0，報告存於私有的 `acceptance.json`。實測與支援邊界見 [商業部署驗收紀錄](docs/commercial-readiness.md)。
+
 Pi Web Plugins 的停用／移除操作會停止插件自動處理；移除套件後仍可用原本的 Pi Web 啟動器。也可執行 `pi-omnigent disable`，或 `pi-omnigent uninstall-host` 還原啟動器。原有容器 Omnigent host 的生命週期仍由既有管理器掌控。
+
+原生 Plugins 設定由啟動介接器與已載入的設定對話監看，約 500 ms 後生效。重新啟用會重新要求 server、帳號及遮罩密碼。既有版本升級保留已核准的連線，但 CLI 版本改變會要求重新驗證。
