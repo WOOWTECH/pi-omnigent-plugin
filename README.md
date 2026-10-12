@@ -15,7 +15,7 @@ Repository 為公開，可直接安裝，不需要 GitHub token。安裝會自�
 商業部署請固定版本，避免不同容器在更新時取得不同程式：
 
 ```text
-git:github.com/WOOWTECH/pi-omnigent-plugin@v0.2.1
+git:github.com/WOOWTECH/pi-omnigent-plugin@v0.2.2
 ```
 
 ```bash
@@ -83,3 +83,8 @@ pi-omnigent acceptance --chat --engine claude --model opus
 Pi Web Plugins 的停用／移除操作會停止插件自動處理；移除套件後仍可用原本的 Pi Web 啟動器。也可執行 `pi-omnigent disable`，或 `pi-omnigent uninstall-host` 還原啟動器。原有容器 Omnigent host 的生命週期仍由既有管理器掌控。
 
 原生 Plugins 設定由啟動介接器與已載入的設定對話監看，約 500 ms 後生效。重新啟用會重新要求 server、帳號及遮罩密碼。既有版本升級保留已核准的連線，但 CLI 版本改變會要求重新驗證。
+
+
+Omnigent server 帳密與模型供應商授權分開。新容器即使已登入 server、host 已在線，Claude Code／Codex 仍需各自完成官方模型登入，Pi 也需設定可用模型。插件會指出缺少哪一個授權；完成後使用 `/omnigent verify`，不必重新輸入 server 帳密。重新開啟已完成 server 登入的設定對話會續接模型授權說明；明確執行 `/omnigent setup` 或重新啟用仍會重新詢問。
+
+v0.2.2 支援包含原生 fallback 的 shared-runtime 啟動器，先備份再串接；未辨識的自訂啟動器仍保留。背景啟動結果寫入私有 `boot.json`。尚未完成登入時，啟動程序會重載專用設定對話一次，讓舊 runtime 的精靈重新啟動；不重載其他對話。

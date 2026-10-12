@@ -20,6 +20,29 @@ function jsonResult(value: any) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }], details: value };
 }
 
+export function connectionFeedback(current: any): string {
+  if (current.loginConfirmed !== true || current.host?.connected !== true) {
+    return 'Omnigent 設定尚未完成。使用 /omnigent status 查看結果；登入失敗請重新執行 /omnigent setup。';
+  }
+  const lines = ['Omnigent Server 已登入，此容器的主機已在線。模型供應商授權與實際對話驗證尚未全部完成。'];
+  for (const name of current.installedEngines || []) {
+    const engine = current.engines?.[name];
+    const proof = current.verification?.[name];
+    if (name === 'claude' && engine?.configured === 'needs-auth') {
+      lines.push('Claude Code：尚未登入 Anthropic。請在此容器的終端執行 `claude auth login --claudeai`，完成官方登入。');
+    } else if (name === 'codex' && engine?.configured === 'needs-auth') {
+      lines.push('Codex：尚未登入 OpenAI。請在此容器的終端執行 `codex login --device-auth`，完成官方授權。');
+    } else if (proof?.reason === 'MODELS_UNAVAILABLE' || engine?.configured === 'needs-auth') {
+      lines.push(`${name === 'pi' ? 'Pi' : name}：尚未提供可用模型。請在 Pi Web 左下角 Models 設定供應商登入／API key，或在終端啟動 Pi 使用 /login。`);
+    } else if (proof?.ok !== true) {
+      const code = /^[A-Z_0-9]+$/.test(proof?.reason || '') ? `（${proof.reason}）` : '';
+      lines.push(`${name === 'pi' ? 'Pi' : name}：實際對話尚未通過驗證${code}。`);
+    }
+  }
+  lines.push('完成模型授權後，使用 /omnigent verify 重測；不需要重新輸入 Omnigent 帳密。');
+  return lines.join('\n\n');
+}
+
 /** Exposed separately so tests can inject a backend without touching a live host. */
 export function registerOmnigent(pi: ExtensionAPI, backend: Backend, web: any = { ensureOnboarding, readOnboarding, packageLifecycle, watchPackageLifecycle }) {
   let disposed = false;
@@ -37,6 +60,11 @@ export function registerOmnigent(pi: ExtensionAPI, backend: Backend, web: any = 
       let current = await backend.status();
       if (current.phase === 'ready' && !force) { show('Omnigent 已連線。使用 /omnigent open 開啟介面，或 /omnigent status 檢查目前已安裝的引擎。'); return; }
       if (current.phase === 'disabled') { ctx.ui.notify('Omnigent 插件已停用。使用 /omnigent repair 明確啟用並修復。', 'info'); return; }
+      if (current.loginConfirmed === true && current.host?.connected === true && !force) {
+        show(connectionFeedback(current));
+        ctx.ui.setStatus('omnigent', 'Omnigent：主機已連線，模型待處理');
+        return;
+      }
       ctx.ui.setStatus('omnigent', 'Omnigent：等待連線設定');
       show('正在建立 Omnigent 連線。請在設定面板填寫伺服器與登入資料；密碼使用遮蔽欄位，不要貼在對話中。');
       const server = await ctx.ui.input('Omnigent Server URL', current.server || 'https://omnigent.example.com');
@@ -52,8 +80,9 @@ export function registerOmnigent(pi: ExtensionAPI, backend: Backend, web: any = 
       const completed = current.ok === true && result.phase === 'ready';
       show(completed
         ? 'Omnigent 連線與對話驗證完成。使用 /omnigent open 開啟 Omnigent，選擇引擎、模型與模組開始對話。'
-        : 'Omnigent 設定尚未完成。使用 /omnigent status 查看結果；登入失敗請重新執行 /omnigent setup。', completed ? result : { ...result, operation: current });
-      ctx.ui.setStatus('omnigent', completed ? 'Omnigent：已連線' : 'Omnigent：需要處理');
+        : connectionFeedback(result), completed ? result : { ...result, operation: current });
+      ctx.ui.setStatus('omnigent', completed ? 'Omnigent：已連線' : result.loginConfirmed && result.host?.connected
+        ? 'Omnigent：主機已連線，模型待處理' : 'Omnigent：需要處理');
     } finally { registry.delete(key); owned.delete(key); }
   }
 
@@ -102,7 +131,7 @@ export function registerOmnigent(pi: ExtensionAPI, backend: Backend, web: any = 
           if (action === 'reconnect' && result.ok === true) await wizard(ctx, { force: true });
           return;
         }
-        if (action === 'status') { show('Omnigent 連線狀態', await backend.status()); return; }
+        if (action === 'status') { const result = await backend.status(); show(result.phase === 'ready' ? 'Omnigent 連線狀態' : connectionFeedback(result), result); return; }
         if (action === 'catalog') { show('Omnigent 模型與模組', await backend.catalog()); return; }
         if (action === 'verify') { show('Omnigent 對話驗證結果', await backend.verify()); return; }
         if (action === 'open') {

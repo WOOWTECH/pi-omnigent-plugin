@@ -135,6 +135,55 @@ test('recognized sibling launcher is backed up and chained without self-recursio
   assert.equal(fs.readFileSync(shim, 'utf8'), original);
 });
 
+test('fallback shared-runtime launcher from Pi 6 is chained and restored byte for byte', async t => {
+  const options = fixture(t);
+  const shim = path.join(options.home, '.local/bin/pi-web');
+  fs.mkdirSync(path.dirname(shim), { recursive: true });
+  const original = `#!/usr/bin/env node
+// pi-agent-shared-runtime launcher
+import {spawn} from 'node:child_process';
+import {existsSync} from 'node:fs';
+const cli="/data/pi-agent/git/github.com/WOOWTECH/pi-agent-shared-runtime/bin/cli.mjs";
+const present=existsSync(cli);
+const child=spawn(present?"/usr/bin/node":"/usr/local/bin/pi-web",present?[cli,'launch-web',...process.argv.slice(2)]:process.argv.slice(2),{stdio:'inherit'});
+child.on('error',()=>process.exit(1));
+for(const s of ['SIGINT','SIGTERM','SIGHUP'])process.on(s,()=>child.kill(s));
+child.on('exit',c=>process.exit(c??1));
+`;
+  fs.writeFileSync(shim, original, { mode: 0o755 });
+  const result = await installHost(options);
+  assert.equal(result.mode, 'chained-path-wrapper');
+  assert.notEqual(result.realWeb, shim);
+  assert.equal(fs.readFileSync(result.backup, 'utf8'), original);
+  assert.equal((await uninstallHost(options)).status, 'restored');
+  assert.equal(fs.readFileSync(shim, 'utf8'), original);
+});
+
+test('fallback sibling with relative native executable remains an untouched foreign launcher', async t => {
+  const options = fixture(t);
+  const shim = path.join(options.home, '.local/bin/pi-web');
+  fs.mkdirSync(path.dirname(shim), { recursive: true });
+  const original = `// pi-agent-shared-runtime launcher
+const cli="/data/pi-agent/git/github.com/WOOWTECH/pi-agent-shared-runtime/bin/cli.mjs";
+const present=existsSync(cli);
+const child=spawn(present?"/usr/bin/node":"pi-web",present?[cli,'launch-web',...process.argv.slice(2)]:process.argv.slice(2),{stdio:'inherit'});
+`;
+  fs.writeFileSync(shim, original, { mode: 0o755 });
+  assert.equal((await installHost(options)).mode, 'named-wrapper');
+  assert.equal(fs.readFileSync(shim, 'utf8'), original);
+});
+
+test('incomplete setup restarts a stale loaded extension only once before reporting started', async () => {
+  const commands = [];
+  const result = await startOnboardingSession('owned-onboarding-id', { attempts: 3, retryDelay: 0, fetch: async (url, request) => {
+    assert.equal(new URL(url).pathname, '/api/agent/owned-onboarding-id');
+    const command = JSON.parse(request.body); commands.push(command.type);
+    return { ok: true, json: async () => ({ success: true, data: { commands: [{ name: 'omnigent' }] } }) };
+  } });
+  assert.equal(result.status, 'started');
+  assert.deepEqual(commands, ['get_commands', 'reload', 'get_commands']);
+});
+
 test('sibling marker with relative executable does not authorize wrapping its default path', async t => {
   const options = fixture(t);
   const shim = path.join(options.home, '.local/bin/pi-web');

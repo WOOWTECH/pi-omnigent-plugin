@@ -86,6 +86,33 @@ test('setup supplies password directly to backend without putting it in messages
   assert.equal(Object.values(h.tools).some(tool => Object.keys(tool.parameters.properties).some(name => /password|username|server/.test(name))), false);
 });
 
+test('successful server login with missing provider auth explains the next step without claiming ready', async () => {
+  const h = harness();
+  h.backend.initialize = async () => {
+    Object.assign(h.state, { phase: 'needs-verification', loginConfirmed: true, host: { connected: true },
+      installedEngines: ['claude', 'codex', 'pi'], engines: { claude: { configured: 'needs-auth' }, codex: { configured: 'needs-auth' }, pi: { configured: true } },
+      verification: { pi: { ok: false, reason: 'MODELS_UNAVAILABLE' } } });
+    return { ok: false };
+  };
+  await h.commands.omnigent.handler('setup', h.ctx);
+  const text = h.messages.map(m => m.content).join('\n');
+  assert.match(text, /Server 已登入/);
+  assert.match(text, /claude auth login/);
+  assert.match(text, /codex login --device-auth/);
+  assert.match(text, /Models/);
+  assert.equal(text.includes('連線與對話驗證完成'), false);
+});
+
+test('reopening partially configured onboarding continues provider guidance without asking server password again', async () => {
+  const h = harness();
+  Object.assign(h.state, { phase: 'needs-verification', loginConfirmed: true, host: { connected: true }, installedEngines: ['pi'], verification: { pi: { ok: false } } });
+  h.ctx.ui.input = () => assert.fail('existing approved server must not request another password');
+  await h.handlers.session_start({}, h.ctx);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(h.messages.at(-1).content, /Server 已登入/);
+  assert.equal(h.calls.length, 0);
+});
+
 test('explicit setup freshly asks URL, account and masked password even for an already ready host', async () => {
   const h = harness({ phase: 'ready' });
   const questions = [];

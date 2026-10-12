@@ -33,7 +33,11 @@ try {
   else if (command === 'uninstall-host') print(await uninstallHost({ loc }));
   else if (command === 'onboarding') print(await ensureOnboarding({ loc }));
   else if (command === 'boot') {
-    if (enabled()) print(await boot({ loc, allowUnregistered: args.includes('--activation-worker') }));
+    if (enabled()) {
+      const result = await boot({ loc, allowUnregistered: args.includes('--activation-worker') });
+      saveJSON(path.join(loc.stateDir, 'boot.json'), { checkedAt: new Date().toISOString(), ...result });
+      print(result);
+    }
     else print({ phase: 'disabled' });
   } else if (command === 'launch-web') {
     const result = await launchWeb(args, { loc }); process.exitCode = result.code;

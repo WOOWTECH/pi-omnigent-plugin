@@ -160,10 +160,16 @@ function captureKnownUpstream(shim, stateDir) {
   // The sibling's generated launcher uses absolute executable and CLI paths.
   // Other source with the same comment still remains an unknown user launcher.
   const match = contents.match(/spawn\(("(?:[^"\\]|\\.)*"),\[("(?:[^"\\]|\\.)*"),'launch-web'/);
-  if (!match) return null;
-  let executable, cli;
-  try { executable = JSON.parse(match[1]); cli = JSON.parse(match[2]); } catch { return null; }
-  if (!path.isAbsolute(executable) || !path.isAbsolute(cli) || !cli.endsWith('/bin/cli.mjs')) return null;
+  const fallback = !match && contents.match(/const cli=("(?:[^"\\]|\\.)*");\s*const present=existsSync\(cli\);\s*const child=spawn\(present\?("(?:[^"\\]|\\.)*"):("(?:[^"\\]|\\.)*"),present\?\[cli,'launch-web',\.\.\.process\.argv\.slice\(2\)\]:process\.argv\.slice\(2\),/);
+  if (!match && !fallback) return null;
+  let executable, cli, native;
+  try {
+    executable = JSON.parse(match ? match[1] : fallback[2]);
+    cli = JSON.parse(match ? match[2] : fallback[1]);
+    if (fallback) native = JSON.parse(fallback[3]);
+  } catch { return null; }
+  if (!path.isAbsolute(executable) || !path.isAbsolute(cli) || !cli.endsWith('/bin/cli.mjs')
+    || (native && (!path.isAbsolute(native) || path.resolve(native) === path.resolve(shim)))) return null;
   const hash = createHash('sha256').update(contents).digest('hex');
   const directory = path.join(stateDir, 'launchers');
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -246,16 +252,28 @@ export async function startOnboardingSession(sessionId, options = {}) {
     method: 'POST', headers, body: JSON.stringify(command), signal: AbortSignal.timeout(5000),
   });
   const attempts = options.attempts ?? 30;
+  let restarted = false;
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
       const response = await request({ type: 'get_commands' });
       if (response.ok) {
         const body = await response.json();
-        if (body.data?.commands?.some(command => command.name === 'omnigent')) return { status: 'started', sessionId };
+        if (body.data?.commands?.some(command => command.name === 'omnigent') && restarted) return { status: 'started', sessionId };
         // npm postinstall runs before installAndPersist writes the package entry.
-        // Reload only this generated setup session until its extension is present.
+        // A loaded command does not prove the wizard is still waiting for input.
+        // Restart only this saved setup session once when it is already loaded;
+        // the read-only commands check then confirms the restarted binding.
         const reload = await request({ type: 'reload' });
         if ([401, 403].includes(reload.status)) return { status: 'manual-open-required', reason: 'Pi Web did not accept local authentication.', sessionId };
+        if (reload.ok) {
+          const result = await reload.json();
+          if (result.success !== false) {
+            restarted = true;
+            const checked = await request({ type: 'get_commands' });
+            if ([401, 403].includes(checked.status)) return { status: 'manual-open-required', reason: 'Pi Web did not accept local authentication.', sessionId };
+            if (checked.ok && (await checked.json()).data?.commands?.some(command => command.name === 'omnigent')) return { status: 'started', sessionId };
+          }
+        }
       }
       if ([401, 403].includes(response.status)) return { status: 'manual-open-required', reason: 'Pi Web did not accept local authentication.', sessionId };
     } catch {}
