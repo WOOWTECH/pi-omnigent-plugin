@@ -83,3 +83,5 @@ pi-omnigent acceptance --chat --engine claude --model opus
 Pi Web Plugins 的停用／移除操作會停止插件自動處理；移除套件後仍可用原本的 Pi Web 啟動器。也可執行 `pi-omnigent disable`，或 `pi-omnigent uninstall-host` 還原啟動器。原有容器 Omnigent host 的生命週期仍由既有管理器掌控。
 
 原生 Plugins 設定由啟動介接器與已載入的設定對話監看，約 500 ms 後生效。重新啟用會重新要求 server、帳號及遮罩密碼。既有版本升級保留已核准的連線，但 CLI 版本改變會要求重新驗證。
+
+登入設定、重新連線與 repair 預設不建立測試對話、不發送模型訊息。只有明確執行 `/omnigent verify`、verify 工具或 `acceptance --chat` 才建立 connection check 對話。啟動與背景狀態檢查不執行聊天驗證。

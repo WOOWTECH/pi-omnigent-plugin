@@ -93,7 +93,7 @@ test('explicit setup freshly asks URL, account and masked password even for an a
   h.ctx.ui.select = () => assert.fail('ambient-login reuse must never be offered');
   await h.commands.omnigent.handler('setup', h.ctx);
   assert.deepEqual(questions, ['Omnigent Server URL', 'Omnigent 帳號']);
-  assert.deepEqual(h.calls[0], { server: h.state.server, username: 'fresh-account', password: 'fixture-secret', verify: true });
+  assert.deepEqual(h.calls[0], { server: h.state.server, username: 'fresh-account', password: 'fixture-secret', verify: false });
 });
 
 test('session binding completes while onboarding awaits UI', async () => {

@@ -19,7 +19,7 @@ function fixture(t, failed) {
     if (input.action === 'connect') return { ok: true, data: { host: { id: 'host-1' } } };
     return { ok: true, data: { engine: input.engine, ok: input.engine !== failed, reply: input.engine === failed ? undefined : 'OMNIGENT_CONNECTION_OK', sessionId: `test-${input.engine}` } };
   };
-  return { loc, dependencies, callAdapter, calls, server: 'https://omni.test', username: 'admin', password: 'SECRET_TEST_PASSWORD' };
+  return { loc, dependencies, callAdapter, calls, verify: true, server: 'https://omni.test', username: 'admin', password: 'SECRET_TEST_PASSWORD' };
 }
 test('only real sentinel replies from all engines make setup ready; credentials never persisted', async t => {
   const ctx = fixture(t); const result = await initialize({ ...ctx, username: 'admin', password: 'SECRET_TEST_PASSWORD' });
@@ -178,4 +178,15 @@ test('native disable and re-enable requires fresh approval without clearing host
   assert.equal((await status(ctx)).loginConfirmed, false);
   assert.equal((await initialize({ ...ctx, username: undefined, password: undefined })).phase, 'needs-login');
   assert.equal(ctx.calls.some(c => c.action === 'connect' || c.action === 'disconnect'), false);
+});
+
+test('ordinary setup and repair never create chat verification sessions', async t => {
+  const ctx = fixture(t); delete ctx.verify;
+  const result = await initialize(ctx);
+  assert.equal(result.ok, true);
+  assert.equal(result.phase, 'needs-verification');
+  assert.equal(ctx.calls.some(c => c.action === 'verify'), false);
+  const { repair } = await import('../src/runtime.mjs');
+  await repair(ctx);
+  assert.equal(ctx.calls.some(c => c.action === 'verify'), false);
 });

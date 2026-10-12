@@ -163,7 +163,7 @@ export async function initialize(options = {}) {
     writeState(loc, { phase: 'needs-verification', loginConfirmed: true, issue: null });
     if (freshLogin) saveJSON(path.join(loc.stateDir, 'verification.json'), {});
     saveJSON(path.join(loc.stateDir, 'connection.json'), connected.data);
-    if (options.verify === false) return { ok: true, phase: 'needs-verification', server: normalized, connection: connected.data };
+    if (options.verify !== true) return { ok: true, phase: 'needs-verification', server: normalized, connection: connected.data };
     return verifyInternal(ctx);
   });
 }
