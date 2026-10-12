@@ -15,7 +15,7 @@ Repository 為公開，可直接安裝，不需要 GitHub token。安裝會自�
 商業部署請固定版本，避免不同容器在更新時取得不同程式：
 
 ```text
-git:github.com/WOOWTECH/pi-omnigent-plugin@v0.2.2
+git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.0
 ```
 
 ```bash
@@ -89,3 +89,16 @@ Omnigent server 帳密與模型供應商授權分開。新容器即使已登入 
 
 v0.2.2 支援包含原生 fallback 的 shared-runtime 啟動器，先備份再串接；未辨識的自訂啟動器仍保留。背景啟動結果寫入私有 `boot.json`。尚未完成登入時，啟動程序會重載專用設定對話一次，讓舊 runtime 的精靈重新啟動；不重載其他對話。
 登入設定、重新連線與 repair 預設不建立測試對話、不發送模型訊息。只有明確執行 `/omnigent verify`、verify 工具或 `acceptance --chat` 才建立 connection check 對話。啟動與背景狀態檢查不執行聊天驗證。
+
+
+## 原生 Omnigent 設定分頁
+
+v0.3.0 包含 Pi Web 0.10.0 原生 UI 整合，設定 → MCP 右側增加 Omnigent。呈現 server／host、現有引擎授權、模型與驗證狀態，以及設定／驗證／取消連結操作。密碼欄位遮罩且切換頁面清空；檢視頁面不建立模型對話。
+
+Pi 一般 extension API 無法增加設定分頁，所以須安裝管理版 Pi Web runtime：
+
+```bash
+pi-omnigent install-ui
+```
+
+這個明確安裝動作會下載固定官方 commit、驗證整合 patch，在使用者資料目錄建置並串接下次啟動。若既有 pi-paseo-plugin，驗證並保留其 native UI patch。建置完成後需重啟 Pi Web；安裝器不自動中斷運行中的對話。只實測 Linux x64、Pi Web 0.10.0。見 [整合說明](integrations/pi-web/README.md)。

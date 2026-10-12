@@ -1,0 +1,640 @@
+diff --git a/app/api/omnigent/route.test.mjs b/app/api/omnigent/route.test.mjs
+new file mode 100644
+index 0000000..f744d49
+--- /dev/null
++++ b/app/api/omnigent/route.test.mjs
+@@ -0,0 +1,17 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { createJiti } from "jiti";
++const jiti = createJiti(import.meta.url, { alias: { "@/": new URL("../../../", import.meta.url).pathname } });
++const { GET, POST } = await jiti.import("./route.ts");
++test("Omnigent route rejects cross-origin reads and writes before accessing plugin runtime", async () => {
++  for (const [method, handler] of [["GET", GET], ["POST", POST]]) {
++    const r = await handler(new Request("http://localhost/api/omnigent", { method, headers: { host: "localhost", origin: "https://evil.example", "content-type": "application/json" } }));
++    assert.equal(r.status, 403);
++  }
++});
++test("Omnigent POST refuses non-JSON and invalid JSON without echoing source or password", async () => {
++  let r = await POST(new Request("http://localhost/api/omnigent", { method: "POST", headers: { host: "localhost" }, body: "password=never-echo" }));
++  assert.equal(r.status, 415);
++  r = await POST(new Request("http://localhost/api/omnigent", { method: "POST", headers: { host: "localhost", "content-type": "application/json" }, body: '{"password":"never-echo"' }));
++  assert.equal(r.status, 400); assert.equal((await r.text()).includes("never-echo"), false);
++});
+diff --git a/app/api/omnigent/route.ts b/app/api/omnigent/route.ts
+new file mode 100644
+index 0000000..6026304
+--- /dev/null
++++ b/app/api/omnigent/route.ts
+@@ -0,0 +1,28 @@
++import { NextResponse } from "next/server";
++import { createOmnigentBridge } from "@/lib/omnigent-runtime";
++import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
++
++export const dynamic = "force-dynamic";
++export const runtime = "nodejs";
++const bridge = createOmnigentBridge();
++const reply = (value: unknown, status = 200) => NextResponse.json(value, { status, headers: { "Cache-Control": "no-store" } });
++function failure(error: unknown) {
++  const code = error && typeof error === "object" && "code" in error && typeof error.code === "string" && /^[A-Z_0-9]+$/.test(error.code) ? error.code : "OMNIGENT_FAILED";
++  return reply({ error: { code } }, code.startsWith("INVALID_") ? 400 : code === "PLUGIN_UNAVAILABLE" ? 409 : 503);
++}
++export async function GET(request: Request) {
++  if (!isApiRequestAllowed(request)) return reply({ error: { code: "UNTRUSTED_REQUEST" } }, 403);
++  try { return reply(await bridge.read()); } catch (error) { return failure(error); }
++}
++export async function POST(request: Request) {
++  if (!isApiRequestAllowed(request)) return reply({ error: { code: "UNTRUSTED_REQUEST" } }, 403);
++  if (!hasJsonContentType(request)) return reply({ error: { code: "JSON_REQUIRED" } }, 415);
++  try {
++    const raw = await request.text();
++    if (raw.length > 8192) return reply({ error: { code: "REQUEST_TOO_LARGE" } }, 413);
++    let body: unknown;
++    try { body = JSON.parse(raw); } catch { return reply({ error: { code: "INVALID_JSON" } }, 400); }
++    if (!body || typeof body !== "object" || Array.isArray(body)) return reply({ error: { code: "INVALID_REQUEST" } }, 400);
++    return reply(await bridge.act(body as Record<string, unknown>));
++  } catch (error) { return failure(error); }
++}
+diff --git a/app/settings.css b/app/settings.css
+index 66e0880..fea2228 100644
+--- a/app/settings.css
++++ b/app/settings.css
+@@ -2427,3 +2427,12 @@
+     }
+   }
+ }
++
++.omnigent-detail { max-width: 900px; margin: 0 auto; width: 100%; padding: 24px; gap: 18px; }
++.omnigent-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
++.omnigent-setup { display: flex; flex-direction: column; gap: 12px; padding: 16px; border: 1px solid var(--border); border-radius: 10px; }
++.omnigent-engines { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
++.omnigent-engine { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
++.omnigent-engine small { color: var(--text-muted); }
++.omnigent-actions select { color: var(--text); background: var(--bg-panel); border: 1px solid var(--border); padding: 8px; border-radius: 6px; max-width: 100%; }
++@media (max-width: 640px) { .omnigent-detail { padding: 16px; } .omnigent-engines { grid-template-columns: 1fr; } }
+diff --git a/components/OmnigentConfig.tsx b/components/OmnigentConfig.tsx
+new file mode 100644
+index 0000000..7c40d0e
+--- /dev/null
++++ b/components/OmnigentConfig.tsx
+@@ -0,0 +1,126 @@
++"use client";
++
++import { useCallback, useEffect, useRef, useState } from "react";
++import { useI18n } from "@/hooks/useI18n";
++import type { OmnigentView } from "@/lib/omnigent-types";
++import { ConfigButton, ConfigDetail, ConfigDetailGrid, ConfigDetailGridRow, ConfigDetailStack, ConfigDetailTitle,
++  ConfigEmptyState, ConfigField, ConfigFooter, ConfigNotice, ConfigPanelShell, ConfigSectionTitle } from "./SettingsUi";
++
++export function OmnigentConfig({ active, onModels }: { active: boolean; onModels: () => void }) {
++  const { t } = useI18n();
++  const [view, setView] = useState<OmnigentView | null>(null);
++  const [error, setError] = useState<string | null>(null);
++  const [busy, setBusy] = useState<string | null>(null);
++  const [showSetup, setShowSetup] = useState(false);
++  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
++  const [selection, setSelection] = useState({ engine: "", model: "" });
++  const password = useRef<HTMLInputElement>(null);
++  const mounted = useRef(true);
++
++  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
++  useEffect(() => {
++    const input = password.current;
++    if (!active && input) input.value = "";
++    return () => { if (input) input.value = ""; };
++  }, [active, showSetup]);
++
++  const read = useCallback(async () => {
++    try {
++      const response = await fetch("/api/omnigent", { cache: "no-store" });
++      const result = await response.json();
++      if (!response.ok) throw new Error(result.error?.code || "OMNIGENT_FAILED");
++      if (mounted.current) { setView(result); setError(null); }
++    } catch { if (mounted.current) setError(t("omnigent.loadFailed")); }
++  }, [t]);
++  useEffect(() => { if (active) void read(); }, [active, read]);
++
++  async function act(action: string, values: Record<string, unknown> = {}) {
++    if (busy) return;
++    setBusy(action); setError(null);
++    try {
++      const response = await fetch("/api/omnigent", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...values }) });
++      const result = await response.json();
++      if (!mounted.current) return;
++      if (!response.ok) { setError(`${t("omnigent.operationFailed")} (${result.error?.code || "OMNIGENT_FAILED"})`); return; }
++      setView(result);
++      if (result.operation?.ok === false) setError(`${t("omnigent.operationFailed")}${result.operation.code ? ` (${result.operation.code})` : ""}`);
++      if (action === "connect" && result.loginConfirmed) setShowSetup(false);
++      if (action === "disconnect") setConfirmDisconnect(false);
++    } catch { if (mounted.current) setError(t("omnigent.operationFailed")); }
++    finally { if (password.current) password.current.value = ""; if (mounted.current) setBusy(null); }
++  }
++
++  const usable = view?.active && !busy;
++  const engine = view?.engines.find(item => item.key === selection.engine);
++  const label = (key: string) => ({ claude: "Claude Code", codex: "Codex", pi: "Pi Agent" }[key] || key);
++  const engineState = (item: NonNullable<OmnigentView["engines"]>[number]) => !item.installed ? t("omnigent.notInstalled")
++    : item.configured === "needs-auth" ? t("omnigent.providerRequired")
++    : !item.models.length ? t("omnigent.modelsRequired")
++    : item.verified && item.ready ? t("omnigent.verified") : t("omnigent.needsVerification");
++
++  return <ConfigPanelShell embedded title="Omnigent" onClose={() => {}}>
++    <ConfigDetail>
++      <ConfigDetailStack className="omnigent-detail">
++        <ConfigDetailTitle>{t("omnigent.connection")}</ConfigDetailTitle>
++        {error && <div role="alert" className="config-add-source-error">{error}</div>}
++        {!view ? <ConfigEmptyState>{t("omnigent.loading")}</ConfigEmptyState> : !view.installed ? <ConfigEmptyState>
++          {t("omnigent.installRequired")} <code>git:github.com/WOOWTECH/pi-omnigent-plugin</code>
++        </ConfigEmptyState> : <>
++          <ConfigNotice>{view.phase === "ready" ? t("omnigent.ready") : view.loginConfirmed && view.host.connected
++            ? t("omnigent.hostConnected") : t("omnigent.setupRequired")}</ConfigNotice>
++          {!view.active && <ConfigNotice>{t("omnigent.disabled")}</ConfigNotice>}
++          <ConfigDetailGrid>
++            <ConfigDetailGridRow label={t("omnigent.server")}>{view.server || "—"}</ConfigDetailGridRow>
++            <ConfigDetailGridRow label={t("omnigent.host")}>{view.host.name || "—"}</ConfigDetailGridRow>
++            <ConfigDetailGridRow label={t("omnigent.status")}>{view.host.connected ? t("omnigent.online") : t("omnigent.offline")}</ConfigDetailGridRow>
++            <ConfigDetailGridRow label={t("omnigent.version")}>{view.version || "—"}</ConfigDetailGridRow>
++          </ConfigDetailGrid>
++          <div className="omnigent-actions">
++            <ConfigButton disabled={!usable} onClick={() => setShowSetup(value => !value)}>{t("omnigent.configure")}</ConfigButton>
++            {view.server && <a className="config-button config-button-secondary config-button-default" href={view.server} target="_blank" rel="noopener noreferrer">{t("omnigent.open")}</a>}
++            {view.onboardingUrl && <a className="config-button config-button-secondary config-button-default" href={view.onboardingUrl}>{t("omnigent.onboarding")}</a>}
++          </div>
++          {showSetup && <form className="omnigent-setup" onSubmit={event => {
++            event.preventDefault();
++            const form = new FormData(event.currentTarget);
++            const values = { server: form.get("server"), username: form.get("username"), password: form.get("password") };
++            if (password.current) password.current.value = "";
++            void act("connect", values);
++          }}>
++            <ConfigField label={t("omnigent.server")}><input className="config-add-source-input" name="server" aria-label={t("omnigent.server")} type="url" placeholder="https://omnigent.example.com" required disabled={!!busy} /></ConfigField>
++            <ConfigField label={t("omnigent.account")}><input className="config-add-source-input" name="username" aria-label={t("omnigent.account")} autoComplete="username" required disabled={!!busy} /></ConfigField>
++            <ConfigField label={t("omnigent.password")}><input ref={password} className="config-add-source-input" name="password" aria-label={t("omnigent.password")} type="password" autoComplete="current-password" required disabled={!!busy} /></ConfigField>
++            <div className="config-detail-description">{t("omnigent.passwordPrivate")}</div>
++            <ConfigButton variant="primary" type="submit" disabled={!usable}>{busy === "connect" ? t("omnigent.working") : t("omnigent.connect")}</ConfigButton>
++          </form>}
++          <ConfigSectionTitle>{t("omnigent.engines")}</ConfigSectionTitle>
++          <div className="omnigent-engines">
++            {view.engines.map(item => <div className="omnigent-engine" key={item.key}>
++              <strong>{label(item.key)}</strong><span>{item.version || "—"}</span><span>{engineState(item)}</span>
++              <small>{t("omnigent.modelCount").replace("{count}", String(item.models.length))}{item.reason ? ` · ${item.reason}` : ""}</small>
++            </div>)}
++          </div>
++          {view.engines.some(item => item.installed && (!item.models.length || item.configured === "needs-auth")) && <ConfigNotice action={<ConfigButton size="small" onClick={onModels}>{t("omnigent.modelSettings")}</ConfigButton>}>
++            {t("omnigent.providerNotice")}<br /><code>claude auth login --claudeai</code><br /><code>codex login --device-auth</code>
++          </ConfigNotice>}
++          <ConfigSectionTitle>{t("omnigent.verifyTitle")}</ConfigSectionTitle>
++          <div className="config-detail-description">{t("omnigent.verifyNotice")}</div>
++          <div className="omnigent-actions">
++            <select aria-label={t("omnigent.engine")} disabled={!usable} value={selection.engine} onChange={event => setSelection({ engine: event.target.value, model: "" })}>
++              <option value="">{t("omnigent.allEngines")}</option>
++              {view.engines.filter(item => item.installed).map(item => <option key={item.key} value={item.key}>{label(item.key)}</option>)}
++            </select>
++            {engine && <select aria-label={t("omnigent.model")} disabled={!usable} value={selection.model} onChange={event => setSelection(value => ({ ...value, model: event.target.value }))}>
++              <option value="">{t("omnigent.currentModel")}</option>
++              {engine.models.map(model => <option key={model.id} value={model.id}>{model.label}</option>)}
++            </select>}
++            <ConfigButton disabled={!usable || !view.loginConfirmed || !view.host.connected} onClick={() => void act("verify", { ...(selection.engine ? { engine: selection.engine } : {}), ...(selection.model ? { model: selection.model } : {}) })}>{t("omnigent.verify")}</ConfigButton>
++          </div>
++          <ConfigButton variant="danger" disabled={!usable || !view.loginConfirmed} onClick={() => setConfirmDisconnect(true)}>{t("omnigent.disconnect")}</ConfigButton>
++          {confirmDisconnect && <ConfigNotice action={<div className="omnigent-actions"><ConfigButton disabled={!!busy} onClick={() => setConfirmDisconnect(false)}>{t("omnigent.cancel")}</ConfigButton><ConfigButton variant="danger" disabled={!usable} onClick={() => void act("disconnect", { confirm: true })}>{t("omnigent.confirm")}</ConfigButton></div>}>{t("omnigent.disconnectNotice")}</ConfigNotice>}
++        </>}
++      </ConfigDetailStack>
++    </ConfigDetail>
++    <ConfigFooter status={busy ? t("omnigent.working") : ""}><ConfigButton disabled={!!busy} onClick={() => void read()}>{t("omnigent.refresh")}</ConfigButton></ConfigFooter>
++  </ConfigPanelShell>;
++}
+diff --git a/components/SettingsPanel.tsx b/components/SettingsPanel.tsx
+index bf3a2ff..32d0e2c 100644
+--- a/components/SettingsPanel.tsx
++++ b/components/SettingsPanel.tsx
+@@ -33,6 +33,7 @@ import { SkillsConfig } from "./SkillsConfig";
+ import { AgentsConfig } from "./AgentsConfig";
+ import { PluginsConfig } from "./PluginsConfig";
+ import { McpConfig } from "./McpConfig";
++import { OmnigentConfig } from "./OmnigentConfig";
+ import { ConfigButton, ConfigSwitch } from "./SettingsUi";
+ 
+ interface Props {
+@@ -70,6 +71,7 @@ export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: {
+   if (section === "skills") return <svg {...common}><path d="m12 2-10 5 10 5 10-5-10-5Z" /><path d="m2 12 10 5 10-5M2 17l10 5 10-5" /></svg>;
+   if (section === "agents") return <svg {...common} className="settings-section-icon is-agent"><rect x="5" y="7" width="14" height="11" rx="2" /><path d="M9 11h.01M15 11h.01M9 15h6M12 7V4M10 4h4" /></svg>;
+   if (section === "mcp") return <svg {...common}><rect x="3" y="3" width="18" height="7" rx="2" /><rect x="3" y="14" width="18" height="7" rx="2" /><path d="M7 6.5h.01M7 17.5h.01M11 6.5h6M11 17.5h6" /></svg>;
++  if (section === "omnigent") return <svg {...common}><circle cx="12" cy="12" r="4" /><circle cx="12" cy="12" r="9" /><path d="M12 3v5M12 16v5M3 12h5M16 12h5" /></svg>;
+   return <svg {...common}><path d="M9 7V2M15 7V2M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0ZM12 19v3" /></svg>;
+ }
+ 
+@@ -414,6 +416,7 @@ export function SettingsPanel({
+     { id: "agents", label: t("common.agents") },
+     { id: "plugins", label: t("common.plugins") },
+     { id: "mcp", label: t("settings.mcp") },
++    { id: "omnigent", label: "Omnigent" },
+   ] as const).map((item) => ({ ...item, requiresProject: settingsSectionRequiresProject(item.id) }));
+   const sectionRequiresProject = settingsSectionRequiresProject(section);
+ 
+@@ -514,6 +517,7 @@ export function SettingsPanel({
+           {cwd && sectionHost("plugins", <PluginsConfig embedded key={cwd} cwd={cwd} sessionId={sessionId} trust={projectTrust} onClose={onClose} onReloaded={onSessionReloaded} />)}
+           {/* No project needed: the global mcp.json is listed alone, and a project adds its group. */}
+           {sectionHost("mcp", <McpConfig embedded key={cwd ?? ""} cwd={cwd} trust={projectTrust} onTrustProject={onOpenTrustDialog} onProjectTrustChanged={onProjectTrustChanged} onClose={onClose} />)}
++          {sectionHost("omnigent", <OmnigentConfig active={section === "omnigent"} onModels={() => activateSection("models")} />)}
+         </main>
+       </div>
+     </div>
+diff --git a/lib/i18n/messages/en.ts b/lib/i18n/messages/en.ts
+index 0bb5253..5ea7ae3 100644
+--- a/lib/i18n/messages/en.ts
++++ b/lib/i18n/messages/en.ts
+@@ -5,6 +5,50 @@ export const enLocale: LocalePlugin = {
+   id: "en",
+   label: "English",
+   messages: {
++    "omnigent.connection": "Omnigent connection",
++    "omnigent.loading": "Loading…",
++    "omnigent.loadFailed": "Unable to read Omnigent status. Try refreshing.",
++    "omnigent.operationFailed": "Operation incomplete. Review the status below.",
++    "omnigent.installRequired": "Install the Omnigent plugin from Settings → Plugins:",
++    "omnigent.ready": "Host and installed engines passed conversation verification.",
++    "omnigent.hostConnected": "Server signed in · Host online · Model authorization or verification is pending.",
++    "omnigent.setupRequired": "Complete server setup to connect this host.",
++    "omnigent.disabled": "The Omnigent plugin is disabled. Enable it in Plugins first.",
++    "omnigent.server": "Server URL",
++    "omnigent.host": "Host",
++    "omnigent.status": "Connection",
++    "omnigent.version": "Plugin version",
++    "omnigent.online": "Online",
++    "omnigent.offline": "Offline",
++    "omnigent.configure": "Configure connection",
++    "omnigent.open": "Open Omnigent",
++    "omnigent.onboarding": "Setup conversation",
++    "omnigent.account": "Account",
++    "omnigent.password": "Password",
++    "omnigent.passwordPrivate": "Password is sent only to the local plugin login and is never added to a conversation.",
++    "omnigent.working": "Processing…",
++    "omnigent.connect": "Sign in and connect",
++    "omnigent.engines": "Installed engines",
++    "omnigent.notInstalled": "Not installed",
++    "omnigent.providerRequired": "Provider sign-in required",
++    "omnigent.modelsRequired": "No usable models",
++    "omnigent.verified": "Conversation verified",
++    "omnigent.needsVerification": "Conversation verification pending",
++    "omnigent.modelCount": "{count} models",
++    "omnigent.modelSettings": "Model settings",
++    "omnigent.providerNotice": "Server login and model authorization are separate. Configure Pi in Models; sign in to Claude/Codex in this container’s terminal.",
++    "omnigent.verifyTitle": "Conversation verification",
++    "omnigent.verifyNotice": "This button creates bounded test conversations using existing model usage. Viewing this page sends no model prompts.",
++    "omnigent.engine": "Engine",
++    "omnigent.model": "Model",
++    "omnigent.allEngines": "All installed engines",
++    "omnigent.currentModel": "Current native model",
++    "omnigent.verify": "Verify conversations",
++    "omnigent.disconnect": "Disconnect this host",
++    "omnigent.disconnectNotice": "Remove this server’s local login and wait for this host to go offline? Other hosts are unaffected.",
++    "omnigent.cancel": "Cancel",
++    "omnigent.confirm": "Confirm disconnect",
++    "omnigent.refresh": "Refresh",
+     "common.ok": "OK",
+     "common.language": "Language",
+     "common.models": "Models",
+diff --git a/lib/i18n/messages/zh-CN.ts b/lib/i18n/messages/zh-CN.ts
+index eabdadb..4c536b7 100644
+--- a/lib/i18n/messages/zh-CN.ts
++++ b/lib/i18n/messages/zh-CN.ts
+@@ -5,6 +5,50 @@ export const zhCNLocale: LocalePlugin = {
+   id: "zh-CN",
+   label: "简体中文",
+   messages: {
++    "omnigent.connection": "Omnigent 連線",
++    "omnigent.loading": "讀取中…",
++    "omnigent.loadFailed": "無法讀取 Omnigent 狀態，請重新整理。",
++    "omnigent.operationFailed": "操作尚未完成，請查看下方狀態。",
++    "omnigent.installRequired": "請先到設定 → 外掛安裝 Omnigent 插件：",
++    "omnigent.ready": "主機及已安裝引擎均已通過實際對話驗證。",
++    "omnigent.hostConnected": "Server 已登入 · 主機已在線 · 模型授權或驗證待處理。",
++    "omnigent.setupRequired": "請完成 server 設定以連接此主機。",
++    "omnigent.disabled": "Omnigent 插件已停用，請先在外掛頁啟用。",
++    "omnigent.server": "Server 網址",
++    "omnigent.host": "主機",
++    "omnigent.status": "連線狀態",
++    "omnigent.version": "插件版本",
++    "omnigent.online": "在線",
++    "omnigent.offline": "離線",
++    "omnigent.configure": "設定連線",
++    "omnigent.open": "開啟 Omnigent",
++    "omnigent.onboarding": "開啟設定對話",
++    "omnigent.account": "帳號",
++    "omnigent.password": "密碼",
++    "omnigent.passwordPrivate": "密碼只送到本機插件登入，不寫入對話。",
++    "omnigent.working": "處理中…",
++    "omnigent.connect": "登入並連線",
++    "omnigent.engines": "現有引擎",
++    "omnigent.notInstalled": "未安裝",
++    "omnigent.providerRequired": "需要供應商登入",
++    "omnigent.modelsRequired": "沒有可用模型",
++    "omnigent.verified": "對話驗證通過",
++    "omnigent.needsVerification": "待驗證實際對話",
++    "omnigent.modelCount": "{count} 個模型",
++    "omnigent.modelSettings": "開啟模型設定",
++    "omnigent.providerNotice": "Server 登入與模型授權分開。Pi 請到模型設定；Claude／Codex 請在此容器終端完成官方登入。",
++    "omnigent.verifyTitle": "實際對話驗證",
++    "omnigent.verifyNotice": "按此按鈕才建立短測試對話並使用既有模型額度；檢視此頁不發送模型提示。",
++    "omnigent.engine": "引擎",
++    "omnigent.model": "模型",
++    "omnigent.allEngines": "所有已安裝引擎",
++    "omnigent.currentModel": "原生目前模型",
++    "omnigent.verify": "驗證對話",
++    "omnigent.disconnect": "取消此主機連線",
++    "omnigent.disconnectNotice": "要清除此 server 的本機登入，並等待此主機離線嗎？其他主機不受影響。",
++    "omnigent.cancel": "取消",
++    "omnigent.confirm": "確認取消連線",
++    "omnigent.refresh": "重新整理",
+     "common.ok": "确定",
+     "common.language": "语言",
+     "common.models": "模型",
+diff --git a/lib/i18n/messages/zh-TW.ts b/lib/i18n/messages/zh-TW.ts
+index 3c18dc6..86c9669 100644
+--- a/lib/i18n/messages/zh-TW.ts
++++ b/lib/i18n/messages/zh-TW.ts
+@@ -5,6 +5,50 @@ export const zhTWLocale: LocalePlugin = {
+   id: "zh-TW",
+   label: "繁體中文",
+   messages: {
++    "omnigent.connection": "Omnigent 連線",
++    "omnigent.loading": "讀取中…",
++    "omnigent.loadFailed": "無法讀取 Omnigent 狀態，請重新整理。",
++    "omnigent.operationFailed": "操作尚未完成，請查看下方狀態。",
++    "omnigent.installRequired": "請先到設定 → 外掛安裝 Omnigent 插件：",
++    "omnigent.ready": "主機及已安裝引擎均已通過實際對話驗證。",
++    "omnigent.hostConnected": "Server 已登入 · 主機已在線 · 模型授權或驗證待處理。",
++    "omnigent.setupRequired": "請完成 server 設定以連接此主機。",
++    "omnigent.disabled": "Omnigent 插件已停用，請先在外掛頁啟用。",
++    "omnigent.server": "Server 網址",
++    "omnigent.host": "主機",
++    "omnigent.status": "連線狀態",
++    "omnigent.version": "插件版本",
++    "omnigent.online": "在線",
++    "omnigent.offline": "離線",
++    "omnigent.configure": "設定連線",
++    "omnigent.open": "開啟 Omnigent",
++    "omnigent.onboarding": "開啟設定對話",
++    "omnigent.account": "帳號",
++    "omnigent.password": "密碼",
++    "omnigent.passwordPrivate": "密碼只送到本機插件登入，不寫入對話。",
++    "omnigent.working": "處理中…",
++    "omnigent.connect": "登入並連線",
++    "omnigent.engines": "現有引擎",
++    "omnigent.notInstalled": "未安裝",
++    "omnigent.providerRequired": "需要供應商登入",
++    "omnigent.modelsRequired": "沒有可用模型",
++    "omnigent.verified": "對話驗證通過",
++    "omnigent.needsVerification": "待驗證實際對話",
++    "omnigent.modelCount": "{count} 個模型",
++    "omnigent.modelSettings": "開啟模型設定",
++    "omnigent.providerNotice": "Server 登入與模型授權分開。Pi 請到模型設定；Claude／Codex 請在此容器終端完成官方登入。",
++    "omnigent.verifyTitle": "實際對話驗證",
++    "omnigent.verifyNotice": "按此按鈕才建立短測試對話並使用既有模型額度；檢視此頁不發送模型提示。",
++    "omnigent.engine": "引擎",
++    "omnigent.model": "模型",
++    "omnigent.allEngines": "所有已安裝引擎",
++    "omnigent.currentModel": "原生目前模型",
++    "omnigent.verify": "驗證對話",
++    "omnigent.disconnect": "取消此主機連線",
++    "omnigent.disconnectNotice": "要清除此 server 的本機登入，並等待此主機離線嗎？其他主機不受影響。",
++    "omnigent.cancel": "取消",
++    "omnigent.confirm": "確認取消連線",
++    "omnigent.refresh": "重新整理",
+     "common.ok": "確定",
+     "common.language": "語言",
+     "common.models": "模型",
+diff --git a/lib/omnigent-runtime.test.mjs b/lib/omnigent-runtime.test.mjs
+new file mode 100644
+index 0000000..dd9fa4e
+--- /dev/null
++++ b/lib/omnigent-runtime.test.mjs
+@@ -0,0 +1,50 @@
++import assert from "node:assert/strict";
++import test from "node:test";
++import { createJiti } from "jiti";
++const { createOmnigentBridge } = await createJiti(import.meta.url).import("./omnigent-runtime.ts");
++
++function fixture() {
++  const calls = [];
++  const current = { phase: "needs-verification", enabled: true, loginConfirmed: true, server: "https://omni.example",
++    host: { id: "own-host", name: "Own host", connected: true, accessToken: "must-never-escape" },
++    engines: { claude: { available: true, version: "2.1.0", configured: "needs-auth" } }, verification: {}, password: "must-never-escape" };
++  const plugin = { version: "0.2.2", lifecycle: async () => ({ active: true }), onboarding: () => ({ sessionId: "own-onboarding", sessionFile: "/private/hidden" }),
++    runtime: { status: async () => current,
++      catalog: async () => ({ ok: true, data: { engines: { claude: { models: [], apiKey: "must-never-escape" } } } }),
++      initialize: async input => { calls.push(input); return { ok: true, token: "must-never-escape" }; },
++      verify: async input => { calls.push(input); return { ok: false, busy: true, error: { code: "OPERATION_BUSY", message: "must-never-escape" } }; },
++      disconnect: async () => { calls.push("disconnect"); return { ok: true }; } } };
++  return { current, plugin, calls, bridge: createOmnigentBridge(async () => plugin) };
++}
++test("reading connection status preserves stages and never exposes credential-bearing raw payloads", async () => {
++  const { bridge, calls } = fixture(); const view = await bridge.read();
++  assert.equal(view.host.connected, true); assert.equal(view.phase, "needs-verification");
++  assert.equal(view.engines[0].configured, "needs-auth"); assert.equal(view.engines[0].verified, false);
++  assert.equal(view.onboardingUrl, "/?session=own-onboarding");
++  assert.equal(JSON.stringify(view).includes("must-never-escape"), false);
++  assert.equal(JSON.stringify(view).includes("/private/"), false); assert.equal(calls.length, 0);
++});
++test("connect passes fresh credentials directly to runtime with chat disabled, then projects only safe metadata", async () => {
++  const { bridge, calls } = fixture(); const view = await bridge.act({ action: "connect", server: "https://omni.example", username: "person", password: "private-password" });
++  assert.equal(calls[0].password, "private-password"); assert.equal(calls[0].verify, false);
++  assert.equal(JSON.stringify(view).includes("private-password"), false); assert.equal(JSON.stringify(view).includes("must-never-escape"), false);
++});
++test("unsupported inputs cannot invoke runtime or pick executable paths", async () => {
++  const { bridge, calls } = fixture();
++  for (const body of [{ action: "execute", command: "any" }, { action: "disconnect" }, { action: "connect", server: "https://user:password@omni.example", username: "person", password: "password" }, { action: "verify", engine: "shell" }, { action: "verify", model: "any" }]) {
++    await assert.rejects(bridge.act(body));
++  }
++  assert.equal(calls.length, 0);
++});
++test("explicit model verification cannot become a silent model turn from a page read", async () => {
++  const { bridge, calls } = fixture(); const result = await bridge.act({ action: "verify", engine: "claude", model: "opus" });
++  assert.deepEqual(calls, [{ engine: "claude", model: "opus" }]);
++  assert.deepEqual(result.operation, { ok: false, code: "OPERATION_BUSY" });
++});
++test("disabled and absent plugins cannot operate or probe a host", async () => {
++  const ctx = fixture(); ctx.plugin.lifecycle = async () => ({ active: false });
++  ctx.plugin.runtime.status = () => assert.fail("disabled plugin must not probe a host");
++  assert.equal((await ctx.bridge.read()).active, false);
++  await assert.rejects(ctx.bridge.act({ action: "verify" }));
++  assert.equal((await createOmnigentBridge(async () => null).read()).installed, false);
++});
+diff --git a/lib/omnigent-runtime.ts b/lib/omnigent-runtime.ts
+new file mode 100644
+index 0000000..1c80b23
+--- /dev/null
++++ b/lib/omnigent-runtime.ts
+@@ -0,0 +1,103 @@
++import { existsSync, readFileSync } from "node:fs";
++import { join, resolve } from "node:path";
++import { pathToFileURL } from "node:url";
++import { getAgentDir } from "@earendil-works/pi-coding-agent";
++import type { OmnigentView } from "./omnigent-types";
++
++type RecordValue = Record<string, unknown>;
++const record = (value: unknown): RecordValue => value && typeof value === "object" && !Array.isArray(value) ? value as RecordValue : {};
++const text = (value: unknown): string | null => typeof value === "string" ? value.replace(/[\x00-\x1f\x7f]/g, "").slice(0, 256) : null;
++const code = (value: unknown): string | null => typeof value === "string" && /^[A-Z_0-9]{1,64}$/.test(value) ? value : null;
++
++interface Runtime {
++  status(): Promise<RecordValue>;
++  catalog(): Promise<RecordValue>;
++  initialize(options: RecordValue): Promise<RecordValue>;
++  verify(options: RecordValue): Promise<RecordValue>;
++  disconnect(): Promise<RecordValue>;
++}
++interface Plugin {
++  runtime: Runtime;
++  lifecycle(): Promise<{ active: boolean }>;
++  onboarding(): RecordValue;
++  version: string;
++}
++
++async function loadPlugin(): Promise<Plugin | null> {
++  // This root is operator-controlled; HTTP callers can never choose code paths.
++  const root = resolve(process.env.PI_OMNIGENT_PLUGIN_ROOT || join(getAgentDir(), "git/github.com/WOOWTECH/pi-omnigent-plugin"));
++  const manifest = join(root, "package.json");
++  if (!existsSync(manifest)) return null;
++  const pkg = JSON.parse(readFileSync(manifest, "utf8"));
++  if (pkg.name !== "@woowtech/pi-omnigent-plugin") return null;
++  const runtime = await import(/* webpackIgnore: true */ pathToFileURL(join(root, "src/runtime.mjs")).href) as Runtime;
++  const web = await import(/* webpackIgnore: true */ pathToFileURL(join(root, "src/web.mjs")).href) as {
++    packageLifecycle(): Promise<{ active: boolean }>;
++    readOnboarding(): RecordValue;
++  };
++  return { runtime, lifecycle: () => web.packageLifecycle(), onboarding: () => web.readOnboarding(), version: pkg.version };
++}
++
++function safeServer(value: unknown): string | null {
++  if (typeof value !== "string") return null;
++  try {
++    const url = new URL(value);
++    return ["https:", "http:"].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash ? url.href.replace(/\/+$/, "") : null;
++  } catch { return null; }
++}
++
++const emptyView = (installed = false): OmnigentView => ({ installed, active: false, version: null, phase: "unavailable", server: null,
++  loginConfirmed: false, host: { id: null, name: null, connected: false }, engines: [], onboardingUrl: null });
++
++/** The same operations the installed plugin exposes, projected to safe UI data. */
++export function createOmnigentBridge(load: () => Promise<Plugin | null> = loadPlugin) {
++  async function snapshot(plugin: Plugin): Promise<OmnigentView> {
++    const lifecycle = await plugin.lifecycle();
++    if (!lifecycle.active) return { ...emptyView(true), version: plugin.version, phase: "disabled" };
++    const current = await plugin.runtime.status();
++    const host = record(current.host);
++    const catalog = current.loginConfirmed === true && host.connected === true ? await plugin.runtime.catalog() : {};
++    const catalogEngines = record(record(catalog.data).engines);
++    const engines = record(current.engines), proofs = record(current.verification);
++    const onboard = plugin.onboarding();
++    const sessionId = typeof onboard.sessionId === "string" && /^[a-zA-Z0-9-]{1,80}$/.test(onboard.sessionId) ? onboard.sessionId : null;
++    return { installed: true, active: true, version: plugin.version, phase: text(current.phase) || "unknown",
++      server: safeServer(current.server), loginConfirmed: current.loginConfirmed === true,
++      host: { id: text(host.id), name: text(host.name), connected: host.connected === true },
++      onboardingUrl: sessionId ? `/?session=${encodeURIComponent(sessionId)}` : null,
++      engines: ["claude", "codex", "pi"].map(key => {
++        const engine = record(engines[key]), proof = record(proofs[key]), inventory = record(catalogEngines[key]);
++        return { key, installed: engine.available === true, version: text(engine.version),
++          configured: typeof engine.configured === "boolean" ? engine.configured : text(engine.configured),
++          ready: inventory.ready === true, verified: proof.ok === true && proof.cleanup === "stopped" && proof.hostId === host.id && proof.server === current.server && (!proof.cliVersion || proof.cliVersion === engine.version),
++          reason: code(proof.reason), models: (Array.isArray(inventory.models) ? inventory.models : []).flatMap(value => {
++            const model = record(value), id = text(model.id);
++            return id ? [{ id, label: text(model.displayName) || id }] : [];
++          }) };
++      }) };
++  }
++  return {
++    async read(): Promise<OmnigentView> { const plugin = await load(); return plugin ? snapshot(plugin) : emptyView(); },
++    async act(body: RecordValue): Promise<OmnigentView> {
++      const plugin = await load();
++      if (!plugin || !(await plugin.lifecycle()).active) throw Object.assign(new Error("Plugin unavailable"), { code: "PLUGIN_UNAVAILABLE" });
++      let result: RecordValue;
++      if (body.action === "connect") {
++        if (typeof body.server !== "string" || !body.server.trim() || body.server.length > 2048 || !safeServer(body.server.trim())
++          || typeof body.username !== "string" || !body.username.trim() || body.username.length > 256
++          || typeof body.password !== "string" || !body.password || body.password.length > 4096) {
++          throw Object.assign(new Error("Missing setup fields"), { code: "INVALID_SETUP" });
++        }
++        result = await plugin.runtime.initialize({ server: body.server.trim(), username: body.username.trim(), password: body.password, verify: false });
++      } else if (body.action === "verify") {
++        const engine = typeof body.engine === "string" && ["claude", "codex", "pi"].includes(body.engine) ? body.engine : undefined;
++        if (body.engine !== undefined && !engine) throw Object.assign(new Error("Invalid engine"), { code: "INVALID_ENGINE" });
++        if (body.model !== undefined && (typeof body.model !== "string" || body.model.length > 256 || !engine)) throw Object.assign(new Error("Invalid model"), { code: "INVALID_MODEL" });
++        result = await plugin.runtime.verify({ ...(engine ? { engine } : {}), ...(body.model ? { model: body.model } : {}) });
++      } else if (body.action === "disconnect" && body.confirm === true) result = await plugin.runtime.disconnect();
++      else throw Object.assign(new Error("Unsupported action"), { code: "INVALID_ACTION" });
++      // Never project raw adapter messages, connection payloads or login inputs.
++      return { ...await snapshot(plugin), operation: { ok: result.ok === true, code: code(record(result.error).code) } };
++    },
++  };
++}
+diff --git a/lib/omnigent-types.ts b/lib/omnigent-types.ts
+new file mode 100644
+index 0000000..ccb668c
+--- /dev/null
++++ b/lib/omnigent-types.ts
+@@ -0,0 +1,23 @@
++export interface OmnigentEngine {
++  key: string;
++  installed: boolean;
++  version: string | null;
++  configured: boolean | string | null;
++  ready: boolean;
++  verified: boolean;
++  reason: string | null;
++  models: { id: string; label: string }[];
++}
++
++export interface OmnigentView {
++  installed: boolean;
++  active: boolean;
++  version: string | null;
++  phase: string;
++  server: string | null;
++  loginConfirmed: boolean;
++  host: { id: string | null; name: string | null; connected: boolean };
++  engines: OmnigentEngine[];
++  onboardingUrl: string | null;
++  operation?: { ok: boolean; code: string | null };
++}
+diff --git a/lib/settings-navigation.test.mjs b/lib/settings-navigation.test.mjs
+index 8d4ac8b..874fb21 100644
+--- a/lib/settings-navigation.test.mjs
++++ b/lib/settings-navigation.test.mjs
+@@ -39,6 +39,13 @@ test("restores the last settings section and falls back without a project", () =
+   assert.equal(getLastSettingsSection("/project", storage), "agents");
+ });
+ 
++test("Omnigent is immediately after MCP and its host settings do not require a project", () => {
++  assert.equal(SETTINGS_SECTION_VALUES.indexOf("omnigent"), SETTINGS_SECTION_VALUES.indexOf("mcp") + 1);
++  const storage = createStorage(); setLastSettingsSection("omnigent", storage);
++  assert.equal(getLastSettingsSection(null, storage), "omnigent");
++  assert.equal(settingsSectionRequiresProject("omnigent"), false);
++});
++
+ test("keeps project settings selections isolated by cwd", () => {
+   const storage = createStorage();
+ 
+diff --git a/lib/settings-navigation.ts b/lib/settings-navigation.ts
+index 5367458..20fd5e6 100644
+--- a/lib/settings-navigation.ts
++++ b/lib/settings-navigation.ts
+@@ -5,6 +5,7 @@ export const SETTINGS_SECTION_VALUES = [
+   "agents",
+   "plugins",
+   "mcp",
++  "omnigent",
+ ] as const;
+ 
+ export type SettingsSection = (typeof SETTINGS_SECTION_VALUES)[number];
+@@ -65,7 +66,7 @@ function readState(storage: StorageLike): SettingsNavigationState {
+ }
+ 
+ function selectionKey(section: SettingsDetailSection, cwd?: string | null): string | null {
+-  if (section === "models") return section;
++  if (section === "models" || section === "omnigent") return section;
+   if (cwd) return JSON.stringify([section, cwd]);
+   // MCP works without a project; its selection then lives under the bare name,
+   // which no project key (always an array) can collide with.

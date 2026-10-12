@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "date": "2026-10-12",
+  "scope": "Pi 6 isolated candidate port, existing server and host state",
+  "nativeTabAfterMcp": true,
+  "desktop": true,
+  "mobile": true,
+  "passwordMasked": true,
+  "passwordClearedOnSectionSwitch": true,
+  "preservedPaseoApiHttp": 200,
+  "pluginVersion": "0.2.2",
+  "phase": "needs-verification",
+  "hostOnline": true,
+  "engines": [
+    {
+      "key": "claude",
+      "configured": "needs-auth",
+      "ready": false,
+      "verified": false
+    },
+    {
+      "key": "codex",
+      "configured": "needs-auth",
+      "ready": false,
+      "verified": false
+    },
+    {
+      "key": "pi",
+      "configured": true,
+      "ready": false,
+      "verified": false
+    }
+  ],
+  "formalRoutingInstalled": false,
+  "formalRouting": "pending operator approval",
+  "piWebBase": "6fcd7d44981ab51a21d6cd6eb06d361d0e3d3068"
+}

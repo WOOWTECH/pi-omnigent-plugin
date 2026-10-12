@@ -7,6 +7,7 @@ import { initialize, status, catalog, verify, repair, disconnect, setEnabled, en
 import { ensureOnboarding, installHost, uninstallHost, packageLifecycle, boot, launchWeb } from '../src/web.mjs';
 import { installDependencies } from '../src/installer.mjs';
 import { acceptance } from '../src/acceptance.mjs';
+import { installUi } from './install-ui.mjs';
 
 const [command = 'status', ...args] = process.argv.slice(2);
 const loc = locations();
@@ -30,6 +31,7 @@ try {
   } else if (command === 'install-dependencies') {
     print(await installDependencies({ home: loc.home, stateDir: loc.stateDir, update: args.includes('--update') }));
   } else if (command === 'install-host') print(await installHost({ loc }));
+  else if (command === 'install-ui') print(await installUi({ ...(option('--prebuilt-root') ? { prebuiltRoot: option('--prebuilt-root') } : {}) }));
   else if (command === 'uninstall-host') print(await uninstallHost({ loc }));
   else if (command === 'onboarding') print(await ensureOnboarding({ loc }));
   else if (command === 'boot') {
