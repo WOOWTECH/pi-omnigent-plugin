@@ -88,3 +88,4 @@ Pi Web Plugins 的停用／移除操作會停止插件自動處理；移除套�
 Omnigent server 帳密與模型供應商授權分開。新容器即使已登入 server、host 已在線，Claude Code／Codex 仍需各自完成官方模型登入，Pi 也需設定可用模型。插件會指出缺少哪一個授權；完成後使用 `/omnigent verify`，不必重新輸入 server 帳密。重新開啟已完成 server 登入的設定對話會續接模型授權說明；明確執行 `/omnigent setup` 或重新啟用仍會重新詢問。
 
 v0.2.2 支援包含原生 fallback 的 shared-runtime 啟動器，先備份再串接；未辨識的自訂啟動器仍保留。背景啟動結果寫入私有 `boot.json`。尚未完成登入時，啟動程序會重載專用設定對話一次，讓舊 runtime 的精靈重新啟動；不重載其他對話。
+登入設定、重新連線與 repair 預設不建立測試對話、不發送模型訊息。只有明確執行 `/omnigent verify`、verify 工具或 `acceptance --chat` 才建立 connection check 對話。啟動與背景狀態檢查不執行聊天驗證。

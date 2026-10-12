@@ -26,7 +26,7 @@ try {
   else if (command === 'verify') print(await verify({ engine: option('--engine'), model: option('--model') }));
   else if (command === 'initialize' || command === 'repair') {
     // Passwords are collected by the Pi extension's masked component, never argv.
-    print(await (command === 'repair' ? repair : initialize)({ server: option('--server'), update: args.includes('--update'), verify: !args.includes('--no-verify') }));
+    print(await (command === 'repair' ? repair : initialize)({ server: option('--server'), update: args.includes('--update'), verify: args.includes('--verify') && !args.includes('--no-verify') }));
   } else if (command === 'install-dependencies') {
     print(await installDependencies({ home: loc.home, stateDir: loc.stateDir, update: args.includes('--update') }));
   } else if (command === 'install-host') print(await installHost({ loc }));

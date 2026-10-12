@@ -73,7 +73,7 @@ export function registerOmnigent(pi: ExtensionAPI, backend: Backend, web: any = 
       if (!username || disposed) return;
       let password = await requestPassword(ctx);
       if (!password || disposed) { ctx.ui.notify('尚未提供密碼，設定已保留，可使用 /omnigent setup 重試。', 'info'); return; }
-      try { current = await backend.initialize({ server: server.trim(), username: username.trim(), password, verify: true }); }
+      try { current = await backend.initialize({ server: server.trim(), username: username.trim(), password, verify: false }); }
       finally { password = undefined; }
       if (disposed) return;
       const result = await backend.status();
