@@ -1,0 +1,65 @@
+{
+  "deployment": "svc-08cf5049-pi-agent",
+  "namespace": "paas-ws-504a2b17",
+  "formalRoutingInstalled": true,
+  "mockedResponses": false,
+  "nativeTabAfterMcp": true,
+  "freshBlankSetupFields": true,
+  "passwordMaskedAndClearedOnSectionSwitch": true,
+  "connectSucceeded": true,
+  "hostId": "9af5e2fec71e41c19a7c6390b42d6896",
+  "disconnectSucceeded": true,
+  "reconnectSucceeded": true,
+  "reconnectPreservesHostId": true,
+  "desktopRendered": true,
+  "mobileRendered": true,
+  "pluginVersion": "0.3.0",
+  "phase": "needs-verification",
+  "engines": [
+    {
+      "key": "claude",
+      "installed": true,
+      "configured": "needs-auth",
+      "modelCount": 0,
+      "verified": false
+    },
+    {
+      "key": "codex",
+      "installed": true,
+      "configured": "needs-auth",
+      "modelCount": 0,
+      "verified": false
+    },
+    {
+      "key": "pi",
+      "installed": true,
+      "configured": true,
+      "modelCount": 0,
+      "verified": false
+    }
+  ],
+  "checkedAt": "2026-10-12T11:02:03.496215+00:00",
+  "installerRevision": "v0.3.1 candidate npm-cache fix",
+  "deploymentReady": true,
+  "installedWithPublicSource": "git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.0",
+  "pathRoutingPersistent": true,
+  "apiSecurityChecks": {
+    "crossOrigin": 403,
+    "nonJson": 415,
+    "invalidJson": 400,
+    "unconfirmedDisconnect": 400,
+    "invalidEngine": 400,
+    "oversizeBody": 413
+  },
+  "modelChatAcceptance": {
+    "ok": false,
+    "claude": "ENGINE_NOT_READY",
+    "codex": "ENGINE_NOT_READY",
+    "pi": "MODELS_UNAVAILABLE"
+  },
+  "automatedTests": {
+    "nodePassed": 108,
+    "pythonPassed": 41
+  },
+  "providerAuthorizationPending": true
+}

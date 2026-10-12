@@ -6,8 +6,10 @@
 
 adapter-meta 固定 commit 與 patch SHA-256；install-ui 建置、私有保存及原子發佈。--prebuilt-root 會先比對所有來源檔案。已安裝 Paseo 時疊加它當下的已驗證 patch；來源不一致會停止並保留原路由。shared-runtime 的 realWebBeforeOmnigentUi 留存供回退。
 
-已驗證桌面、手機選單、中文、密碼遮罩及切換清空。Pi 6 host 在線，但模型授權仍待完成，不以 UI 成功宣稱模型驗收完成。
+已驗證桌面、手機選單、中文、密碼遮罩及切換清空。Pi 7 正式安裝並重啟後，原生 Omnigent 分頁位於 MCP 右側，實際登入、取消、重連均通過且 host ID 保持相同。Claude／Codex 尚需供應商登入，Pi 尚無可用模型；不以 UI 成功宣稱模型驗收完成。
+
+非 root 容器可能繼承不可寫的 `/tmp/npm-cache`；v0.3.1 固定使用管理目錄內的私有 npm-cache，大小寫 npm 快取環境設定都會覆寫。啟動服務的 PATH 須優先包含 `$HOME/.local/bin`；Pi 7 實測以 deployment 的 pi-web 容器 PATH 串接，重啟後生效。
 
 回退：同一 Unix 帳號把 shared-runtime/host.json 的 realWeb 還原為 realWebBeforeOmnigentUi，重啟 Pi Web。未知啟動器保留並回報 manual-routing-required，不直接覆蓋。
 
-[Pi 6 候選版實測證據](../../docs/evidence/pi6-native-ui-2026-10-12.json)。正式路由尚待操作人核准；目前不影響原 Pi 6 的 Pi Web/Paseo 服務。
+[Pi 7 正式部署實測證據](../../docs/evidence/pi7-native-ui-2026-10-12.json)。[Pi 6 候選版歷史證據](../../docs/evidence/pi6-native-ui-2026-10-12.json) 保留原測試範圍；本次部署只操作 Pi 7。

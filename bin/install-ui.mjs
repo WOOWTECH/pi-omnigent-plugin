@@ -271,8 +271,12 @@ export async function installUi(options = {}) {
         verifyPackage(stage);
         if (options.prebuiltRoot) await copyPrebuilt(fs.realpathSync(path.resolve(options.prebuiltRoot)), stage, run, env, meta);
         else {
+          // Container images may point npm at a root-owned /tmp cache. Keep
+          // build downloads in a private, writable directory under this home.
+          const npmCache = path.join(root, 'npm-cache');
+          safeDirectory(npmCache, home);
           // Next's default counts host CPUs, which can exceed container quotas.
-          const buildEnv = { ...env, HOME: home, CI: '1', CIRCLE_NODE_TOTAL: '3', NEXT_TELEMETRY_DISABLED: '1', PI_OMNIGENT_UI_SKIP_POSTINSTALL: '1', npm_config_production: 'false', NPM_CONFIG_PRODUCTION: 'false' };
+          const buildEnv = { ...env, HOME: home, CI: '1', CIRCLE_NODE_TOTAL: '3', NEXT_TELEMETRY_DISABLED: '1', PI_OMNIGENT_UI_SKIP_POSTINSTALL: '1', npm_config_production: 'false', NPM_CONFIG_PRODUCTION: 'false', npm_config_cache: npmCache, NPM_CONFIG_CACHE: npmCache };
           await run('npm', ['ci', '--include=dev', '--no-audit', '--no-fund'], { cwd: stage, env: { ...buildEnv, NODE_ENV: 'development' } });
           await run('npm', ['run', 'build'], { cwd: stage, env: { ...buildEnv, NODE_ENV: 'production' } });
         }

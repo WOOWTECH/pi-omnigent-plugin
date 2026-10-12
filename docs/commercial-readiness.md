@@ -1,3 +1,15 @@
+# v0.3.1 Pi 7 原生設定分頁實測
+
+2026-10-12 在全新 Pi 7（svc-08cf5049-pi-agent）安裝公開 v0.3.0 後自動建立設定對話，下載 Omnigent，並正式建置原生設定分頁。首次建置在 npm ci 出現 EACCES：容器 uid 1000 繼承不可寫的 /tmp/npm-cache。v0.3.1 改用管理目錄下 0700 私有快取，已在同一 Pi 7 完成完整 npm ci、正式 build 與路由串接。沒有補裝任何引擎。
+
+Pi 7 的服務 PATH 原本不包含 $HOME/.local/bin；更新 pi-web 容器的啟動 PATH 並確認無進行中對話後重啟，部署就緒。桌面設定 modal 的 Omnigent 位於 MCP 右側；手機使用原生分頁選單。真實瀏覽器登入、取消、重新登入都成功，重連沿用 host ID；首次與重新設定欄位皆空白，密碼遮罩且切換分頁會清空。測試沒有 mock API。
+
+正式 API 拒絕跨站請求（403）、非 JSON（415）、壞 JSON／未確認取消／錯誤引擎（400）與過大內容（413）。插件回歸 108 個 Node 與 41 個 Python 測試通過，包含繼承大小寫 npm cache 設定時的權限回歸。
+
+實際 acceptance --chat 顯示 server 已核准、host 在線、模型／模組目錄可查；三種 Agent 模組存在。Claude Code 2.1.296 與 Codex 0.162.1 缺少供應商登入，聊天驗收回傳 ENGINE_NOT_READY；Pi 1.0.0 沒有可用模型，回傳 MODELS_UNAVAILABLE。三個模型數皆為 0，最終維持 needs-verification，不能宣稱 Pi 7 完整模型對話已通過。授權來源待操作人指定，完成後需重新執行驗收。
+
+本輪只操作 Pi 7；Pi 6 候選版證據與 Pi 5 成功對話證據各自保留，不能代替 Pi 7 的模型驗收。見 [Pi 7 原始證據](evidence/pi7-native-ui-2026-10-12.json)。
+
 # v0.2.2 Pi 6 安裝與設定修正
 
 2026-10-12 在新 Pi 6 實機確認：v0.2.1 已建立設定對話，但沒有呈現 server 輸入視窗；重載該專用對話後，瀏覽器可直接顯示 `Omnigent Server URL`。另確認新 shared-runtime 的原生 fallback 啟動器未被原有辨識規則串接，只有獨立命名的 wrapper。

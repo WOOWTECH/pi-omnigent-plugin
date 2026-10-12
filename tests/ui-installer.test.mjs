@@ -39,7 +39,7 @@ function fixture(t) {
   let failBuild = false, buildDelay = 0;
   const env = { ...process.env, HOME: home, PI_CODING_AGENT_DIR: path.join(home, 'agent'), PI_AGENT_DATA_DIR: path.join(home, 'agent'), PATH: path.dirname(native) + path.delimiter + process.env.PATH };
   const runner = async (command, args, options = {}) => {
-    calls.push({ command, args: [...args], cwd: options.cwd, nodeEnv: options.env?.NODE_ENV, production: options.env?.npm_config_production, home: options.env?.HOME, buildCpuTotal: options.env?.CIRCLE_NODE_TOTAL });
+    calls.push({ command, args: [...args], cwd: options.cwd, nodeEnv: options.env?.NODE_ENV, production: options.env?.npm_config_production, home: options.env?.HOME, buildCpuTotal: options.env?.CIRCLE_NODE_TOTAL, npmCache: options.env?.npm_config_cache, upperNpmCache: options.env?.NPM_CONFIG_CACHE });
     if (command === 'npm') {
       if (args[0] === 'ci') write(path.join(options.cwd, 'node_modules/next/dist/bin/next'), '// fixture next\n');
       else {
@@ -91,6 +91,18 @@ test('changed existing UI overlay stops before building or changing any routing'
   write(path.join(overlay, 'host/adapter-meta.json'), JSON.stringify(f.meta));
   await assert.rejects(installUi({ ...f.options, overlayPackageRoot: overlay }), { code: 'EXISTING_UI_OVERLAY_MISMATCH' });
   assert.equal(f.calls.length, 0);
+});
+
+test('build overrides inherited npm caches with a private writable home directory', async t => {
+  const f = fixture(t);
+  await installUi({ ...f.options, env: { ...f.options.env, npm_config_cache: '/root/unwritable-cache', NPM_CONFIG_CACHE: '/tmp/root-owned-cache' } });
+  const cache = path.join(f.managed, 'npm-cache');
+  for (const call of f.calls.filter(c => c.command === 'npm')) {
+    assert.equal(call.npmCache, cache);
+    assert.equal(call.upperNpmCache, cache);
+  }
+  assert.equal(fs.statSync(cache).mode & 0o777, 0o700);
+  fs.accessSync(cache, fs.constants.W_OK);
 });
 
 test('pinned fetch builds with dev dependencies; rerun reuses; wrapper preserves args, environment and fallback', async t => {
