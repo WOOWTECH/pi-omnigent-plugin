@@ -7,7 +7,7 @@ import { EventEmitter } from 'node:events';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { ensureOnboarding, installHost, uninstallHost, loadPiSdk, boot, startOnboardingSession, launchWeb, packageLifecycle, watchPackageLifecycle } from '../src/web.mjs';
+import { ensureOnboarding, installHost, uninstallHost, loadPiSdk, boot, startOnboardingSession, refreshOnboardingSession, launchWeb, packageLifecycle, watchPackageLifecycle } from '../src/web.mjs';
 
 function fixture(t) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-omnigent-web-'));
@@ -101,6 +101,42 @@ test('postinstall readiness reloads only the generated onboarding session until 
 
 test('host startup refuses a remote credential destination', async () => {
   await assert.rejects(startOnboardingSession('id', { webUrl: 'https://remote.example.com', fetch: () => assert.fail('must not send credentials') }), /local HTTP origin/);
+});
+
+test('native settings refresh only the saved onboarding and never submit a model prompt', async t => {
+  const options = fixture(t), requests = [];
+  fs.mkdirSync(options.stateDir, { recursive: true });
+  fs.writeFileSync(path.join(options.stateDir, 'onboarding.json'), JSON.stringify({ sessionId: 'own-onboarding' }));
+  const result = await refreshOnboardingSession({ ...options, env: { ...options.env, PI_WEB_PASSWORD: 'private-fixture' }, fetch: async (url, request) => {
+    requests.push({ url: String(url), request });
+    return { ok: true, json: async () => requests.length === 1 ? { runningSessionIds: ['another-active-session'] } : { success: true } };
+  } });
+  assert.equal(result.status, 'refreshed');
+  assert.equal(new URL(requests[1].url).pathname, '/api/agent/own-onboarding');
+  assert.deepEqual(JSON.parse(requests[1].request.body), { type: 'reload', clearExtensionUi: true });
+  assert.equal(JSON.stringify(result).includes('private-fixture'), false);
+});
+
+test('native settings refresh preserves an active onboarding turn and refuses unknown running state', async t => {
+  const options = fixture(t);
+  fs.mkdirSync(options.stateDir, { recursive: true });
+  fs.writeFileSync(path.join(options.stateDir, 'onboarding.json'), JSON.stringify({ sessionId: 'own-onboarding' }));
+  for (const running of [{ runningSessionIds: ['own-onboarding'] }, {}]) {
+    let calls = 0;
+    const result = await refreshOnboardingSession({ ...options, fetch: async () => {
+      assert.equal(++calls, 1, 'must not reload'); return { ok: true, json: async () => running };
+    } });
+    assert.notEqual(result.status, 'refreshed');
+  }
+});
+
+test('native settings refresh cannot send web auth to a remote origin or return adapter error bodies', async t => {
+  const options = fixture(t);
+  fs.mkdirSync(options.stateDir, { recursive: true });
+  fs.writeFileSync(path.join(options.stateDir, 'onboarding.json'), JSON.stringify({ sessionId: 'own-onboarding' }));
+  await assert.rejects(refreshOnboardingSession({ ...options, webUrl: 'https://remote.invalid', fetch: () => assert.fail('must not send authentication') }), /local HTTP origin/);
+  const result = await refreshOnboardingSession({ ...options, fetch: async () => { throw new Error('private-token'); } });
+  assert.deepEqual(result, { status: 'manual-open-required' });
 });
 
 test('unknown Pi Web launcher is preserved and a named wrapper composes it', async t => {

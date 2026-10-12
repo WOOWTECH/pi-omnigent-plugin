@@ -405,12 +405,80 @@ index 3c18dc6..86c9669 100644
      "common.ok": "確定",
      "common.language": "語言",
      "common.models": "模型",
+diff --git a/lib/omnigent-reload.test.mjs b/lib/omnigent-reload.test.mjs
+new file mode 100644
+index 0000000..20ec1fd
+--- /dev/null
++++ b/lib/omnigent-reload.test.mjs
+@@ -0,0 +1,62 @@
++import assert from "node:assert/strict";
++import test from "node:test";
++import { createJiti } from "jiti";
++const { AgentSessionWrapper } = await createJiti(import.meta.url).import("./rpc-manager.ts");
++
++function fixture(t, overrides = {}) {
++  const inner = {
++    sessionId: "own-onboarding", sessionFile: undefined, isStreaming: false, isCompacting: false, isBashRunning: false,
++    autoCompactionEnabled: true, autoRetryEnabled: true, model: undefined,
++    modelRuntime: { getModel: () => undefined, refresh: async () => {} },
++    sessionManager: { getCwd: () => process.cwd() }, settingsManager: { setProjectTrusted: () => {}, getDefaultTools: () => undefined },
++    agent: { state: {} }, extensionRunner: { getRegisteredCommands: () => [], setUIContext: () => {}, emit: async () => {} },
++    promptTemplates: [], resourceLoader: { getSkills: () => ({ skills: [] }) }, subscribe: () => () => {},
++    getContextUsage: () => null, getSteeringMessages: () => [], getFollowUpMessages: () => [],
++    getActiveToolNames: () => ["read", "bash"], getAllTools: () => [], setActiveToolsByName: () => {},
++    pendingMessageCount: 0, dispose: () => {}, abortBash: () => {}, reload: async () => {}, ...overrides,
++  };
++  const wrapper = new AgentSessionWrapper(inner), events = [];
++  wrapper.onEvent(event => events.push(event));
++  t.after(() => wrapper.destroy());
++  return { wrapper, events, ui: wrapper.createExtensionUiContext() };
++}
++
++test("targeted wizard refresh closes stale input and custom UI and accepts new dialogs", async t => {
++  const { wrapper, ui, events } = fixture(t);
++  const pendingInput = ui.input("Omnigent Server URL");
++  const oldId = events.find(e => e.method === "input").id;
++  let disposed = 0;
++  const pendingCustom = ui.custom(() => ({ render: () => ["•••"], handleInput() {}, dispose: () => { disposed++; } }));
++  await new Promise(resolve => setImmediate(resolve));
++  await wrapper.send({ type: "reload", clearExtensionUi: true });
++  assert.equal(await pendingInput, undefined);
++  assert.equal(await pendingCustom, undefined);
++  assert.equal(disposed, 1);
++  assert.ok(events.some(e => e.type === "extension_ui_closed" && e.id === oldId));
++  const replay = []; const stop = wrapper.onEvent(e => replay.push(e)); stop();
++  assert.equal(replay.some(e => e.type === "extension_ui_request"), false);
++  const next = ui.input("Fresh URL");
++  const nextId = events.filter(e => e.method === "input").at(-1).id;
++  await wrapper.send({ type: "extension_ui_response", id: nextId, value: "https://new.example" });
++  assert.equal(await next, "https://new.example");
++});
++
++test("ordinary reload retains its existing dialog behavior", async t => {
++  const { wrapper, ui, events } = fixture(t);
++  const pending = ui.input("Other plugin input"), id = events.at(-1).id;
++  await wrapper.send({ type: "reload" });
++  assert.equal(events.some(e => e.type === "extension_ui_closed" && e.id === id), false);
++  await wrapper.send({ type: "extension_ui_response", id, value: "retained" });
++  assert.equal(await pending, "retained");
++});
++
++test("targeted refresh rejects a turn that started after the caller checked running sessions", async t => {
++  for (const active of [{ isStreaming: true }, { isCompacting: true }, { isBashRunning: true }]) {
++    const { wrapper, ui, events } = fixture(t, active);
++    const pending = ui.input("Unchanged input"), id = events.at(-1).id;
++    await assert.rejects(wrapper.send({ type: "reload", clearExtensionUi: true }), /session is running/);
++    assert.equal(events.some(e => e.type === "extension_ui_closed" && e.id === id), false);
++    await wrapper.send({ type: "extension_ui_response", id, value: "preserved" });
++    assert.equal(await pending, "preserved");
++  }
++});
 diff --git a/lib/omnigent-runtime.test.mjs b/lib/omnigent-runtime.test.mjs
 new file mode 100644
-index 0000000..dd9fa4e
+index 0000000..ac7cac9
 --- /dev/null
 +++ b/lib/omnigent-runtime.test.mjs
-@@ -0,0 +1,50 @@
+@@ -0,0 +1,69 @@
 +import assert from "node:assert/strict";
 +import test from "node:test";
 +import { createJiti } from "jiti";
@@ -442,6 +510,25 @@ index 0000000..dd9fa4e
 +  assert.equal(calls[0].password, "private-password"); assert.equal(calls[0].verify, false);
 +  assert.equal(JSON.stringify(view).includes("private-password"), false); assert.equal(JSON.stringify(view).includes("must-never-escape"), false);
 +});
++test("successful native connection changes synchronize the setup wizard; reads, verification and failures do not", async () => {
++  const f = fixture(); let refreshes = 0;
++  f.plugin.refreshOnboarding = async () => { refreshes++; };
++  await f.bridge.read();
++  await f.bridge.act({ action: "verify" });
++  assert.equal(refreshes, 0);
++  await f.bridge.act({ action: "connect", server: "https://omni.example", username: "person", password: "private-password" });
++  await f.bridge.act({ action: "disconnect", confirm: true });
++  assert.equal(refreshes, 2);
++  f.plugin.runtime.initialize = async () => ({ ok: false });
++  await f.bridge.act({ action: "connect", server: "https://omni.example", username: "person", password: "private-password" });
++  assert.equal(refreshes, 2);
++});
++test("wizard synchronization failure cannot turn a successful login into failure or expose an error", async () => {
++  const f = fixture(); f.plugin.refreshOnboarding = async () => { throw new Error("private-refresh-token"); };
++  const result = await f.bridge.act({ action: "connect", server: "https://omni.example", username: "person", password: "private-password" });
++  assert.equal(result.operation.ok, true);
++  assert.equal(JSON.stringify(result).includes("private-refresh-token"), false);
++});
 +test("unsupported inputs cannot invoke runtime or pick executable paths", async () => {
 +  const { bridge, calls } = fixture();
 +  for (const body of [{ action: "execute", command: "any" }, { action: "disconnect" }, { action: "connect", server: "https://user:password@omni.example", username: "person", password: "password" }, { action: "verify", engine: "shell" }, { action: "verify", model: "any" }]) {
@@ -463,10 +550,10 @@ index 0000000..dd9fa4e
 +});
 diff --git a/lib/omnigent-runtime.ts b/lib/omnigent-runtime.ts
 new file mode 100644
-index 0000000..1c80b23
+index 0000000..1728a7a
 --- /dev/null
 +++ b/lib/omnigent-runtime.ts
-@@ -0,0 +1,103 @@
+@@ -0,0 +1,111 @@
 +import { existsSync, readFileSync } from "node:fs";
 +import { join, resolve } from "node:path";
 +import { pathToFileURL } from "node:url";
@@ -490,6 +577,7 @@ index 0000000..1c80b23
 +  lifecycle(): Promise<{ active: boolean }>;
 +  onboarding(): RecordValue;
 +  version: string;
++  refreshOnboarding?(): Promise<unknown>;
 +}
 +
 +async function loadPlugin(): Promise<Plugin | null> {
@@ -503,8 +591,10 @@ index 0000000..1c80b23
 +  const web = await import(/* webpackIgnore: true */ pathToFileURL(join(root, "src/web.mjs")).href) as {
 +    packageLifecycle(): Promise<{ active: boolean }>;
 +    readOnboarding(): RecordValue;
++    refreshOnboardingSession?(): Promise<unknown>;
 +  };
-+  return { runtime, lifecycle: () => web.packageLifecycle(), onboarding: () => web.readOnboarding(), version: pkg.version };
++  return { runtime, lifecycle: () => web.packageLifecycle(), onboarding: () => web.readOnboarding(), version: pkg.version,
++    refreshOnboarding: web.refreshOnboardingSession ? () => web.refreshOnboardingSession!() : undefined };
 +}
 +
 +function safeServer(value: unknown): string | null {
@@ -565,6 +655,11 @@ index 0000000..1c80b23
 +        result = await plugin.runtime.verify({ ...(engine ? { engine } : {}), ...(body.model ? { model: body.model } : {}) });
 +      } else if (body.action === "disconnect" && body.confirm === true) result = await plugin.runtime.disconnect();
 +      else throw Object.assign(new Error("Unsupported action"), { code: "INVALID_ACTION" });
++      if (result.ok === true && ["connect", "disconnect"].includes(String(body.action))) {
++        // Refresh only the plugin's saved setup conversation; that helper skips
++        // an active model turn. A UI sync failure cannot undo a successful login.
++        try { await plugin.refreshOnboarding?.(); } catch {}
++      }
 +      // Never project raw adapter messages, connection payloads or login inputs.
 +      return { ...await snapshot(plugin), operation: { ok: result.ok === true, code: code(record(result.error).code) } };
 +    },
@@ -599,6 +694,24 @@ index 0000000..ccb668c
 +  onboardingUrl: string | null;
 +  operation?: { ok: boolean; code: string | null };
 +}
+diff --git a/lib/rpc-manager.ts b/lib/rpc-manager.ts
+index 989c372..fa6617c 100644
+--- a/lib/rpc-manager.ts
++++ b/lib/rpc-manager.ts
+@@ -1151,6 +1151,13 @@ export class AgentSessionWrapper {
+         }
+         const activeToolNames = this.inner.getActiveToolNames();
+         await this.waitForExtensionsBound();
++        if (command.clearExtensionUi === true) {
++          if (this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning || this.pendingPromptCount > 0) {
++            throw new Error("Cannot refresh extension dialogs while the session is running.");
++          }
++          for (const pending of Array.from(this.pendingUiResponses.values())) pending.cancel();
++          for (const id of Array.from(this.activeCustomUis.keys())) this.closeCustomUi(id, undefined);
++        }
+         this.extensionStatuses.clear();
+         this.resetExtensionWidgetsForReload();
+         this.syncProjectTrust();
 diff --git a/lib/settings-navigation.test.mjs b/lib/settings-navigation.test.mjs
 index 8d4ac8b..874fb21 100644
 --- a/lib/settings-navigation.test.mjs

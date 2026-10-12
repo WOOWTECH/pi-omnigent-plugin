@@ -9,11 +9,13 @@
   "connectSucceeded": true,
   "hostId": "9af5e2fec71e41c19a7c6390b42d6896",
   "disconnectSucceeded": true,
+  "onboardingFreshlyAsksAfterDisconnect": true,
   "reconnectSucceeded": true,
   "reconnectPreservesHostId": true,
+  "onboardingSynchronizedAfterNativeLogin": true,
   "desktopRendered": true,
   "mobileRendered": true,
-  "pluginVersion": "0.3.0",
+  "pluginVersion": "0.3.2",
   "phase": "needs-verification",
   "engines": [
     {
@@ -38,11 +40,11 @@
       "verified": false
     }
   ],
-  "checkedAt": "2026-10-12T11:02:03.496215+00:00",
-  "installerRevision": "v0.3.1 candidate npm-cache fix",
+  "checkedAt": "2026-10-12T11:28:15.934655+00:00",
+  "installerRevision": "v0.3.2 candidate",
   "deploymentReady": true,
-  "installedWithPublicSource": "git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.0",
   "pathRoutingPersistent": true,
+  "adapterPatchSha256": "c8ba8153bb46269571e7ad82d553f937875be3621ec80d2fe77ecdc49d25eb7d",
   "apiSecurityChecks": {
     "crossOrigin": 403,
     "nonJson": 415,
@@ -58,8 +60,9 @@
     "pi": "MODELS_UNAVAILABLE"
   },
   "automatedTests": {
-    "nodePassed": 108,
-    "pythonPassed": 41
+    "nodePassed": 111,
+    "pythonPassed": 41,
+    "nativeUiPassed": 37
   },
   "providerAuthorizationPending": true
 }

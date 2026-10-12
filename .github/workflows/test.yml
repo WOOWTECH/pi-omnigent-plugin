@@ -46,7 +46,7 @@ jobs:
           git -C /tmp/pi-web-omnigent apply "$GITHUB_WORKSPACE/integrations/pi-web/adapter.patch"
       - run: npm ci --ignore-scripts --no-fund
         working-directory: /tmp/pi-web-omnigent
-      - run: node --test lib/omnigent-runtime.test.mjs lib/settings-navigation.test.mjs app/api/omnigent/route.test.mjs components/SettingsPanel.test.mjs
+      - run: node --test lib/omnigent-runtime.test.mjs lib/omnigent-reload.test.mjs lib/settings-navigation.test.mjs app/api/omnigent/route.test.mjs components/SettingsPanel.test.mjs
         working-directory: /tmp/pi-web-omnigent
       - run: npx tsc --noEmit
         working-directory: /tmp/pi-web-omnigent

@@ -282,6 +282,30 @@ export async function startOnboardingSession(sessionId, options = {}) {
   return { status: 'manual-open-required', reason: 'Pi Web or the plugin was not ready. Reload and open the saved onboarding conversation.', sessionId };
 }
 
+/** Sync a native settings change with the saved wizard, preserving active turns. */
+export async function refreshOnboardingSession(options = {}) {
+  const record = readOnboarding(options);
+  const sessionId = record.sessionId;
+  if (typeof sessionId !== 'string' || !/^[a-zA-Z0-9-]{1,80}$/.test(sessionId)) return { status: 'no-onboarding' };
+  const base = localWebUrl(options);
+  const env = options.env || process.env;
+  const fetchImpl = options.fetch || fetch;
+  const headers = { 'Content-Type': 'application/json', ...(env.PI_WEB_PASSWORD
+    ? { Authorization: `Basic ${Buffer.from(`pi:${env.PI_WEB_PASSWORD}`).toString('base64')}` } : {}) };
+  try {
+    const sessions = await fetchImpl(new URL('/api/sessions?summary=1', base), { headers, signal: AbortSignal.timeout(5000) });
+    if (!sessions.ok) return { status: 'manual-open-required' };
+    const body = await sessions.json();
+    if (!Array.isArray(body.runningSessionIds)) return { status: 'manual-open-required' };
+    if (body.runningSessionIds.includes(sessionId)) return { status: 'skipped-running', sessionId };
+    const response = await fetchImpl(new URL(`/api/agent/${encodeURIComponent(sessionId)}`, base), {
+      method: 'POST', headers, body: JSON.stringify({ type: 'reload', clearExtensionUi: true }), signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok || (await response.json()).success === false) return { status: 'manual-open-required' };
+    return { status: 'refreshed', sessionId };
+  } catch { return { status: 'manual-open-required' }; }
+}
+
 export async function boot(options = {}) {
   const lifecycle = await packageLifecycle(options);
   const runtime = options.runtime || await import('./runtime.mjs');
