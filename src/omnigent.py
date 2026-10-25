@@ -797,12 +797,22 @@ class Plugin:
         except PluginError as error:
             result["reason"] = error.code
         finally:
-            try:
-                client.request("POST", f"/v1/sessions/{quote(session_id, safe='')}/events", {"type": "stop_session", "data": {}},
-                               timeout_seconds=15.0, refresh_auth=False)
-                result["cleanup"] = "stopped"
-            except PluginError:
-                result["cleanup"] = "stop_failed"
+            stop_path = f"/v1/sessions/{quote(session_id, safe='')}/events"
+            stop_event = {"type": "stop_session", "data": {}}
+            retryable = {"SERVER_UNREACHABLE", "NEEDS_LOGIN", "HTTP_408", "HTTP_409",
+                         "HTTP_425", "HTTP_429", "HTTP_500", "HTTP_502", "HTTP_503", "HTTP_504"}
+            for attempt in range(2):
+                try:
+                    client.request("POST", stop_path, stop_event,
+                                   timeout_seconds=15.0, refresh_auth=attempt > 0)
+                    result["cleanup"] = "stopped"
+                    break
+                except PluginError as error:
+                    result["cleanup"] = "stop_failed"
+                    if attempt == 0 and error.code in retryable:
+                        self.sleep(0.5)
+                        continue
+                    break
         return result
 
 

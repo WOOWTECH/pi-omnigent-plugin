@@ -49,6 +49,8 @@ class FakeClient:
         self.calls = []
         self.poll_error = None
         self.stop_error = None
+        self.stop_errors = []
+        self.stop_attempts = []
         self.cleanup_options = None
         self.held_token = None
 
@@ -82,6 +84,10 @@ class FakeClient:
             return {"data": self.items}
         if path.endswith("/events"):
             self.cleanup_options = {"timeout_seconds": timeout_seconds, "refresh_auth": refresh_auth}
+            if payload.get("type") == "stop_session":
+                self.stop_attempts.append(self.cleanup_options)
+                if self.stop_errors:
+                    raise self.stop_errors.pop(0)
             if self.stop_error:
                 raise self.stop_error
             return {"ok": True}
@@ -460,6 +466,29 @@ class AdapterTests(unittest.TestCase):
         stopped = [path for method, path, payload, _ in self.client.calls if method == "POST" and payload.get("type") == "stop_session"]
         self.assertEqual(stopped, ["/v1/sessions/own-verification-session/events"])
         self.assertEqual(self.client.cleanup_options, {"timeout_seconds": 15.0, "refresh_auth": False})
+
+    def test_transient_stop_error_retries_with_refreshed_auth(self):
+        self.client.stop_errors = [adapter.PluginError("server_unreachable", "temporary disconnect")]
+        result = self.plugin(engine="codex", model="real-model").verify()
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["cleanup"], "stopped")
+        self.assertEqual(self.client.stop_attempts, [
+            {"timeout_seconds": 15.0, "refresh_auth": False},
+            {"timeout_seconds": 15.0, "refresh_auth": True},
+        ])
+
+    def test_persistent_stop_error_keeps_verification_incomplete(self):
+        self.client.stop_errors = [adapter.PluginError("server_unreachable", "temporary disconnect"),
+                                   adapter.PluginError("server_unreachable", "temporary disconnect")]
+        result = self.plugin(engine="codex", model="real-model").verify()
+        self.assertEqual(result["cleanup"], "stop_failed")
+        self.assertEqual(len(self.client.stop_attempts), 2)
+
+    def test_permanent_stop_error_is_not_retried(self):
+        self.client.stop_errors = [adapter.PluginError("forbidden", "not allowed")]
+        result = self.plugin(engine="codex", model="real-model").verify()
+        self.assertEqual(result["cleanup"], "stop_failed")
+        self.assertEqual(len(self.client.stop_attempts), 1)
 
     def test_user_echo_and_unrelated_text_do_not_pass_verification(self):
         self.client.items = [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": adapter.SENTINEL}]},
