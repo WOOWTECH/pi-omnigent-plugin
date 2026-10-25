@@ -7,6 +7,11 @@ Pi 7 保留既有引擎與憑證，使用既有 LiteLLM gateway 的 Anthropic Me
 v0.3.8 候選版在驗證中定期查詢**插件新建測試 session** 的狀態，將 HTTP 402 投射為不含原始錯誤內文的 `PROVIDER_PAYMENT_REQUIRED`，其他任務錯誤顯示安全的 `SESSION_TASK_FAILED`。Codex 使用明確設定的 gateway／key／local provider 時，Pi Web 原生 Omnigent 分頁以該 provider 宣告的模型取代不相符的 CLI 型錄；只有未設定此類 provider 時才沿用 server 模型清單。Pi 7 候選包的選單為 Claude 1、Codex 1、Pi 50 個模型；Codex 明確選取 `deepseek/deepseek-v4-flash-0731` 的對話驗證通過。完整 `acceptance --chat` 於 06:52 UTC 回傳 `ready`，Claude、Codex、Pi 三引擎逐一取得真實回覆與停止回條。[非機密驗收回條](evidence/pi7-omnigent-v038-2026-10-25.json) 不含帳密、token 或對話逐字稿。117 個 Node、47 個 Python 回歸測試、語法檢查和正式依賴 audit 均通過。
 
 Omnigent **獨立 Web 介面**的 Codex 預建對話模型選單仍由 Codex CLI 探測，可能列出原本的 8 個 GPT 模型；v0.3.8 修正的是 Pi Web 插件分頁的型錄與明確選模。Pi 的 `omnigent/apporo/gpt-5.6-sol` 曾回傳 `RUNTIMEERROR`；每個新增模型仍須個別驗證，不把一個可用模型的成功擴張成全型錄可用保證。
+# v0.3.7 Pi 7 正式部署及轉入 v0.3.8 驗收（2026-10-25）
+
+公開 [v0.3.7](https://github.com/WOOWTECH/pi-omnigent-plugin/tree/v0.3.7) 的 [正式 CI](https://github.com/WOOWTECH/pi-omnigent-plugin/actions/runs/40168982980) 四個工作均通過。Pi 7 的 Pi package 來源改為單一 v0.3.7 釘選，Paseo 保持 v0.1.4；共用 Pi Web 使用來源核對後的既有建置，回條 `prebuilt: true`、設定列 `MCP → Omnigent → Paseo`。重新啟動後新 Pod 兩個容器均就緒、重啟數皆為 0。實際瀏覽器開啟兩個設定分頁，首頁與兩個原生 API 都回 200，沒有 JavaScript 錯誤。
+
+Omnigent server 登入與 host 連線正常。v0.3.7 重啟初期 Codex 驗收遇到啟動驗證持有操作鎖；後續預設與指定 `gpt-5.6-sol` 的 Codex 驗收曾回覆超時，前一筆測試取得停止回條。一筆 server session 的 `last_task_error.code` 是 `codex_reauth_required`；另一個同時進行的排查在失敗回合找到上游 HTTP 402，並使用既有 gateway 配置完成上方 v0.3.8 候選版驗收。06:51–06:52 UTC 的 Claude、Codex、Pi 成功回條屬於後續候選版與新路由，不能倒推 v0.3.7 的 Codex 已穩定通過。Omnigent 的 server／原生引擎驗收與 Paseo 包裝的 Claude、Codex CLI 是兩個獨立驗收結果。[非機密部署回條](evidence/pi7-omnigent-v037-2026-10-25.json) 不含登入資料或對話內容。
 
 # v0.3.7 驗收 session 停止事件重試（2026-10-25）
 

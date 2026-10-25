@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-25",
+  "deployment": "paas-ws-504a2b17/svc-08cf5049-pi-agent",
+  "pluginVersion": "0.3.7",
+  "source": "git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.7",
+  "paseoVersion": "0.1.4",
+  "ciRun": "https://github.com/WOOWTECH/pi-omnigent-plugin/actions/runs/40168982980",
+  "ciConclusion": "success",
+  "ui": {
+    "composition": "omnigent+paseo",
+    "prebuiltSourceUsed": true,
+    "settingsSections": ["mcp", "omnigent", "paseo"],
+    "httpStatus": {"home": 200, "omnigentApi": 200, "paseoApi": 200},
+    "browserPanelsOpened": ["omnigent", "paseo"],
+    "browserPageErrors": 0
+  },
+  "pod": {"readyContainers": 2, "totalContainers": 2, "containerRestarts": [0, 0]},
+  "serverLoginConfirmed": true,
+  "hostConnected": true,
+  "transientChecks": [
+    {"engine": "codex", "result": "OPERATION_BUSY", "context": "startup verification lock"},
+    {"engine": "codex", "result": "REPLY_TIMEOUT", "cleanup": "stopped", "serverTaskErrorCode": "codex_reauth_required"},
+    {"engine": "codex", "model": "gpt-5.6-sol", "result": "REPLY_TIMEOUT"}
+  ],
+  "subsequentV038CandidateVerification": {
+    "candidateVersion": "0.3.8",
+    "phase": "ready",
+    "claude": {"checkedAt": "2026-10-25T06:51:17.995Z", "replyMatched": true, "cleanup": "stopped"},
+    "codex": {"checkedAt": "2026-10-25T06:51:40.702Z", "replyMatched": true, "cleanup": "stopped"},
+    "pi": {"checkedAt": "2026-10-25T06:52:07.731Z", "replyMatched": true, "cleanup": "stopped"}
+  },
+  "limitation": "Codex had two timed-out v0.3.7 checks. A separate concurrent investigation found upstream HTTP 402 and configured a different gateway route; the later success belongs to that v0.3.8 candidate and does not establish v0.3.7 Codex reliability."
+}
