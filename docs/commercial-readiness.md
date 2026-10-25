@@ -1,3 +1,11 @@
+# v0.3.3 依賴安全與 Pi 7 重新驗收（2026-10-25）
+
+公開 v0.3.2 的新掃描發現插件測試依賴 1 筆 high／1 筆 moderate；原生 Pi Web 正式依賴 1 筆 critical、5 筆 high、2 筆 moderate。當時 Pi 7 執行的合併版有 1 筆 critical、2 筆 high、1 筆 moderate。這些是受影響套件數，不代表已確認漏洞可從產品路由利用；舊版的「audit 為零」只描述其發佈當日。
+
+候選 v0.3.3 將獨立與 Pi 7 合併版 Pi Web 更新到 Next.js 16.4.3、undici 8.12.2、zod 4.6.7、Pi SDK 與 core/AI/TUI 1.4.0；插件依賴另外固定 undici 8.12.2。乾淨安裝後，插件完整 audit 與兩種 UI 的正式依賴 audit 都是 0；UI 完整 audit 僅剩 5 筆 low，來自 KaTeX／Mermaid 等開發依賴。插件 Node 114、Python 41；獨立 UI 2,296、Pi 7 Omnigent＋Paseo 合併 UI 2,365 個測試通過，兩種 UI 的 TypeScript 與 production build 均通過。合併 UI 測試需指定對應的 Paseo 0.1.3 原始套件。
+
+原生插件驗證回條現在必須明確記錄 `cleanup: "stopped"` 才能進入 ready，避免 session 停止狀態未知時誤報完成。安裝器在發佈新版 UI 前執行 high 級別依賴掃描；既有 Paseo 整合來源遺失時停止重建，不會覆蓋其分頁。CI 每日重跑依賴掃描。Pi 7 的實際部署、server 登入與三引擎對話結果需以後續實測證據為準，不能以隔離測試代替。
+
 # v0.3.2 Pi 7 設定對話同步
 
 Pi 7 額外實測發現：使用原生 Omnigent 分頁完成登入後，啟動時已等待輸入的設定對話仍顯示舊網址視窗。v0.3.2 在原生登入／取消成功後，透過 localhost API 重新載入插件保存的專用設定對話。先查詢是否有進行中回合；該對話正在執行時或狀態無法確認時跳過刷新。GET 狀態、失敗的登入與驗證不會觸發刷新；不發送模型提示、不刷新其他對話。刷新失敗不撤回已成功的連線。

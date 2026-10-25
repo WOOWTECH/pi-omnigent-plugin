@@ -245,6 +245,7 @@ export async function installUi(options = {}) {
       if (!fs.lstatSync(destination).isSymbolicLink()) fail('UNMANAGED_ADAPTER_PATH');
       active = path.resolve(root, fs.readlinkSync(destination));
       if (!within(releases, active) || !exists(path.join(active, '.pi-omnigent-web-install.json'))) fail('UNMANAGED_ADAPTER_PATH');
+      if (!overlayHash && exists(path.join(active, 'app/api/plugin-paseo/route.ts'))) fail('EXISTING_UI_OVERLAY_MISSING');
     }
     let reused = active !== null && cached(active, meta, key);
     if (reused && await run('git', ['rev-parse', 'HEAD'], { cwd: active, env }) !== PI_WEB_BASE) reused = false;
@@ -278,6 +279,7 @@ export async function installUi(options = {}) {
           // Next's default counts host CPUs, which can exceed container quotas.
           const buildEnv = { ...env, HOME: home, CI: '1', CIRCLE_NODE_TOTAL: '3', NEXT_TELEMETRY_DISABLED: '1', PI_OMNIGENT_UI_SKIP_POSTINSTALL: '1', npm_config_production: 'false', NPM_CONFIG_PRODUCTION: 'false', npm_config_cache: npmCache, NPM_CONFIG_CACHE: npmCache };
           await run('npm', ['ci', '--include=dev', '--no-audit', '--no-fund'], { cwd: stage, env: { ...buildEnv, NODE_ENV: 'development' } });
+          await run('npm', ['audit', '--audit-level=high', '--no-fund'], { cwd: stage, env: { ...buildEnv, NODE_ENV: 'development' } });
           await run('npm', ['run', 'build'], { cwd: stage, env: { ...buildEnv, NODE_ENV: 'production' } });
         }
         verifyBuild(stage);

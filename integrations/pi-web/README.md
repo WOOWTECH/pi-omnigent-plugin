@@ -12,6 +12,8 @@ adapter-meta 固定 commit 與 patch SHA-256；install-ui 建置、私有保存�
 
 v0.3.2 原生登入／取消成功後同步刷新專用設定對話；該對話有進行中模型回合或無法查明執行狀態時不刷新。只刷新保存的設定對話，不發模型提示。這避免分頁已登入、舊精靈卻仍要求網址的矛盾狀態。
 
+v0.3.3 固定更新後的 Pi Web lockfile；Next.js 16.4.3、Pi SDK 1.4.0 與相同系列的 core/AI/TUI 可完成正式建置。安裝器在原子發佈前執行 `npm audit --audit-level=high`；既有 Paseo 分頁的整合來源消失時拒絕重建，保留目前路由與來源供維運修復。
+
 回退：同一 Unix 帳號把 shared-runtime/host.json 的 realWeb 還原為 realWebBeforeOmnigentUi，重啟 Pi Web。未知啟動器保留並回報 manual-routing-required，不直接覆蓋。
 
 [Pi 7 正式部署實測證據](../../docs/evidence/pi7-native-ui-2026-10-12.json)。[Pi 6 候選版歷史證據](../../docs/evidence/pi6-native-ui-2026-10-12.json) 保留原測試範圍；本次部署只操作 Pi 7。

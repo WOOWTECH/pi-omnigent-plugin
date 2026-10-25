@@ -2,6 +2,8 @@ name: Test plugin
 on:
   push:
   pull_request:
+  schedule:
+    - cron: '17 3 * * *'
 permissions:
   contents: read
 concurrency:
@@ -45,6 +47,8 @@ jobs:
           git -C /tmp/pi-web-omnigent checkout --detach 6fcd7d44981ab51a21d6cd6eb06d361d0e3d3068
           git -C /tmp/pi-web-omnigent apply "$GITHUB_WORKSPACE/integrations/pi-web/adapter.patch"
       - run: npm ci --ignore-scripts --no-fund
+        working-directory: /tmp/pi-web-omnigent
+      - run: npm audit --audit-level=high
         working-directory: /tmp/pi-web-omnigent
       - run: node --test lib/omnigent-runtime.test.mjs lib/omnigent-reload.test.mjs lib/settings-navigation.test.mjs app/api/omnigent/route.test.mjs components/SettingsPanel.test.mjs
         working-directory: /tmp/pi-web-omnigent

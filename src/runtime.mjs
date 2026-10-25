@@ -41,7 +41,7 @@ async function context(options = {}) {
   return { loc, env, dependencies, call };
 }
 function successfulReceipt(receipt, state, host, dependency) {
-  return receipt?.ok === true && receipt.cleanup !== 'stop_failed' && receipt.server === state.server && receipt.hostId === host?.id
+  return receipt?.ok === true && receipt.cleanup === 'stopped' && receipt.server === state.server && receipt.hostId === host?.id
     && (!receipt.cliVersion || receipt.cliVersion === dependency?.version);
 }
 async function operation(ctx, callback) {
@@ -107,7 +107,7 @@ async function verifyInternal(ctx, { engine, model } = {}) {
       ...(proof.cleanup ? { cleanup: proof.cleanup } : {}),
       ...(proof.nativeSubmitRecovered === true ? { nativeSubmitRecovered: true } : {}),
       ...(proof.reply === 'OMNIGENT_CONNECTION_OK' ? { reply: proof.reply } : {}),
-      ...(proof.ok !== true || proof.cleanup === 'stop_failed' ? { reason: proof.cleanup === 'stop_failed' ? 'SESSION_STOP_FAILED' : proof.reason || result.error?.code || 'NO_REPLY' } : {}) };
+      ...(proof.ok !== true || proof.cleanup !== 'stopped' ? { reason: proof.cleanup !== 'stopped' ? 'SESSION_STOP_FAILED' : proof.reason || result.error?.code || 'NO_REPLY' } : {}) };
     saveJSON(receiptPath, receipts);
   }
   const ok = !!hostId && installed.every(name => successfulReceipt(receipts[name], state, { id: hostId }, ctx.dependencies[name]));

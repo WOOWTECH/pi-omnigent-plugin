@@ -36,12 +36,15 @@ function fixture(t) {
   const native = path.join(root, 'native/pi-web');
   write(native, '#!/usr/bin/env node\nconsole.log(JSON.stringify({launcher:"native",args:process.argv.slice(2)}));\n', 0o755);
   const calls = [];
-  let failBuild = false, buildDelay = 0;
+  let failBuild = false, failAudit = false, buildDelay = 0;
   const env = { ...process.env, HOME: home, PI_CODING_AGENT_DIR: path.join(home, 'agent'), PI_AGENT_DATA_DIR: path.join(home, 'agent'), PATH: path.dirname(native) + path.delimiter + process.env.PATH };
   const runner = async (command, args, options = {}) => {
     calls.push({ command, args: [...args], cwd: options.cwd, nodeEnv: options.env?.NODE_ENV, production: options.env?.npm_config_production, home: options.env?.HOME, buildCpuTotal: options.env?.CIRCLE_NODE_TOTAL, npmCache: options.env?.npm_config_cache, upperNpmCache: options.env?.NPM_CONFIG_CACHE });
     if (command === 'npm') {
       if (args[0] === 'ci') write(path.join(options.cwd, 'node_modules/next/dist/bin/next'), '// fixture next\n');
+      else if (args[0] === 'audit') {
+        if (failAudit) throw new Error('fixture audit failure');
+      }
       else {
         await delay(buildDelay);
         if (failBuild) throw new Error('fixture build failure');
@@ -61,7 +64,7 @@ function fixture(t) {
   };
   const options = { home, env, packageRoot: pkg, run: runner, sharedHostPath: path.join(home, 'absent/host.json') };
   const managed = path.join(home, '.local/share/pi-omnigent-web');
-  return { root, home, source, pkg, native, calls, meta, options, managed, setFailure(value) { failBuild = value; }, setDelay(value) { buildDelay = value; } };
+  return { root, home, source, pkg, native, calls, meta, options, managed, setFailure(value) { failBuild = value; }, setAuditFailure(value) { failAudit = value; }, setDelay(value) { buildDelay = value; } };
 }
 
 test('metadata rejects wrong base, version, schema and patch hash before any command', async t => {
@@ -93,6 +96,16 @@ test('changed existing UI overlay stops before building or changing any routing'
   assert.equal(f.calls.length, 0);
 });
 
+test('a live combined UI is preserved when its Paseo overlay package is missing', async t => {
+  const f = fixture(t); const first = await installUi(f.options);
+  const route = path.join(first.releaseRoot, 'app/api/plugin-paseo/route.ts');
+  write(route, '// existing Paseo integration\n');
+  const before = fs.realpathSync(first.adapterRoot);
+  await assert.rejects(installUi(f.options), { code: 'EXISTING_UI_OVERLAY_MISSING' });
+  assert.equal(fs.realpathSync(first.adapterRoot), before);
+  assert.equal(fs.readFileSync(route, 'utf8'), '// existing Paseo integration\n');
+});
+
 test('build overrides inherited npm caches with a private writable home directory', async t => {
   const f = fixture(t);
   await installUi({ ...f.options, env: { ...f.options.env, npm_config_cache: '/root/unwritable-cache', NPM_CONFIG_CACHE: '/tmp/root-owned-cache' } });
@@ -103,6 +116,14 @@ test('build overrides inherited npm caches with a private writable home director
   }
   assert.equal(fs.statSync(cache).mode & 0o777, 0o700);
   fs.accessSync(cache, fs.constants.W_OK);
+});
+
+test('a high-severity dependency audit failure prevents publishing a native UI release', async t => {
+  const f = fixture(t); f.setAuditFailure(true);
+  await assert.rejects(installUi(f.options));
+  assert.equal(f.calls.some(c => c.command === 'npm' && c.args[0] === 'audit'), true);
+  assert.equal(f.calls.some(c => c.command === 'npm' && c.args[0] === 'run'), false);
+  assert.equal(fs.existsSync(path.join(f.managed, 'pi-web')), false);
 });
 
 test('pinned fetch builds with dev dependencies; rerun reuses; wrapper preserves args, environment and fallback', async t => {
