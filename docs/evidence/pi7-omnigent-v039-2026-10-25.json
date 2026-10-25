@@ -1,0 +1,81 @@
+{
+  "checkedAt": "2026-10-25T08:03:16.911377+00:00",
+  "environment": "Pi7, Linux x64, accounts login, existing managed Omnigent host",
+  "pluginVersion": "0.3.9",
+  "commit": "c68be2f77aac37e4ca5a46472c5e391563cb28b7",
+  "ci": "https://github.com/WOOWTECH/pi-omnigent-plugin/actions/runs/40174243615",
+  "catalogRegression": {
+    "before": [
+      "gpt-6.1-sol",
+      "gpt-6-astra",
+      "gpt-6-sol",
+      "gpt-6-luna",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.5"
+    ],
+    "after": [
+      "deepseek/deepseek-v4-flash-0731"
+    ],
+    "isolatedNativeProbePassed": true,
+    "productionHostApiPassed": true
+  },
+  "standaloneBrowser": {
+    "standaloneWebSelectedModel": "deepseek/deepseek-v4-flash-0731",
+    "hostMatched": true,
+    "harness": "codex-native",
+    "realReply": true,
+    "stopAccepted": true
+  },
+  "activeSessionModel": "deepseek/deepseek-v4-flash-0731",
+  "activeSessionModelOptions": [
+    "deepseek/deepseek-v4-flash-0731"
+  ],
+  "nativeSettingsPath": "/omnigent",
+  "nativeBrowser": [
+    {
+      "mobile": false,
+      "http": 200,
+      "directSettingsVisible": true,
+      "codexModelPresent": true,
+      "errors": []
+    },
+    {
+      "mobile": true,
+      "http": 200,
+      "directSettingsVisible": true,
+      "codexModelPresent": true,
+      "errors": []
+    }
+  ],
+  "productionAcceptance": {
+    "checkedAt": "2026-10-25T08:00:30.828Z",
+    "ok": true,
+    "phase": "ready",
+    "realReplies": {
+      "claude": true,
+      "codex": true,
+      "pi": true
+    }
+  },
+  "tests": {
+    "node": 117,
+    "python": 53,
+    "targetedCombinedUi": 41,
+    "ciJobsPassed": 4,
+    "productionDependencyVulnerabilities": 0
+  },
+  "method": {
+    "catalogAndChatResponsesMocked": false,
+    "browserUnrelatedSessionListsSuppressed": true,
+    "browserHostListFilteredToPi7": true,
+    "prompts": "fixed synthetic prompts, no tools",
+    "stopReceiptMeaning": "Server accepted stop event; not independent proof of remote process termination"
+  },
+  "limits": [
+    "No per-model guarantee for untested models",
+    "Existing provider routes; no official subscription login validation",
+    "No ARM64/OIDC/soak/load acceptance in this release"
+  ]
+}

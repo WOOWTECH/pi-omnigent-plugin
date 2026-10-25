@@ -2,7 +2,7 @@
 
 Pi7 的 host model-options API 原先回傳八個 GPT 選項，與 gateway 宣告的一個 DeepSeek 模型不一致。候選版透過 Codex 官方 model_catalog_json 設定，將已宣告的具體模型同步給 Omnigent 的 host 探測與新建 native session。沒有修改共享 Omnigent server 或 SDK。相同配置再次同步不寫入檔案；模型或 Codex binary 改變才重建。使用者自訂清單與損毀 TOML 會明確拒絕覆寫，原設定私有備份，所有同步檔案為 0600。
 
-原始失敗斷言、Pi7 隔離 native probe、正式 host API 複驗均已執行；正式 API 現在只回傳 deepseek/deepseek-v4-flash-0731。指定該模型的真實 Codex 對話回覆固定驗收文字並取得停止回條。完整瀏覽器與正式發布驗收另記錄，不以 API 結果代替尚未完成的 UI 操作。
+原始失敗斷言、Pi7 隔離 native probe、正式 host API 複驗均已執行；正式 API 現在只回傳 deepseek/deepseek-v4-flash-0731。指定該模型的真實 Codex 對話回覆固定驗收文字並取得停止回條。獨立網頁選擇 Codex、送出固定測試提示、收到實際回覆與停止回條均通過；對話內模型清單也只有同一個 DeepSeek 模型。公開 v0.3.9 部署重啟後，08:00 UTC 的三引擎完整 acceptance --chat 為 ready。桌面與手機均可經 /omnigent 直達原生設定頁，選擇 Codex 後顯示正確模型且無 page error。詳見 [v0.3.9 非機密驗收回條](evidence/pi7-omnigent-v039-2026-10-25.json)。
 
 原生 Pi Web 新增 /omnigent 直達設定頁。一般 Claude、Pi 及既有對話不因模型選單修正而重啟。未逐項驗證的模型、ARM64、OIDC、長時間壓力測試等既有限制仍保留。
 
