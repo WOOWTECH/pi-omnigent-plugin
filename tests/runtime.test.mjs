@@ -34,6 +34,15 @@ test('missing response never becomes ready', async t => {
   const ctx = fixture(t, 'codex'); const result = await initialize(ctx);
   assert.equal(result.ok, false); assert.equal(result.phase, 'needs-verification');
 });
+test('a pre-session engine failure retains its cause rather than inventing a cleanup failure', async t => {
+  const ctx = fixture(t); const base = ctx.callAdapter;
+  ctx.callAdapter = input => input.action === 'verify'
+    ? Promise.resolve({ ok: false, error: { code: 'ENGINE_NOT_READY' } }) : base(input);
+  const result = await initialize(ctx);
+  assert.equal(result.ok, false);
+  assert.equal(result.verification.claude.reason, 'ENGINE_NOT_READY');
+  assert.equal(result.verification.claude.sessionId, undefined);
+});
 test('verification receipts from a different host cannot claim readiness', async t => {
   const ctx = fixture(t); await initialize(ctx);
   ctx.callAdapter = async () => ({ ok: true, data: { host: { connected: true, id: 'other-host' } } });

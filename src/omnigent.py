@@ -809,14 +809,23 @@ class Plugin:
         return False
 
     @staticmethod
+    def payment_required(error: object) -> bool:
+        if not isinstance(error, dict):
+            return False
+        if error.get('code') in (402, '402'):
+            return True
+        message = error.get('message')
+        return isinstance(message, str) and bool(re.search(
+            r'\b(?:(?:status|HTTP)\s+402|402\s+payment\s+required|Pi model error:\s*402\s*:)', message, re.I))
+
+    @staticmethod
     def session_failure_reason(info: object) -> str | None:
         """Classify a failed probe without returning provider error text."""
         if not isinstance(info, dict):
             return None
         error = info.get("last_task_error")
         if isinstance(error, dict):
-            message = error.get("message")
-            if isinstance(message, str) and re.search(r"\b(?:status\s+402|402\s+payment\s+required)\b", message, re.I):
+            if Plugin.payment_required(error):
                 return "PROVIDER_PAYMENT_REQUIRED"
             return "SESSION_TASK_FAILED"
         if info.get("status") == "failed":
@@ -944,12 +953,12 @@ class Plugin:
                 if self.assistant_sentinel(page.get("data")):
                     result.update(ok=True, reply=SENTINEL, reason=None)
                     break
-                failure = next((item.get("code") for item in page.get("data", [])
+                failure = next((item for item in page.get("data", [])
                                 if isinstance(item, dict) and item.get("type") == "error"
                                 and isinstance(item.get("code"), str)
                                 and re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]{0,63}", item["code"])), None)
                 if failure:
-                    result["reason"] = failure.upper()
+                    result["reason"] = 'PROVIDER_PAYMENT_REQUIRED' if self.payment_required(failure) else failure['code'].upper()
                     break
                 if self.clock() >= inspect_after:
                     inspect_after = self.clock() + 8.0

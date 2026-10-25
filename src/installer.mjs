@@ -153,13 +153,16 @@ export async function discover(env = process.env, { run = runCommand, now = Date
 /** Build child-process environment without changing process.env or user settings. */
 export function runtimeEnv(discovery, env = process.env) {
   const result = environment(env);
-  const directories = [];
+  // Discovery deliberately selects the image Omnigent SDK by absolute path.
+  // Prepending its directory also used to replace a user's Claude/Codex/Pi
+  // with another image version. The adapter's Python and host binary are
+  // already explicit; preserve the engine PATH and append missing tool dirs.
+  const directories = (result.PATH ?? '').split(path.delimiter).filter(Boolean);
   for (const name of DISCOVERY_NAMES) {
     const entry = discovery?.[name];
     if (entry?.available && entry.path) directories.push(path.dirname(entry.path));
   }
   if (result.PI_OMNIGENT_STATE_DIR) directories.push(...managedPaths(result.PI_OMNIGENT_STATE_DIR));
-  directories.push(...(result.PATH ?? '').split(path.delimiter).filter(Boolean));
   result.PATH = [...new Set(directories)].join(path.delimiter);
   if (discovery?.omnigent?.available && discovery.omnigent.python) result.PI_OMNIGENT_PYTHON = discovery.omnigent.python;
   return result;

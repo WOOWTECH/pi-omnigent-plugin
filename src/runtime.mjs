@@ -107,7 +107,7 @@ async function verifyInternal(ctx, { engine, model } = {}) {
       ...(proof.cleanup ? { cleanup: proof.cleanup } : {}),
       ...(proof.nativeSubmitRecovered === true ? { nativeSubmitRecovered: true } : {}),
       ...(proof.reply === 'OMNIGENT_CONNECTION_OK' ? { reply: proof.reply } : {}),
-      ...(proof.ok !== true || proof.cleanup !== 'stopped' ? { reason: proof.cleanup !== 'stopped' ? 'SESSION_STOP_FAILED' : proof.reason || result.error?.code || 'NO_REPLY' } : {}) };
+      ...(proof.ok !== true || proof.cleanup !== 'stopped' ? { reason: proof.sessionId && proof.cleanup !== 'stopped' ? 'SESSION_STOP_FAILED' : proof.reason || result.error?.code || 'NO_REPLY' } : {}) };
     saveJSON(receiptPath, receipts);
   }
   const ok = !!hostId && installed.every(name => successfulReceipt(receipts[name], state, { id: hostId }, ctx.dependencies[name]));

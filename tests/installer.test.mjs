@@ -236,10 +236,10 @@ test('connects only currently installed engines and never invokes npm for absent
   assert.deepEqual(result.installed, []);
 });
 
-test('builds runtime PATH without shadowing the preferred image executable or mutating the input environment', () => {
+test('builds runtime PATH without changing the engine search order or mutating the input environment', () => {
   const input = { PATH: '/original/bin:/image/bin', SAFE: 'unchanged', PI_OMNIGENT_STATE_DIR: '/plugin/state' };
   const output = runtimeEnv(complete(), input);
-  assert.equal(output.PATH.split(path.delimiter)[0], '/usr/local/bin');
+  assert.equal(output.PATH.split(path.delimiter)[0], '/original/bin');
   assert.ok(output.PATH.includes('/plugin/state/bin'));
   assert.ok(output.PATH.includes('/plugin/state/bootstrap/bin'));
   assert.equal(output.PI_OMNIGENT_PYTHON, '/opt/omnigent/venv/bin/python');
@@ -247,6 +247,20 @@ test('builds runtime PATH without shadowing the preferred image executable or mu
   assert.equal(input.PATH, '/original/bin:/image/bin');
   assert.equal(input.PI_OMNIGENT_PYTHON, undefined);
   assert.equal(new Set(output.PATH.split(path.delimiter)).size, output.PATH.split(path.delimiter).length);
+});
+
+test('the adapter executes the same engine that discovery found when Omnigent lives elsewhere', async t => {
+  const directory = await isolated(t);
+  const userBin = path.join(directory, 'user-bin'), imageBin = path.join(directory, 'image-bin');
+  await mkdir(userBin); await mkdir(imageBin);
+  for (const [bin, name, version] of [[userBin, 'claude', '2.1.292'], [imageBin, 'claude', '2.1.296'], [imageBin, 'omnigent', '0.16.0']]) {
+    await writeFile(path.join(bin, name), `#!${process.execPath}\nprocess.stdout.write('${name} ${version}');\n`, { mode: 0o700 });
+  }
+  const env = { HOME: directory, PATH: [userBin, imageBin].join(path.delimiter), PI_OMNIGENT_BIN: path.join(imageBin, 'omnigent') };
+  const found = await discover(env);
+  assert.equal(found.claude.version, '2.1.292');
+  const executed = await runCommand('claude', ['--version'], { env: runtimeEnv(found, env) });
+  assert.equal(executed.stdout, 'claude 2.1.292');
 });
 
 test('runCommand passes special characters as literal argv instead of executing a shell', async t => {

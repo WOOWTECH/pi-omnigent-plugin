@@ -418,6 +418,15 @@ class AdapterTests(unittest.TestCase):
             self.assert_code('CODEX_CATALOG_UNAVAILABLE', plugin.sync_codex_catalog)
         self.assertEqual(config.read_text(), '# unchanged\n')
 
+    def test_pi_error_event_classifies_payment_failure_without_exporting_text(self):
+        self.client.items = [{'type':'error', 'code':'RuntimeError',
+                             'message':'Pi model error: 402: private-provider-error-secret'}]
+        result = self.plugin(engine='pi').verify()
+        self.assertFalse(result['ok'])
+        self.assertEqual(result['reason'], 'PROVIDER_PAYMENT_REQUIRED')
+        self.assertNotIn('private-provider-error-secret', json.dumps(result))
+        self.assertEqual(result['cleanup'], 'stopped')
+
     def test_connect_reuses_auth_and_kit_without_second_host(self):
         plugin = self.plugin()
         with patch.object(plugin, "ensure_host", return_value="kit") as ensure, patch.object(adapter.shutil, "which", return_value="/test/bin/engine"):
