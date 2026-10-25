@@ -1,3 +1,23 @@
+# v0.3.11 Pi2／Pi3／Pi4 部署與模型切換（2026-10-25）
+
+三台皆已安裝公開 v0.3.11，先取消本機連結，再透過插件以本次指定的 server 帳密重新登入。本次未主動補裝或升級引擎；Pi4 既有 Claude 自動更新由 2.1.292 到 2.1.310 後，舊回條正確失效，已另行重驗。Pi3 原 host 屬於另一帳號，使用官方 reset-id 後重新登入；舊註冊與歷史對話保留。設定頁可經各容器的 `/omnigent` 直達，公開入口仍保留既有 HTTP Basic 登入保護。
+
+正式套件的九組「主機 × 引擎」模型切換測試全數通過。每組建立專用合成對話、取得第一次固定回覆、PATCH 同一對話的 model_override、取得第二次固定回覆、核對實際 llm_model，最後取得停止回條，共 18 次成功回覆。Claude 使用既有 gateway 的 sonnet／haiku 別名，分別對應 DeepSeek v4-flash-0731／v4.1-flash；Codex 使用既有登入的 gpt-6.1-sol／gpt-6-sol；Pi 使用既有 gateway 的 chatgpt/gpt-6.1-sol／chatgpt/gpt-6-sol。三台 Pi 預設改為已實測的 GPT gateway 路由，保留原有型錄。
+
+本次修復三項插件缺陷：保持原本引擎 PATH 優先順序、保留尚未建立 session 時的真實失敗原因、辨識 Pi 的 HTTP 402 而不輸出原始供應商訊息。119 個 Node、54 個 Python 測試及四個正式 CI 工作通過；依賴 audit 為 0 漏洞。
+
+Pi3 另有容器啟動器問題：系統 `pi` 會在載入 image 預設值時覆寫 Omnigent 的 `PI_CODING_AGENT_DIR`，導致原生 bridge 無法工作，或回報 Unknown provider omnigent。隔離 fixture 確認系統入口無法列出測試 provider，而容器既有的修正版入口可以。以持久磁碟上的專用入口目錄將 `pi-web` 與 `pi` 指向既有修正版，並設定 Omnigent 的 Pi command，實際 runner PATH 才與預期一致；不改動其他引擎的搜尋優先順序。重新部署時須保留這個入口 PATH 與 OMNIGENT_PI_PATH 設定。
+
+Pi3 最後一次完整驗收曾遇到 Codex `SERVER_UNREACHABLE`；其餘引擎成功，單獨重驗 Codex 後三引擎回到 ready，不能把暫時性 server 連線失敗當成模型授權問題。
+
+最後三台 `acceptance` 均回傳 exit code 0、phase ready；三引擎都有有效實際回覆回條。三個 Pod 的兩個容器皆就緒，重啟數皆為 0。
+
+三台桌面及手機共六個設定畫面均顯示 v0.3.11，無 page error。各自的選單數為 Claude 2、Codex 7、Pi 53；選單存在不等於全部模型都可用。非機密明細見 [部署驗收回條](evidence/pi234-omnigent-v0311-2026-10-25.json)。
+
+限制：Pi 的原 DeepSeek 路由曾在原生對話收到 HTTP 402，但直接協定短／長提示成功，未確定上游的最終根因；改用已實測 GPT 路由，不宣稱修復供應商計費。Pi4 最初 Codex 啟動失敗，重啟後完整回覆與切換通過，不能據此推定上游啟動問題永不復發。Claude Code 經 DeepSeek gateway 的官方支援限制沿用下方說明。此次未驗證所有型錄模型、長時間壓力、完整工具呼叫、ARM64 或 OIDC。
+
+Pi4 的 20 GiB 持久磁碟已清除可重建的下載與建置快取，仍僅約 0.9 GiB 可用；既有專案資料保留。持續商業使用前應擴容或由資料擁有者整理專案，不能把短對話驗收視為容量已足夠。
+
 # v0.3.9 Omnigent 獨立網頁 Codex 模型清單（2026-10-25）
 
 Pi7 的 host model-options API 原先回傳八個 GPT 選項，與 gateway 宣告的一個 DeepSeek 模型不一致。候選版透過 Codex 官方 model_catalog_json 設定，將已宣告的具體模型同步給 Omnigent 的 host 探測與新建 native session。沒有修改共享 Omnigent server 或 SDK。相同配置再次同步不寫入檔案；模型或 Codex binary 改變才重建。使用者自訂清單與損毀 TOML 會明確拒絕覆寫，原設定私有備份，所有同步檔案為 0600。

@@ -1,0 +1,584 @@
+{
+  "schema": 1,
+  "packageVersion": "0.3.11",
+  "releaseCommit": "01c474ce0cb0ef7f229cd899f9ea2e162561924e",
+  "checkedAt": "2026-10-25T10:34:06.267129+00:00",
+  "ci": {
+    "url": "https://github.com/WOOWTECH/pi-omnigent-plugin/actions/runs/40182946872",
+    "jobsPassed": 4,
+    "nodeTests": 119,
+    "pythonTests": 54,
+    "dependencyVulnerabilities": 0
+  },
+  "releaseArchiveSha256": "4d1565e727f8b02accfab135e7e4376dd00a2448e1f212299089d3fae7e19a01",
+  "targets": [
+    {
+      "target": "pi2",
+      "modelSwitchTests": [
+        {
+          "engine": "claude",
+          "models": [
+            "sonnet",
+            "haiku"
+          ],
+          "turns": [
+            {
+              "requestedModel": "sonnet",
+              "effectiveModel": "deepseek/deepseek-v4-flash-0731",
+              "reply": true,
+              "match": true,
+              "seconds": 14.23,
+              "error": null
+            },
+            {
+              "requestedModel": "haiku",
+              "effectiveModel": "deepseek/deepseek-v4.1-flash",
+              "reply": true,
+              "match": true,
+              "seconds": 11.27,
+              "error": null
+            }
+          ],
+          "ok": true,
+          "stopAccepted": true,
+          "packageVersion": "0.3.11"
+        },
+        {
+          "engine": "codex",
+          "models": [
+            "gpt-6.1-sol",
+            "gpt-6-sol"
+          ],
+          "turns": [
+            {
+              "requestedModel": "gpt-6.1-sol",
+              "effectiveModel": "gpt-6.1-sol",
+              "reply": true,
+              "match": true,
+              "seconds": 12.79,
+              "error": null
+            },
+            {
+              "requestedModel": "gpt-6-sol",
+              "effectiveModel": "gpt-6-sol",
+              "reply": true,
+              "match": true,
+              "seconds": 7.82,
+              "error": null
+            }
+          ],
+          "ok": true,
+          "stopAccepted": true,
+          "packageVersion": "0.3.11"
+        },
+        {
+          "engine": "pi",
+          "models": [
+            "omnigent/chatgpt/gpt-6.1-sol",
+            "omnigent/chatgpt/gpt-6-sol"
+          ],
+          "turns": [
+            {
+              "requestedModel": "omnigent/chatgpt/gpt-6.1-sol",
+              "effectiveModel": "omnigent/chatgpt/gpt-6.1-sol",
+              "reply": true,
+              "match": true,
+              "seconds": 14.34,
+              "error": null
+            },
+            {
+              "requestedModel": "omnigent/chatgpt/gpt-6-sol",
+              "effectiveModel": "omnigent/chatgpt/gpt-6-sol",
+              "reply": true,
+              "match": true,
+              "seconds": 6.2,
+              "error": null
+            }
+          ],
+          "ok": true,
+          "stopAccepted": true,
+          "packageVersion": "0.3.11"
+        }
+      ],
+      "finalAcceptance": {
+        "checkedAt": "2026-10-25T10:32:55.198Z",
+        "ok": true,
+        "phase": "ready",
+        "chatRequested": false,
+        "checks": [
+          {
+            "name": "enabled",
+            "ok": true
+          },
+          {
+            "name": "fresh-login-approved",
+            "ok": true
+          },
+          {
+            "name": "host-online",
+            "ok": true
+          },
+          {
+            "name": "installed-engines",
+            "ok": true
+          },
+          {
+            "name": "catalog-access",
+            "ok": true
+          },
+          {
+            "name": "catalog-claude",
+            "ok": true,
+            "modelCount": 2,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-codex",
+            "ok": true,
+            "modelCount": 7,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-pi",
+            "ok": true,
+            "modelCount": 53,
+            "moduleAvailable": true
+          },
+          {
+            "name": "ready",
+            "ok": true
+          }
+        ]
+      }
+    },
+    {
+      "target": "pi3",
+      "modelSwitchTests": [
+        {
+          "engine": "claude",
+          "models": [
+            "sonnet",
+            "haiku"
+          ],
+          "turns": [
+            {
+              "requestedModel": "sonnet",
+              "effectiveModel": "deepseek/deepseek-v4-flash-0731",
+              "reply": true,
+              "match": true,
+              "seconds": 14.32,
+              "error": null
+            },
+            {
+              "requestedModel": "haiku",
+              "effectiveModel": "deepseek/deepseek-v4.1-flash",
+              "reply": true,
+              "match": true,
+              "seconds": 14.32,
+              "error": null
+            }
+          ],
+          "ok": true,
+          "stopAccepted": true,
+          "packageVersion": "0.3.11"
+        },
+        {
+          "engine": "codex",
+          "models": [
+            "gpt-6.1-sol",
+            "gpt-6-sol"
+          ],
+          "turns": [
+            {
+              "requestedModel": "gpt-6.1-sol",
+              "effectiveModel": "gpt-6.1-sol",
+              "reply": true,
+              "match": true,
+              "seconds": 13.46,
+              "error": null
+            },
+            {
+              "requestedModel": "gpt-6-sol",
+              "effectiveModel": "gpt-6-sol",
+              "reply": true,
+              "match": true,
+              "seconds": 8.69,
+              "error": null
+            }
+          ],
+          "ok": true,
+          "stopAccepted": true,
+          "packageVersion": "0.3.11"
+        },
+        {
+          "engine": "pi",
+          "models": [
+            "omnigent/chatgpt/gpt-6.1-sol",
+            "omnigent/chatgpt/gpt-6-sol"
+          ],
+          "turns": [
+            {
+              "requestedModel": "omnigent/chatgpt/gpt-6.1-sol",
+              "effectiveModel": "omnigent/chatgpt/gpt-6.1-sol",
+              "reply": true,
+              "match": true,
+              "seconds": 12.35,
+              "error": null
+            },
+            {
+              "requestedModel": "omnigent/chatgpt/gpt-6-sol",
+              "effectiveModel": "omnigent/chatgpt/gpt-6-sol",
+              "reply": true,
+              "match": true,
+              "seconds": 6.5,
+              "error": null
+            }
+          ],
+          "ok": true,
+          "stopAccepted": true,
+          "packageVersion": "0.3.11"
+        }
+      ],
+      "finalAcceptance": {
+        "checkedAt": "2026-10-25T10:32:54.323Z",
+        "ok": true,
+        "phase": "ready",
+        "chatRequested": false,
+        "checks": [
+          {
+            "name": "enabled",
+            "ok": true
+          },
+          {
+            "name": "fresh-login-approved",
+            "ok": true
+          },
+          {
+            "name": "host-online",
+            "ok": true
+          },
+          {
+            "name": "installed-engines",
+            "ok": true
+          },
+          {
+            "name": "catalog-access",
+            "ok": true
+          },
+          {
+            "name": "catalog-claude",
+            "ok": true,
+            "modelCount": 2,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-codex",
+            "ok": true,
+            "modelCount": 7,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-pi",
+            "ok": true,
+            "modelCount": 53,
+            "moduleAvailable": true
+          },
+          {
+            "name": "ready",
+            "ok": true
+          }
+        ]
+      }
+    },
+    {
+      "target": "pi4",
+      "modelSwitchTests": [
+        {
+          "engine": "claude",
+          "models": [
+            "sonnet",
+            "haiku"
+          ],
+          "turns": [
+            {
+              "requestedModel": "sonnet",
+              "effectiveModel": "deepseek/deepseek-v4-flash-0731",
+              "reply": true,
+              "match": true,
+              "seconds": 19.29,
+              "error": null
+            },
+            {
+              "requestedModel": "haiku",
+              "effectiveModel": "deepseek/deepseek-v4.1-flash",
+              "reply": true,
+              "match": true,
+              "seconds": 11.63,
+              "error": null
+            }
+          ],
+          "ok": true,
+          "stopAccepted": true,
+          "packageVersion": "0.3.11"
+        },
+        {
+          "engine": "codex",
+          "models": [
+            "gpt-6.1-sol",
+            "gpt-6-sol"
+          ],
+          "turns": [
+            {
+              "requestedModel": "gpt-6.1-sol",
+              "effectiveModel": "gpt-6.1-sol",
+              "reply": true,
+              "match": true,
+              "seconds": 14.64,
+              "error": null
+            },
+            {
+              "requestedModel": "gpt-6-sol",
+              "effectiveModel": "gpt-6-sol",
+              "reply": true,
+              "match": true,
+              "seconds": 9.2,
+              "error": null
+            }
+          ],
+          "ok": true,
+          "stopAccepted": true,
+          "packageVersion": "0.3.11"
+        },
+        {
+          "engine": "pi",
+          "models": [
+            "omnigent/chatgpt/gpt-6.1-sol",
+            "omnigent/chatgpt/gpt-6-sol"
+          ],
+          "turns": [
+            {
+              "requestedModel": "omnigent/chatgpt/gpt-6.1-sol",
+              "effectiveModel": "omnigent/chatgpt/gpt-6.1-sol",
+              "reply": true,
+              "match": true,
+              "seconds": 23.28,
+              "error": null
+            },
+            {
+              "requestedModel": "omnigent/chatgpt/gpt-6-sol",
+              "effectiveModel": "omnigent/chatgpt/gpt-6-sol",
+              "reply": true,
+              "match": true,
+              "seconds": 8.21,
+              "error": null
+            }
+          ],
+          "ok": true,
+          "stopAccepted": true,
+          "packageVersion": "0.3.11"
+        }
+      ],
+      "finalAcceptance": {
+        "checkedAt": "2026-10-25T10:32:52.349Z",
+        "ok": true,
+        "phase": "ready",
+        "chatRequested": false,
+        "checks": [
+          {
+            "name": "enabled",
+            "ok": true
+          },
+          {
+            "name": "fresh-login-approved",
+            "ok": true
+          },
+          {
+            "name": "host-online",
+            "ok": true
+          },
+          {
+            "name": "installed-engines",
+            "ok": true
+          },
+          {
+            "name": "catalog-access",
+            "ok": true
+          },
+          {
+            "name": "catalog-claude",
+            "ok": true,
+            "modelCount": 2,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-codex",
+            "ok": true,
+            "modelCount": 7,
+            "moduleAvailable": true
+          },
+          {
+            "name": "catalog-pi",
+            "ok": true,
+            "modelCount": 53,
+            "moduleAvailable": true
+          },
+          {
+            "name": "ready",
+            "ok": true
+          }
+        ]
+      }
+    }
+  ],
+  "browser": [
+    {
+      "target": "pi2",
+      "mobile": false,
+      "http": 200,
+      "directSettings": true,
+      "versionVisible": true,
+      "choices": {
+        "claude": {
+          "modelCount": 2,
+          "expectedModel": true
+        },
+        "codex": {
+          "modelCount": 7,
+          "expectedModel": true
+        },
+        "pi": {
+          "modelCount": 53,
+          "expectedModel": true
+        }
+      },
+      "pageErrors": []
+    },
+    {
+      "target": "pi2",
+      "mobile": true,
+      "http": 200,
+      "directSettings": true,
+      "versionVisible": true,
+      "choices": {
+        "claude": {
+          "modelCount": 2,
+          "expectedModel": true
+        },
+        "codex": {
+          "modelCount": 7,
+          "expectedModel": true
+        },
+        "pi": {
+          "modelCount": 53,
+          "expectedModel": true
+        }
+      },
+      "pageErrors": []
+    },
+    {
+      "target": "pi3",
+      "mobile": false,
+      "http": 200,
+      "directSettings": true,
+      "versionVisible": true,
+      "choices": {
+        "claude": {
+          "modelCount": 2,
+          "expectedModel": true
+        },
+        "codex": {
+          "modelCount": 7,
+          "expectedModel": true
+        },
+        "pi": {
+          "modelCount": 53,
+          "expectedModel": true
+        }
+      },
+      "pageErrors": []
+    },
+    {
+      "target": "pi3",
+      "mobile": true,
+      "http": 200,
+      "directSettings": true,
+      "versionVisible": true,
+      "choices": {
+        "claude": {
+          "modelCount": 2,
+          "expectedModel": true
+        },
+        "codex": {
+          "modelCount": 7,
+          "expectedModel": true
+        },
+        "pi": {
+          "modelCount": 53,
+          "expectedModel": true
+        }
+      },
+      "pageErrors": []
+    },
+    {
+      "target": "pi4",
+      "mobile": false,
+      "http": 200,
+      "directSettings": true,
+      "versionVisible": true,
+      "choices": {
+        "claude": {
+          "modelCount": 2,
+          "expectedModel": true
+        },
+        "codex": {
+          "modelCount": 7,
+          "expectedModel": true
+        },
+        "pi": {
+          "modelCount": 53,
+          "expectedModel": true
+        }
+      },
+      "pageErrors": []
+    },
+    {
+      "target": "pi4",
+      "mobile": true,
+      "http": 200,
+      "directSettings": true,
+      "versionVisible": true,
+      "choices": {
+        "claude": {
+          "modelCount": 2,
+          "expectedModel": true
+        },
+        "codex": {
+          "modelCount": 7,
+          "expectedModel": true
+        },
+        "pi": {
+          "modelCount": 53,
+          "expectedModel": true
+        }
+      },
+      "pageErrors": []
+    }
+  ],
+  "publicSettingsAccess": "HTTP 401 with existing Basic authentication challenge on all three public URLs",
+  "findings": [
+    "Preserved engine PATH ordering instead of allowing the image SDK directory to shadow another installed engine.",
+    "Retained pre-session failure causes and classified Pi HTTP402 without exporting provider error text.",
+    "Pi3 system launcher discarded PI_CODING_AGENT_DIR; fixture reproduced missing native provider. Existing corrected launcher selected through an isolated Pi entrypoint; no engine was installed.",
+    "Pi3 account ownership required supported host reset-id; old registration retained.",
+    "Pi4 first Codex probe timed out; post-restart native conversation and model switching passed. Exact upstream startup failure root cause was not established.",
+    "Pi4 existing Claude automatically updated to 2.1.310; previous receipt was invalidated, and real reply plus two-model switching were reverified.",
+    "Pi3 one final Codex verification had SERVER_UNREACHABLE; targeted retry succeeded. Final acceptance was ready on all three targets.",
+    "All three final pods had both containers ready and zero container restarts. Earlier unacknowledged synthetic probe stop was accepted after restart."
+  ],
+  "limitations": [
+    "Only the two stated models per engine were exercised; 53 listed Pi models are not all verified.",
+    "Claude Code uses the existing gateway with DeepSeek, which is not the officially supported Claude-only gateway path. Short reply tests do not establish full tool or long conversation compatibility.",
+    "Pi4 persistent storage remains tight: approximately 0.9 GiB available after removing rebuildable download/build caches; user project data retained.",
+    "No sustained load test, ARM64 or OIDC validation in this deployment."
+  ]
+}
