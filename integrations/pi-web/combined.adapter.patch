@@ -1512,8 +1512,22 @@ index 83fddc9..5ec59dd 100644
        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
          <ConfigSectionTitle>{t("i18n.resolvedResources")}</ConfigSectionTitle>
          <ResourceList pkg={pkg} />
+diff --git a/components/SettingsPanel.test.mjs b/components/SettingsPanel.test.mjs
+index adcc4a2..5ceb182 100644
+--- a/components/SettingsPanel.test.mjs
++++ b/components/SettingsPanel.test.mjs
+@@ -228,3 +228,9 @@ test("keeps password authentication to one login field and one settings action",
+   assert.match(loginSource, /className="web-login-composer"[\s\S]*?type="password"[\s\S]*?<button type="submit"/);
+   assert.match(globalCssSource, /\.web-login-composer \{[\s\S]*?display: flex;[\s\S]*?border-radius: 14px/);
+ });
++
++test("shows a readable Paseo label immediately after Omnigent in native settings", () => {
++  assert.match(panelSource, /\{ id: "omnigent", label: "Omnigent" \},\s*\{ id: "paseo", label: "Paseo" \}/);
++  assert.match(panelSource, /sectionHost\("paseo", <PaseoPluginPanel/);
++  assert.doesNotMatch(panelSource, /settings\.paseo/);
++});
 diff --git a/components/SettingsPanel.tsx b/components/SettingsPanel.tsx
-index bf3a2ff..b71487f 100644
+index bf3a2ff..a46f2f2 100644
 --- a/components/SettingsPanel.tsx
 +++ b/components/SettingsPanel.tsx
 @@ -33,6 +33,8 @@ import { SkillsConfig } from "./SkillsConfig";
@@ -1539,7 +1553,7 @@ index bf3a2ff..b71487f 100644
      { id: "plugins", label: t("common.plugins") },
      { id: "mcp", label: t("settings.mcp") },
 +    { id: "omnigent", label: "Omnigent" },
-+    { id: "paseo", label: t("settings.paseo") },
++    { id: "paseo", label: "Paseo" },
    ] as const).map((item) => ({ ...item, requiresProject: settingsSectionRequiresProject(item.id) }));
    const sectionRequiresProject = settingsSectionRequiresProject(section);
  

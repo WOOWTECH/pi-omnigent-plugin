@@ -19,3 +19,5 @@ v0.3.3 固定更新後的 Pi Web lockfile；Next.js 16.4.3、Pi SDK 1.4.0 與相
 [Pi 7 正式部署實測證據](../../docs/evidence/pi7-native-ui-2026-10-12.json)。[Pi 6 候選版歷史證據](../../docs/evidence/pi6-native-ui-2026-10-12.json) 保留原測試範圍；本次部署只操作 Pi 7。
 
 v0.3.4 結合 Paseo v0.1.4 的固定補丁，以同一份 Pi Web 建置提供 MCP、Omnigent、Paseo 設定分頁；兩個來源及組合補丁均以 SHA-256 驗證。
+
+v0.3.5 將原生設定列的 Paseo 名稱固定顯示為「Paseo」，並在共用 UI CI 加入標籤回歸測試。

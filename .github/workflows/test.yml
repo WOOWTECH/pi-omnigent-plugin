@@ -93,7 +93,7 @@ jobs:
         working-directory: /tmp/pi-web-combined
       - run: npm audit --audit-level=high --no-fund
         working-directory: /tmp/pi-web-combined
-      - run: node --test lib/settings-navigation.test.mjs app/api/plugin-paseo/route.test.mjs app/api/omnigent/route.test.mjs components/PaseoPluginPanel.behavior.test.mjs
+      - run: node --test lib/settings-navigation.test.mjs app/api/plugin-paseo/route.test.mjs app/api/omnigent/route.test.mjs components/PaseoPluginPanel.behavior.test.mjs components/SettingsPanel.test.mjs
         working-directory: /tmp/pi-web-combined
       - run: npx tsc --noEmit
         working-directory: /tmp/pi-web-combined
