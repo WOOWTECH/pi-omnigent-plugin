@@ -5,7 +5,7 @@
   "piWebVersion": "0.10.0",
   "paseo": {
     "packageName": "@woowtech/pi-paseo",
-    "packageVersion": "0.1.6",
+    "packageVersion": "0.1.7",
     "adapterPatchSha256": "944a43de55b9ea2b7c956137a34790f228d1795e407030378a38cdefed69cd04"
   },
   "omnigent": {

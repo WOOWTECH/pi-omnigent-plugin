@@ -18,7 +18,7 @@ Repository 為公開，可直接安裝，不需要 GitHub token。安裝會自�
 git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.12
 ```
 
-同一 Pi Web 安裝 `git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.6` 後，執行 `pi-omnigent install-ui`，由 `v0.3.12` 驗證兩個固定補丁並產生一份共用 Pi Web 建置。重新啟動後，設定列順序為 **MCP → Omnigent → Paseo**；兩個服務各自維持原本的登入、連線與停用狀態。
+同一 Pi Web 安裝 `git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.7` 後，執行 `pi-omnigent install-ui`，由 `v0.3.12` 驗證兩個固定補丁並產生一份共用 Pi Web 建置。重新啟動後，設定列順序為 **MCP → Omnigent → Paseo**；兩個服務各自維持原本的登入、連線與停用狀態。
 
 ```bash
 pi install /path/to/pi-omnigent-plugin
@@ -146,4 +146,15 @@ v0.3.8 在驗證時定期查詢插件建立的測試 session 狀態；上游 HTT
 
 ### Paseo 安裝資源診斷（v0.3.12）
 
-安裝指令以固定錯誤碼與階段回報磁碟空間、權限與記憶體不足，不輸出子程序中的憑證內容。新介面建置驗證後會移除 `.next/cache`，保留執行所需檔案；安裝失敗仍保留原先使用中的介面。本版共用介面搭配 Paseo v0.1.6。
+安裝指令以固定錯誤碼與階段回報磁碟空間、權限與記憶體不足，不輸出子程序中的憑證內容。新介面建置驗證後會移除 `.next/cache`，保留執行所需檔案；安裝失敗仍保留原先使用中的介面。本版共用介面搭配 Paseo v0.1.7。
+
+### 同時升級兩個插件
+
+已有舊版 Omnigent／Paseo 的環境，先升級 Omnigent，再安裝對應的 Paseo。固定版本組合不可交叉混用：
+
+```sh
+pi install git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.12
+pi install git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.7
+```
+
+Paseo 安裝器會交給 Omnigent 建立共用介面；完成後重啟 Pi Web，再到 `/paseo/setup` 配對。收到 `RESTART_REQUIRED` 時，完成重啟後重新整理並驗證三種引擎對話。首次編譯建議預留至少 3 GiB 可用磁碟空間；實測不足 1 GiB 時套件安裝可能因 `ENOSPC` 失敗。官方 Paseo 的主機顯示名稱請在 Paseo App 內修改；插件的「容器備註」僅存於設定頁。
