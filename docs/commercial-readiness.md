@@ -55,7 +55,7 @@ Pi Web 原本的 reload 會保留尚未回答的 extension 視窗，因此重載
 
 # v0.3.1 Pi 7 原生設定分頁實測
 
-2026-10-12 在全新 Pi 7（svc-08cf5049-pi-agent）安裝公開 v0.3.0 後自動建立設定對話，下載 Omnigent，並正式建置原生設定分頁。首次建置在 npm ci 出現 EACCES：容器 uid 1000 繼承不可寫的 /tmp/npm-cache。v0.3.1 改用管理目錄下 0700 私有快取，已在同一 Pi 7 完成完整 npm ci、正式 build 與路由串接。沒有補裝任何引擎。
+2026-10-12 在全新 Pi 7 安裝公開 v0.3.0 後自動建立設定對話，下載 Omnigent，並正式建置原生設定分頁。首次建置在 npm ci 出現 EACCES：容器 uid 1000 繼承不可寫的 /tmp/npm-cache。v0.3.1 改用管理目錄下 0700 私有快取，已在同一 Pi 7 完成完整 npm ci、正式 build 與路由串接。沒有補裝任何引擎。
 
 Pi 7 的服務 PATH 原本不包含 $HOME/.local/bin；更新 pi-web 容器的啟動 PATH 並確認無進行中對話後重啟，部署就緒。桌面設定 modal 的 Omnigent 位於 MCP 右側；手機使用原生分頁選單。真實瀏覽器登入、取消、重新登入都成功，重連沿用 host ID；首次與重新設定欄位皆空白，密碼遮罩且切換分頁會清空。測試沒有 mock API。
 

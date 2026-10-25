@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "date": "2026-10-25",
-  "deployment": "paas-ws-504a2b17/svc-08cf5049-pi-agent",
+  "deployment": "Pi7 production Pi Agent workload",
   "pluginVersion": "0.3.8",
   "source": "git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.8",
   "paseoPluginVersion": "0.1.4",
@@ -33,7 +33,7 @@
     "removedOlderManagedReleases": 7,
     "preserved": "Current release, two most recent managed rollback releases, and one non-managed backup",
     "after": {"usedGiB": 12, "availableGiB": 19, "usedPercent": 39, "uiReleaseCount": 4},
-    "auditManifest": "/data/pi-agent/home/work/pi7-ui-prune-20261025.json"
+    "auditManifest": "Private Pi7 maintenance record"
   },
   "limitations": [
     "The installer does not yet bound the number of retained UI releases automatically.",
