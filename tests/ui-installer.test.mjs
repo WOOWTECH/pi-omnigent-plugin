@@ -286,6 +286,18 @@ test('explicit matching prebuiltRoot copies its build without fetch or npm', asy
   assert.equal(JSON.parse(fs.readFileSync(path.join(result.adapterRoot, '.pi-omnigent-web-install.json'))).prebuilt, true);
 });
 
+test('a managed installed release can be reused as prebuiltRoot without rebuilding', async t => {
+  const f = fixture(t), first = await installUi(f.options);
+  const home = path.join(f.root, 'upgrade-home'); fs.mkdirSync(home);
+  const env = { ...f.options.env, HOME: home, PI_CODING_AGENT_DIR: path.join(home, 'agent'), PI_AGENT_DATA_DIR: path.join(home, 'agent') };
+  const before = f.calls.length;
+  const result = await installUi({ ...f.options, home, env, sharedHostPath: path.join(home, 'absent/host.json'), prebuiltRoot: first.adapterRoot });
+  assert.equal(f.calls.slice(before).filter(c => c.command === 'npm' || c.args[0] === 'fetch').length, 0);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(result.adapterRoot, '.pi-omnigent-web-install.json'))).prebuilt, true);
+  assert.equal(fs.readFileSync(path.join(result.adapterRoot, '.next/BUILD_ID'), 'utf8'),
+               fs.readFileSync(path.join(first.adapterRoot, '.next/BUILD_ID'), 'utf8'));
+});
+
 test('prebuilt source drift fails before routing or publication', async t => {
   const f = fixture(t); git(f.source, 'apply', path.join(f.pkg, 'integrations/pi-web/adapter.patch'));
   write(path.join(f.source, '.next/BUILD_ID'), 'existing-production-build\n');

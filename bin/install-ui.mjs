@@ -136,7 +136,10 @@ async function copyPrebuilt(source, stage, run, env, meta) {
   // Compare every tracked/new source file, including the lockfile, against the
   // freshly patched checkout. Reusing arbitrary .next directories is rejected.
   const files = (await run('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: stage, env })).split('\0').filter(Boolean).sort();
-  const actual = (await run('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: source, env })).split('\0').filter(Boolean).sort();
+  // Managed releases add this receipt after the build. It is regenerated for
+  // the destination and is not part of the upstream source comparison.
+  const actual = (await run('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: source, env }))
+    .split('\0').filter(file => file && file !== '.pi-omnigent-web-install.json').sort();
   const present = files.filter(file => exists(path.join(stage, file)));
   if (JSON.stringify(present) !== JSON.stringify(actual.filter(file => exists(path.join(source, file))))) fail('PREBUILT_SOURCE_MISMATCH');
   for (const file of present) {
