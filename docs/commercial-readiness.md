@@ -1,3 +1,13 @@
+# v0.3.9 Omnigent 獨立網頁 Codex 模型清單（2026-10-25）
+
+Pi7 的 host model-options API 原先回傳八個 GPT 選項，與 gateway 宣告的一個 DeepSeek 模型不一致。候選版透過 Codex 官方 model_catalog_json 設定，將已宣告的具體模型同步給 Omnigent 的 host 探測與新建 native session。沒有修改共享 Omnigent server 或 SDK。相同配置再次同步不寫入檔案；模型或 Codex binary 改變才重建。使用者自訂清單與損毀 TOML 會明確拒絕覆寫，原設定私有備份，所有同步檔案為 0600。
+
+原始失敗斷言、Pi7 隔離 native probe、正式 host API 複驗均已執行；正式 API 現在只回傳 deepseek/deepseek-v4-flash-0731。指定該模型的真實 Codex 對話回覆固定驗收文字並取得停止回條。完整瀏覽器與正式發布驗收另記錄，不以 API 結果代替尚未完成的 UI 操作。
+
+原生 Pi Web 新增 /omnigent 直達設定頁。一般 Claude、Pi 及既有對話不因模型選單修正而重啟。未逐項驗證的模型、ARM64、OIDC、長時間壓力測試等既有限制仍保留。
+
+官方設定參考：[Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)。
+
 # v0.3.8 Pi 7 三引擎對話及 gateway 選模驗收（2026-10-25）
 
 正式 v0.3.8 已釘選安裝於 Pi7，使用完整共用 Pi Web 建置重新啟動；新 Pod 兩個容器就緒、重啟數皆為 0。實際瀏覽器開啟 Omnigent 與 Paseo 原生分頁，首頁和兩個 API 回 200、無 JavaScript 錯誤。Omnigent 分頁顯示版本 0.3.8、Claude／Codex／Pi 模型數 1／1／50，server 登入與 host 在線。重啟後的新一輪驗證於 07:02–07:03 UTC 讓三引擎各自取得固定正確回覆與 `cleanup: "stopped"`，整體回到 `ready`。[正式部署與容量回條](evidence/pi7-omnigent-v038-production-2026-10-25.json) 為非機密摘要。Paseo 的三種 CLI provider 要各自驗收；其 Pi Web Remote 實測見 [Paseo 驗證紀錄](https://github.com/WOOWTECH/pi-paseo-plugin/blob/main/docs/validation.md)。

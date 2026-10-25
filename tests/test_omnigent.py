@@ -116,7 +116,7 @@ class AdapterTests(unittest.TestCase):
         self.config_home = self.home / "config"
         self.config_home.mkdir()
         self.environment = patch.dict(os.environ, {"HOME": str(self.home), "OMNIGENT_CONFIG_HOME": str(self.config_home),
-                                                   "OMNIGENT_DATA_DIR": str(self.config_home), "OG_HOST_ENABLED": "0",
+                                                   "OMNIGENT_DATA_DIR": str(self.config_home), "OG_HOST_ENABLED": "0", "CODEX_HOME": str(self.home / '.codex'),
                                                    "OG_STATUS_FILE": str(self.home / "absent-status.json")})
         self.environment.start()
         self.addCleanup(self.environment.stop)
@@ -326,11 +326,97 @@ class AdapterTests(unittest.TestCase):
                                    "displayName": "deepseek/v4-flash", "isDefault": True}])
         self.assertFalse(any("codex-native/model-options" in path for _, path, _, _ in self.client.calls))
         self.assertNotIn("private-token", json.dumps(catalog))
-        result = self.plugin(engine="codex", model="deepseek/v4-flash").verify()
+        with patch.object(adapter.Plugin, 'sync_codex_catalog'):
+            result = self.plugin(engine="codex", model="deepseek/v4-flash").verify()
         self.assertTrue(result["ok"])
         created = next(payload for method, path, payload, _ in self.client.calls
                        if method == "POST" and path == "/v1/sessions")
         self.assertEqual(created["model_override"], "deepseek/v4-flash")
+
+    def gateway_plugin(self):
+        import yaml
+        binary = patch.object(adapter.shutil, 'which', return_value=sys.executable)
+        binary.start(); self.addCleanup(binary.stop)
+        self.initial_config['providers']['gateway'] = {'kind': 'gateway', 'default': 'openai', 'openai': {
+            'base_url': 'https://gateway.example/v1', 'wire_api': 'responses',
+            'auth_command': 'printf private-token', 'models': {'default': 'vendor/model', 'fast': 'vendor/model'}}}
+        (self.config_home / 'config.yaml').write_text(yaml.safe_dump(self.initial_config))
+        return self.plugin()
+
+    def test_sync_skips_missing_engine_without_changing_any_settings(self):
+        plugin = self.gateway_plugin()
+        with patch.object(adapter.shutil, 'which', return_value=None):
+            self.assertEqual(plugin.sync_codex_catalog(), {'changed': False, 'reason': 'binary-missing'})
+        self.assertFalse((self.home / '.codex').exists())
+
+    def test_sync_updates_provider_models_and_preserves_old_session_catalog_on_restore(self):
+        import yaml, tomlkit
+        plugin = self.gateway_plugin()
+        with patch.object(adapter.Plugin, 'codex_bundled_catalog', return_value={'models': [{'slug':'native'}]}):
+            plugin.sync_codex_catalog()
+            self.initial_config['providers']['gateway']['openai']['models'] = {'default':'vendor/new'}
+            (self.config_home / 'config.yaml').write_text(yaml.safe_dump(self.initial_config))
+            self.assertTrue(plugin.sync_codex_catalog()['changed'])
+        managed = plugin.state_dir / 'codex-model-catalog.json'
+        self.assertEqual([x['slug'] for x in json.loads(managed.read_text())['models']], ['vendor/new'])
+        plugin.sync_codex_catalog(restore=True)
+        self.assertTrue(managed.exists())
+        self.assertNotIn('model_catalog_json', tomlkit.parse((self.home / '.codex/config.toml').read_text()))
+
+    def test_sync_codex_catalog_projects_gateway_and_is_idempotent(self):
+        import tomlkit
+        plugin = self.gateway_plugin()
+        source = self.home / '.codex'; source.mkdir()
+        config = source / 'config.toml'
+        config.write_text('# keep comment\n[features]\nmulti_agent = true\n')
+        native = {'models': [{'slug': 'native-model', 'base_instructions': 'native instructions',
+                              'supported_reasoning_levels': [{'effort': 'medium'}]}]}
+        with patch.object(adapter.Plugin, 'codex_bundled_catalog', return_value=native) as probe:
+            first = plugin.sync_codex_catalog()
+            document = tomlkit.parse(config.read_text())
+            catalog = Path(document['model_catalog_json'])
+            contents = json.loads(catalog.read_text())
+            self.assertEqual([x['slug'] for x in contents['models']], ['vendor/model'])
+            self.assertNotIn('private-token', catalog.read_text())
+            self.assertIn('# keep comment', config.read_text())
+            self.assertTrue(document['features']['multi_agent'])
+            self.assertEqual(catalog.stat().st_mode & 0o777, 0o600)
+            stamp = (catalog.stat().st_mtime_ns, config.stat().st_mtime_ns)
+            second = plugin.sync_codex_catalog()
+            self.assertEqual(stamp, (catalog.stat().st_mtime_ns, config.stat().st_mtime_ns))
+            self.assertTrue(first['changed']); self.assertFalse(second['changed'])
+            self.assertEqual(probe.call_count, 1)
+
+    def test_sync_preserves_user_catalog_and_reports_conflict(self):
+        plugin = self.gateway_plugin()
+        source = self.home / '.codex'; source.mkdir()
+        original = 'model_catalog_json = "/user/custom.json"\n'
+        (source / 'config.toml').write_text(original)
+        self.assert_code('CODEX_CATALOG_CONFLICT', plugin.sync_codex_catalog)
+        self.assertEqual((source / 'config.toml').read_text(), original)
+
+    def test_sync_subscription_restores_only_owned_setting(self):
+        import tomlkit
+        plugin = self.plugin()
+        source = self.home / '.codex'; source.mkdir()
+        catalog = plugin.state_dir / 'codex-model-catalog.json'
+        (source / 'config.toml').write_text('model_catalog_json = ' + json.dumps(str(catalog)) + '\nmodel = "user-model"\n')
+        result = plugin.sync_codex_catalog()
+        document = tomlkit.parse((source / 'config.toml').read_text())
+        self.assertTrue(result['changed'])
+        self.assertNotIn('model_catalog_json', document)
+        self.assertEqual(document['model'], 'user-model')
+
+    def test_sync_invalid_config_or_probe_failure_does_not_change_config(self):
+        plugin = self.gateway_plugin()
+        source = self.home / '.codex'; source.mkdir()
+        config = source / 'config.toml'; config.write_text('invalid [ toml')
+        self.assert_code('INVALID_CODEX_CONFIG', plugin.sync_codex_catalog)
+        self.assertEqual(config.read_text(), 'invalid [ toml')
+        config.write_text('# unchanged\n')
+        with patch.object(adapter.Plugin, 'codex_bundled_catalog', return_value={}):
+            self.assert_code('CODEX_CATALOG_UNAVAILABLE', plugin.sync_codex_catalog)
+        self.assertEqual(config.read_text(), '# unchanged\n')
 
     def test_connect_reuses_auth_and_kit_without_second_host(self):
         plugin = self.plugin()

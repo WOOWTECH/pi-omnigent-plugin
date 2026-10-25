@@ -503,12 +503,12 @@ index 5d6fc71..a03b71b 100644
 +import { readJsonObject, RequestBodyError } from "@/lib/json-request";
 +import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
  import { checkPluginUpdates } from "@/lib/plugin-updates";
- 
+
  export const dynamic = "force-dynamic";
 +function response(value: unknown, status = 200) {
 +  return NextResponse.json(value, { status, headers: { "Cache-Control": "private, no-store" } });
 +}
- 
+
  export async function POST(req: Request) {
 +  if (!isApiRequestAllowed(req)) return response({ error: "Untrusted API request" }, 403);
 +  if (!hasJsonContentType(req)) return response({ error: "Content-Type must be application/json" }, 415);
@@ -566,21 +566,21 @@ index e31bc08..b4229f0 100644
 +++ b/app/api/plugins/route.test.mjs
 @@ -26,7 +26,7 @@ after(async () => {
  });
- 
+
  test("lists auto-discovered top-level extensions", async () => {
 -  const response = await GET(new Request(`http://localhost/api/plugins?cwd=${encodeURIComponent(cwd)}`));
 +  const response = await GET(new Request(`http://localhost/api/plugins?cwd=${encodeURIComponent(cwd)}`, { headers: { host: "localhost" } }));
    const body = await response.json();
- 
+
    assert.equal(response.status, 200);
 @@ -53,7 +53,7 @@ test("reports the package description from package.json", async () => {
    await writeFile(join(packageDir, "extensions", "index.ts"), "export default () => {};\n");
    await writeFile(join(agentDir, "settings.json"), JSON.stringify({ packages: [packageDir] }));
- 
+
 -  const response = await GET(new Request(`http://localhost/api/plugins?cwd=${encodeURIComponent(cwd)}`));
 +  const response = await GET(new Request(`http://localhost/api/plugins?cwd=${encodeURIComponent(cwd)}`, { headers: { host: "localhost" } }));
    const body = await response.json();
- 
+
    assert.equal(response.status, 200);
 diff --git a/app/api/plugins/route.ts b/app/api/plugins/route.ts
 index 1c0670c..851a3b9 100644
@@ -606,7 +606,7 @@ index 1c0670c..851a3b9 100644
    PluginPackageInfo,
 @@ -27,6 +30,16 @@ import type {
  } from "@/lib/api-types";
- 
+
  export const dynamic = "force-dynamic";
 +const MAX_BODY_BYTES = 64 * 1024;
 +function response(value: unknown, init: ResponseInit = {}) {
@@ -618,9 +618,9 @@ index 1c0670c..851a3b9 100644
 +function validSource(value: unknown): value is string {
 +  return typeof value === "string" && value.trim().length > 0 && value.length <= 4096 && !/[\u0000-\u001f\u007f]/.test(value);
 +}
- 
+
  type PluginAction = "install" | "remove" | "update" | "disable" | "enable";
- 
+
 @@ -172,8 +185,8 @@ async function setPackageListDisabled(
    }
    await settingsManager.flush();
@@ -634,7 +634,7 @@ index 1c0670c..851a3b9 100644
      // A settings file that failed to load also reads as "not configured", so
 @@ -184,12 +197,13 @@ async function setPackageListDisabled(
  }
- 
+
  function readPackageList(value: unknown): { source: string; scope: PluginScope }[] | null {
 -  if (!Array.isArray(value)) return null;
 +  if (!Array.isArray(value) || value.length === 0 || value.length > 200) return null;
@@ -652,20 +652,20 @@ index 1c0670c..851a3b9 100644
 @@ -398,23 +412,25 @@ async function readPlugins(cwd: string): Promise<PluginsResponse> {
    };
  }
- 
+
 -function readScope(scope: unknown): PluginScope {
 -  return scope === "project" ? "project" : "global";
 +function readScope(scope: unknown): PluginScope | null {
 +  return scope === undefined || scope === "global" ? "global" : scope === "project" ? "project" : null;
  }
- 
+
  export async function GET(req: Request) {
 +  if (!isApiRequestAllowed(req)) return response({ error: "Untrusted API request" }, { status: 403 });
    const { searchParams } = new URL(req.url);
    const cwd = searchParams.get("cwd");
 -  if (!cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
 +  if (!validCwd(cwd)) return response({ error: "Valid absolute cwd required" }, { status: 400 });
- 
+
    try {
      const allowedRoots = await getAllowedFileRoots();
      if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
@@ -681,7 +681,7 @@ index 1c0670c..851a3b9 100644
 +    return response({ error: "Plugin settings could not be read" }, { status: 500 });
    }
  }
- 
+
 @@ -423,93 +439,118 @@ export async function GET(req: Request) {
  // source/scope and add per-package `results` to the response.
  export async function POST(req: Request) {
@@ -693,7 +693,7 @@ index 1c0670c..851a3b9 100644
 -    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
 +    return response({ error: "Content-Type must be application/json" }, { status: 415 });
    }
- 
+
    try {
 -    const body = await req.json() as {
 -      action?: PluginAction;
@@ -725,7 +725,7 @@ index 1c0670c..851a3b9 100644
 -      return NextResponse.json({ error: "Access denied" }, { status: 403 });
 +      return response({ error: "Access denied" }, { status: 403 });
      }
- 
+
 -    const agentDir = getAgentDir();
 -    const projectTrust = getProjectTrustStatus(body.cwd, agentDir);
 -    const settingsManager = SettingsManager.create(body.cwd, agentDir, {
@@ -767,7 +767,7 @@ index 1c0670c..851a3b9 100644
 -      );
 -      return NextResponse.json({ ...(await readPlugins(body.cwd)), results } satisfies PluginsBulkResponse);
 -    }
- 
+
 -    const scope = readScope(body.scope);
 -    if (scope === "project" && !projectTrust.trusted) {
 -      return NextResponse.json(
@@ -856,7 +856,7 @@ index 1c0670c..851a3b9 100644
 +      } else {
 +        return response({ error: `Unsupported action: ${body.action}` }, { status: 400 });
 +      }
- 
+
 -    return NextResponse.json(await readPlugins(body.cwd));
 +      const settingsErrors = settingsManager.drainErrors();
 +      if (settingsErrors.length) {
@@ -1500,13 +1500,13 @@ index 83fddc9..5ec59dd 100644
  } from "./SettingsUi";
  import { itemsToSwitch, projectTrustReloadKey } from "./settings-ui-helpers";
 +import { PaseoPluginPanel } from "./PaseoPluginPanel";
- 
+
  type PluginScope = PluginPackageInfo["scope"];
  type PluginAction = "install" | "remove" | "update" | "disable" | "enable";
 @@ -516,6 +517,8 @@ function PackageDetail({
          </ConfigDetailGridRow>
        </ConfigDetailGrid>
- 
+
 +      {pkg.packageName === "@woowtech/pi-paseo" && <PaseoPluginPanel cwd={cwd} disabled={pkg.disabled} />}
 +
        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1537,7 +1537,7 @@ index bf3a2ff..a46f2f2 100644
 +import { OmnigentConfig } from "./OmnigentConfig";
 +import { PaseoPluginPanel } from "./PaseoPluginPanel";
  import { ConfigButton, ConfigSwitch } from "./SettingsUi";
- 
+
  interface Props {
 @@ -70,6 +72,8 @@ export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: {
    if (section === "skills") return <svg {...common}><path d="m12 2-10 5 10 5 10-5-10-5Z" /><path d="m2 12 10 5 10-5M2 17l10 5 10-5" /></svg>;
@@ -1547,7 +1547,7 @@ index bf3a2ff..a46f2f2 100644
 +  if (section === "paseo") return <svg {...common}><path d="M4 12h16M7 7l5 5-5 5" /><circle cx="17" cy="7" r="2" /><circle cx="17" cy="17" r="2" /></svg>;
    return <svg {...common}><path d="M9 7V2M15 7V2M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0ZM12 19v3" /></svg>;
  }
- 
+
 @@ -414,6 +418,8 @@ export function SettingsPanel({
      { id: "agents", label: t("common.agents") },
      { id: "plugins", label: t("common.plugins") },
@@ -1556,7 +1556,7 @@ index bf3a2ff..a46f2f2 100644
 +    { id: "paseo", label: "Paseo" },
    ] as const).map((item) => ({ ...item, requiresProject: settingsSectionRequiresProject(item.id) }));
    const sectionRequiresProject = settingsSectionRequiresProject(section);
- 
+
 @@ -514,6 +520,8 @@ export function SettingsPanel({
            {cwd && sectionHost("plugins", <PluginsConfig embedded key={cwd} cwd={cwd} sessionId={sessionId} trust={projectTrust} onClose={onClose} onReloaded={onSessionReloaded} />)}
            {/* No project needed: the global mcp.json is listed alone, and a project adds its group. */}
@@ -1571,13 +1571,13 @@ index 274b438..b71a5a9 100644
 --- a/docs/agents/settings-ui.md
 +++ b/docs/agents/settings-ui.md
 @@ -2,6 +2,7 @@
- 
+
  ## Plugins and skills
  - `/api/plugins` uses pi's `SettingsManager` + `DefaultPackageManager` for global/project package install, remove, update, enable and disable; disabling writes empty `extensions/skills/prompts/themes` arrays to the package entry.
 +- The optional `@woowtech/pi-paseo` integration receives confirmed install/enable/update/disable/remove events after settings writes succeed. Only that package's installed `package.json` identity activates its runtime; bulk failures and preserved filtered entries receive no event. `lib/paseo-plugin.ts` dynamically imports its `src/host-api.mjs` from installed metadata or the operator's `PI_PASEO_PLUGIN_ROOT`, so it must ship alongside this host build. Runtime failures are public setup notices, never raw CLI output, and do not invalidate a completed Pi package installation. Every host lifecycle/restore/removal hook forwards `createOnboarding(prompt, remember)`; the host awaits `remember(realSessionId)` immediately after SDK creation and before naming, preflight, prompting or shutdown, so failures reuse that identity. Node instrumentation resumes enabled global packages once; the runtime owns the lock and unique onboarding session id. The session uses Pi's SDK and default permissions; with no configured model its first authorized user request is still saved for later continuation. `/paseo/setup` and `/api/plugin-paseo` share the existing proxy/auth boundary. Public status excludes pairing URLs; only the explicit no-store pairing action returns one, and the browser holds it in component memory. Official relay uses no extra Paseo account password.
  - `/api/skills` lists through `DefaultResourceLoader`, so settings paths, package skills and project `.agents/skills` appear as the runtime sees them. Toggling a skill edits only the `disable-model-invocation` frontmatter key of its `SKILL.md`, so user formatting survives, and `PATCH /api/skills` edits only `.md` files (its roots also hold `auth.json`, settings and project files). `/api/skills/install` shells through `npx skills add ... --agent pi`; project installs run in the selected cwd.
  - **Group switches.** Each sidebar group of the Skills, Plugins and MCP panels (a skill scope, a package scope, an `mcp.json`; not standalone extensions) has a `ConfigSidebarGroupSwitch` in its heading row, so the 190px phone sidebar loses no height. As with the Models provider switch, it is on only while every row is: a partial group reads as off beside its `n/m` count and one click completes it. A panel whose group can hold rows its switch never turns on passes its own `checked` (MCP: `mcpGroupSwitchChecked()`), or the switch stays off for good. One request carries the list (`PATCH /api/skills` `filePaths`, `POST /api/plugins` `packages`, `POST /api/mcp` `set-enabled` `servers`) and answers per item, so a refused row does not stop the rest; what was left undone shows under the heading (`ConfigSidebarGroupStatus`). An entry already in the requested state is left alone; enabling keeps an entry's own keys such as `autoload`. `SettingsManager` never throws a failed load or write (`flush()` resolves), so the bulk plugin path reads `drainErrors()`, or an unreadable settings.json would report success. Disabling empties the four resource lists and keeps no filters, so a group switched off leaves an enabled filtered package on (the SDK reports every object entry as `filtered`) and says so; the bulk route refuses it.
- 
+
 @@ -10,3 +11,5 @@
  - **Every add pane chooses global or project in one place:** a `ConfigSaveTarget` (scope switch aria-labelled `config.saveTo`, plus the path that choice writes to) first under the pane's title, where a detail pane shows its `ConfigScopeTag` and path. Skills, Plugins and MCP get it through `ConfigAddSourceHeading` (title, the catalog links at its right, then the save target); Sub-agents put it in the detail header in place of the tag while creating. The submit button stays where its flow needs it (Install under the source box or on each skill result, Save in the footer, Add at the end of the MCP form), with why it waits beside it, not under the save target. The path is shown whole, never cut short: it wraps after a separator (`<wbr>`), then anywhere. Sub-agents offer both scopes whatever the folder's trust: profiles are not project resources that wait for it.
  - **Why a control is unavailable is visible text** — a scope switch's `disabledReason` (under the switch's whole line, so controls passed as its `children` stay level with it), the note under a detail header, a footer summary that opens its diagnostics — never only a `title` tooltip, which a touch screen cannot show.
@@ -1592,7 +1592,7 @@ index 782f95a..11362fc 100644
  import { configureHttpDispatcher } from "@/lib/http-dispatcher";
  import { closeAllAgentEventStreams } from "@/lib/agent-event-stream";
 +import { restorePluginPackages } from "@/lib/plugin-lifecycle";
- 
+
  export function registerNodeInstrumentation(): void {
    configureHttpDispatcher();
 +  // Package startup is idempotent and runs in the background. It resumes the
@@ -1600,7 +1600,7 @@ index 782f95a..11362fc 100644
 +  if (process.env.PI_PASEO_SKIP_STARTUP !== "1" && process.env.NEXT_PHASE !== "phase-production-build") {
 +    void restorePluginPackages();
 +  }
- 
+
    // In production Next 16 answers SIGINT/SIGTERM with server.close() and waits
    // for every connection to end, without a timeout. SSE streams only end when
 diff --git a/lib/api-types.ts b/lib/api-types.ts
@@ -1619,7 +1619,7 @@ index 31c20be..6ee52aa 100644
 +    error?: string;
 +  };
  }
- 
+
  /** One package of a bulk enable/disable; `error` means it was left as it was. */
 diff --git a/lib/codemode-settings.test.mjs b/lib/codemode-settings.test.mjs
 index 05a82ed..ed726d9 100644
@@ -1640,7 +1640,7 @@ index 3fe0643..330cce6 100644
 @@ -64,13 +64,12 @@ test("each pattern is resolved on its own, with its thinking pin", async () => {
    ]);
  });
- 
+
 -test("a bare id shared by two providers resolves to a single owner", async () => {
 -  // `lib/model-scope.ts` rejects this entry for the selector; the panel still
 -  // has to show something, and any edit rewrites it to an explicit reference.
@@ -1653,7 +1653,7 @@ index 3fe0643..330cce6 100644
 -  assert.ok(["a/same-id", "b/same-id"].includes(resolution.matched[0]));
 +  assert.deepEqual(resolution.matched, ["a/same-id", "b/same-id"]);
  });
- 
+
  test("the view groups models by provider and marks custom ones", async () => {
 diff --git a/lib/i18n/messages/en.ts b/lib/i18n/messages/en.ts
 index 0bb5253..5ea7ae3 100644
@@ -3303,7 +3303,7 @@ index 5d0a938..ecfade8 100644
 --- a/lib/request-security.ts
 +++ b/lib/request-security.ts
 @@ -53,7 +53,9 @@ function configuredHostnamesFromEnvironment(): string[] {
- 
+
  function canonicalOrigin(value: string): string | null {
    try {
 -    return new URL(value).origin;
@@ -3320,7 +3320,7 @@ index 5d0a938..ecfade8 100644
 -  if (!origin) return true;
 +  if (origin === null) return true;
 +  if (!origin || canonicalOrigin(origin) === null) return false;
- 
+
    const requestOrigin = getRequestOrigin(request);
    if (requestOrigin !== null && canonicalOrigin(origin) === requestOrigin) return true;
 diff --git a/lib/rpc-manager.ts b/lib/rpc-manager.ts
@@ -3348,7 +3348,7 @@ index 8d4ac8b..ef973b3 100644
 @@ -39,6 +39,21 @@ test("restores the last settings section and falls back without a project", () =
    assert.equal(getLastSettingsSection("/project", storage), "agents");
  });
- 
+
 +test("Omnigent is immediately after MCP and its host settings do not require a project", () => {
 +  assert.equal(SETTINGS_SECTION_VALUES.indexOf("omnigent"), SETTINGS_SECTION_VALUES.indexOf("mcp") + 1);
 +  const storage = createStorage(); setLastSettingsSection("omnigent", storage);
@@ -3366,7 +3366,7 @@ index 8d4ac8b..ef973b3 100644
 +
  test("keeps project settings selections isolated by cwd", () => {
    const storage = createStorage();
- 
+
 diff --git a/lib/settings-navigation.ts b/lib/settings-navigation.ts
 index 5367458..a87c846 100644
 --- a/lib/settings-navigation.ts
@@ -3378,11 +3378,11 @@ index 5367458..a87c846 100644
 +  "omnigent",
 +  "paseo",
  ] as const;
- 
+
  export type SettingsSection = (typeof SETTINGS_SECTION_VALUES)[number];
 @@ -65,7 +67,7 @@ function readState(storage: StorageLike): SettingsNavigationState {
  }
- 
+
  function selectionKey(section: SettingsDetailSection, cwd?: string | null): string | null {
 -  if (section === "models") return section;
 +  if (section === "models" || section === "omnigent" || section === "paseo") return section;
@@ -6549,7 +6549,7 @@ index 1977e56..2e489f4 100644
 --- a/proxy.ts
 +++ b/proxy.ts
 @@ -34,9 +34,9 @@ export function proxy(request: NextRequest) {
- 
+
    if (!isTrustedRequest) {
      if (!isApiRequest) {
 -      return new NextResponse("Untrusted request", { status: 403 });
@@ -6558,7 +6558,7 @@ index 1977e56..2e489f4 100644
 -    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
 +    return NextResponse.json({ error: "Untrusted API request" }, { status: 403, headers: { "Cache-Control": "no-store" } });
    }
- 
+
    const password = process.env.PI_WEB_PASSWORD;
 @@ -71,7 +71,7 @@ export function proxy(request: NextRequest) {
    if (!authenticated) {
@@ -6572,6 +6572,47 @@ index 1977e56..2e489f4 100644
 @@ -88,4 +88,4 @@ export function proxy(request: NextRequest) {
    return NextResponse.next();
  }
- 
+
 -export const config = { matcher: ["/", "/login", "/api/:path*"] };
 +export const config = { matcher: ["/", "/login", "/paseo/:path*", "/api/:path*"] };
+diff --git a/app/omnigent/page.tsx b/app/omnigent/page.tsx
+new file mode 100644
+index 0000000..a04d263
+--- /dev/null
++++ b/app/omnigent/page.tsx
+@@ -0,0 +1,13 @@
++import { Suspense } from "react";
++import { AppShell } from "@/components/AppShell";
++import { I18nProvider } from "@/hooks/useI18n";
++
++export default function OmnigentSettingsPage() {
++  return (
++    <Suspense>
++      <I18nProvider>
++        <AppShell initialSettingsSection="omnigent" />
++      </I18nProvider>
++    </Suspense>
++  );
++}
+diff --git a/components/AppShell.tsx b/components/AppShell.tsx
+index c50b18f..8ce6ae4 100644
+--- a/components/AppShell.tsx
++++ b/components/AppShell.tsx
+@@ -77,7 +77,7 @@ function parkedNewSessionDraftKey(cwd: string): string {
+   return `parked-new:${cwd}`;
+ }
+
+-export function AppShell() {
++export function AppShell({ initialSettingsSection = null }: { initialSettingsSection?: SettingsSection | null }) {
+   const router = useRouter();
+   const searchParams = useSearchParams();
+   const [initialNavigation, setInitialNavigation] = useState(() => getInitialNavigation(searchParams));
+@@ -171,7 +171,7 @@ export function AppShell() {
+     setSearchTarget((current) => current === target ? null : current);
+   }, []);
+   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
+-  const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
++  const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(initialSettingsSection);
+   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
+   const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
+   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);

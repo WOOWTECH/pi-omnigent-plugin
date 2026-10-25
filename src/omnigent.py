@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import copy
 import fcntl
+import hashlib
 import importlib.metadata
 import io
 import json
@@ -93,6 +94,20 @@ def atomic_json(path: Path, value: dict) -> None:
         try:
             os.chmod(temporary, 0o600)
             json.dump(value, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
+def atomic_text(path: Path, value: str) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile('w', dir=path.parent, delete=False, encoding='utf-8') as handle:
+        temporary = Path(handle.name)
+        try:
+            os.chmod(temporary, 0o600)
+            handle.write(value)
             handle.flush()
             os.fsync(handle.fileno())
             os.replace(temporary, path)
@@ -270,6 +285,115 @@ class Plugin:
         unique = list(dict.fromkeys(model for model in ids if model))
         return [{"id": model, "model": model, "displayName": model, "isDefault": model == default}
                 for model in unique] or None
+
+    @staticmethod
+    def codex_bundled_catalog() -> dict:
+        binary = shutil.which('codex')
+        if not binary:
+            return {}
+        try:
+            result = subprocess.run([binary, 'debug', 'models', '--bundled'],
+                                    capture_output=True, text=True, timeout=20, check=False)
+            if result.returncode or len(result.stdout) > 4 * 1024 * 1024:
+                return {}
+            value = json.loads(result.stdout)
+            return value if isinstance(value, dict) else {}
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return {}
+
+    def sync_codex_catalog(self, *, restore=False) -> dict:
+        """Keep the host preview and new native sessions on one CLI-owned catalog.
+
+        Only explicit provider models are projected. Never overwrite a user's
+        custom catalog, auth, model/provider selection or permission settings.
+        Omnigent fingerprints config + catalog bytes, so no host restart or
+        modification to the installed SDK is needed. GET/status never call this.
+        """
+        import tomlkit
+        from omnigent.inner.codex_executor import _codex_home_config_source_from_env
+        from omnigent.models.model_fallbacks import CODEX_CATALOG_CLONE_SOURCE_SLUG
+
+        models = None if restore else self.configured_codex_models()
+        if models and not shutil.which('codex'):
+            return {'changed': False, 'reason': 'binary-missing'}
+        source = _codex_home_config_source_from_env()
+        config_path = source / 'config.toml'
+        managed = self.state_dir / 'codex-model-catalog.json'
+        if not models and not config_path.exists():
+            return {'changed': False}
+        self.state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        descriptor = os.open(self.state_dir / 'codex-catalog.lock', os.O_CREAT | os.O_RDWR, 0o600)
+        with os.fdopen(descriptor, 'r+') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            if config_path.is_symlink() or managed.is_symlink():
+                raise PluginError('codex_catalog_conflict', 'Codex 設定或模型清單為符號連結，請先確認管理方式。')
+            original = config_path.read_text(encoding='utf-8') if config_path.exists() else ''
+            try:
+                document = tomlkit.parse(original)
+            except ValueError:
+                raise PluginError('invalid_codex_config', 'Codex config.toml 無法讀取；原設定未變更。') from None
+            current = document.get('model_catalog_json')
+            if not models:
+                if current != str(managed):
+                    return {'changed': False}
+                del document['model_catalog_json']
+                atomic_text(config_path, tomlkit.dumps(document))
+                # Existing sessions may still reference this catalog: retain it.
+                return {'changed': True, 'restored': True}
+            profile = document.get('profiles', {}).get(document.get('profile', ''), {})
+            if current not in (None, str(managed)) or profile.get('model_catalog_json') not in (None, str(managed)):
+                raise PluginError('codex_catalog_conflict', 'Codex 已使用自訂模型清單；請先移除自訂 model_catalog_json，插件不會覆蓋它。')
+            ids = [row['id'] for row in models]
+            if any(not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}', model) for model in ids):
+                raise PluginError('invalid_model', 'Provider 模型 ID 包含不支援的字元。')
+            binary = shutil.which('codex')
+            try:
+                stat = Path(binary).stat() if binary else None
+            except OSError:
+                stat = None
+            fingerprint = hashlib.sha256(json.dumps([ids, binary, stat.st_mtime_ns if stat else None,
+                                                       stat.st_size if stat else None]).encode()).hexdigest()
+            receipt_path = self.state_dir / 'codex-catalog.json'
+            receipt = read_json(receipt_path)
+            if current == str(managed) and managed.exists() and receipt.get('fingerprint') == fingerprint:
+                digest = hashlib.sha256(managed.read_bytes()).hexdigest()
+                if receipt.get('sha256') == digest:
+                    return {'changed': False, 'modelCount': len(ids)}
+            native = self.codex_bundled_catalog().get('models', [])
+            by_id = {row['slug']: row for row in native if isinstance(row, dict) and isinstance(row.get('slug'), str)}
+            template = by_id.get(CODEX_CATALOG_CLONE_SOURCE_SLUG) or next(iter(by_id.values()), None)
+            if not template:
+                raise PluginError('codex_catalog_unavailable', '無法讀取已安裝 Codex 的模型格式；原設定未變更。')
+            projected = []
+            for index, model in enumerate(ids):
+                entry = copy.deepcopy(by_id.get(model, template))
+                entry.update(slug=model, display_name=model, description='Configured Omnigent provider model',
+                             visibility='list', supported_in_api=True, priority=index, availability_nux=None, upgrade=None)
+                if model not in by_id:
+                    # A gateway declaration supplies an ID, not OpenAI-only
+                    # capabilities or service tiers. Use conservative options.
+                    entry.update(input_modalities=['text'], additional_speed_tiers=[], service_tiers=[],
+                                 supports_image_detail_original=False, supports_search_tool=False,
+                                 experimental_supported_tools=[], use_responses_lite=False,
+                                 supports_reasoning_effort_updates=False, support_verbosity=False)
+                    entry['supported_reasoning_levels'] = []
+                    entry['default_reasoning_level'] = None
+                    for key in ('tool_mode', 'multi_agent_version', 'multi_agent_reasoning_effort'):
+                        entry.pop(key, None)
+                projected.append(entry)
+            # Private backup contains the user's full config; never return it.
+            backup = self.state_dir / 'backups' / f'codex-config-{time.time_ns()}.toml'
+            if current != str(managed):
+                atomic_text(backup, original)
+            atomic_json(managed, {'models': projected})
+            if current != str(managed):
+                document['model_catalog_json'] = str(managed)
+                if (config_path.read_text(encoding='utf-8') if config_path.exists() else '') != original:
+                    raise PluginError('codex_config_changed', 'Codex 設定同時被修改，請重試同步模型。')
+                atomic_text(config_path, tomlkit.dumps(document))
+            atomic_json(receipt_path, {'fingerprint': fingerprint, 'sha256': hashlib.sha256(managed.read_bytes()).hexdigest(),
+                                       'modelCount': len(ids)})
+            return {'changed': True, 'modelCount': len(ids)}
 
     def timeout(self, default=120, maximum=180) -> float:
         raw = self.request.get("timeoutSeconds", default)
@@ -596,6 +720,7 @@ class Plugin:
                     raise PluginError("needs_login", "請輸入 Omnigent 帳號密碼，或先完成 omnigent login。")
         client.request("GET", "/v1/me")
         self.merge_config(server)
+        self.sync_codex_catalog()
         manager = self.ensure_host(server)
         deadline = self.clock() + self.timeout(default=90)
         while True:
@@ -662,6 +787,7 @@ class Plugin:
                 raise PluginError("invalid_response", "Omnigent hosts 清單格式不正確。")
             matching = next((row for row in rows if isinstance(row, dict) and row.get("host_id") == host["id"]), None)
             if not matching or matching.get("status") == "offline":
+                self.sync_codex_catalog(restore=True)
                 return {"server": server, "host": {"id": host["id"], "name": host["name"], "connected": False},
                         "credentialsCleared": True, "registrationRetained": True}
             if self.clock() >= deadline:
@@ -760,6 +886,8 @@ class Plugin:
         key = self.request.get("engine")
         if key not in ENGINES:
             raise PluginError("invalid_engine", "驗證引擎必須是 claude、codex 或 pi。")
+        if key == 'codex':
+            self.sync_codex_catalog()
         server = self.server()
         client = self.client_factory(server, False)
         catalog = self.catalog(client=client, read_only=False, engine_key=key)

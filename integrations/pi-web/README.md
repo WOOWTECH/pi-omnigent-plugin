@@ -6,7 +6,7 @@
 
 adapter-meta 固定 commit 與 patch SHA-256；install-ui 建置、私有保存及原子發佈。--prebuilt-root 會先比對所有來源檔案。已安裝 Paseo 時疊加它當下的已驗證 patch；來源不一致會停止並保留原路由。shared-runtime 的 realWebBeforeOmnigentUi 留存供回退。
 
-已驗證桌面、手機選單、中文、密碼遮罩及切換清空。Pi 7 正式安裝並重啟後，原生 Omnigent 分頁位於 MCP 右側，實際登入、取消、重連均通過且 host ID 保持相同。2026-10-25 的 Pi 7 實測已確認指定 Pi 模型可收到回覆；Claude／Codex 尚未完成對話驗收，完整狀態仍是 `needs-verification`。詳見 [當日實測紀錄](../../docs/evidence/pi7-omnigent-2026-10-25.json)。
+已驗證桌面、手機選單、中文、密碼遮罩及切換清空。Pi 7 正式安裝並重啟後，原生 Omnigent 分頁位於 MCP 右側，實際登入、取消、重連均通過且 host ID 保持相同。2026-10-25 的 Pi 7 實測已確認指定 Pi 模型可收到回覆；這是當日早期紀錄；後續 v0.3.8 三引擎已完成真實對話驗收，結果見商業部署報告。詳見 [當日實測紀錄](../../docs/evidence/pi7-omnigent-2026-10-25.json)。
 
 非 root 容器可能繼承不可寫的 `/tmp/npm-cache`；v0.3.1 固定使用管理目錄內的私有 npm-cache，大小寫 npm 快取環境設定都會覆寫。啟動服務的 PATH 須優先包含 `$HOME/.local/bin`；Pi 7 實測以 deployment 的 pi-web 容器 PATH 串接，重啟後生效。
 
@@ -23,3 +23,5 @@ v0.3.4 結合 Paseo v0.1.4 的固定補丁，以同一份 Pi Web 建置提供 MC
 v0.3.5 將原生設定列的 Paseo 名稱固定顯示為「Paseo」，並在共用 UI CI 加入標籤回歸測試。
 
 v0.3.6 的原生 API 對單一引擎驗證回報該次測試的結果；其它已安裝引擎未驗證時仍維持 `needs-verification`。失敗模型的代碼取自清理後的安全驗證回條，不回傳原始對話或供應商錯誤內容。
+
+v0.3.9 增加 `/omnigent` 直達原生設定頁；獨立及 Omnigent＋Paseo 合併介面均支援。

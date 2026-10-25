@@ -15,10 +15,10 @@ Repository 為公開，可直接安裝，不需要 GitHub token。安裝會自�
 商業部署請固定版本，避免不同容器在更新時取得不同程式：
 
 ```text
-git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.8
+git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.9
 ```
 
-同一 Pi Web 安裝 `git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.4` 後，執行 `pi-omnigent install-ui`，由 `v0.3.8` 驗證兩個固定補丁並產生一份共用 Pi Web 建置。重新啟動後，設定列順序為 **MCP → Omnigent → Paseo**；兩個服務各自維持原本的登入、連線與停用狀態。
+同一 Pi Web 安裝 `git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.4` 後，執行 `pi-omnigent install-ui`，由 `v0.3.9` 驗證兩個固定補丁並產生一份共用 Pi Web 建置。重新啟動後，設定列順序為 **MCP → Omnigent → Paseo**；兩個服務各自維持原本的登入、連線與停用狀態。
 
 ```bash
 pi install /path/to/pi-omnigent-plugin
@@ -32,6 +32,10 @@ node /path/to/pi-omnigent-plugin/bin/cli.mjs activate
 Pi Web 0.10 沒有套件安裝／啟用生命週期鉤子，所以插件包含一個啟動介接器。它讓原本的 Pi Web 繼續啟動，並建立或續接同一個設定對話。已知的 Pi shared runtime 啟動器會先備份再串接；其他未知啟動器會保留，並提供 `pi-omnigent-web` 入口。請使用 activate 回報的 launchCommand 作為服務命令。安裝後已有對話須使用 Pi Web Reload 載入新增命令；新對話會直接載入。
 
 ## Pi Web 內操作
+
+原生 UI 完成 `install-ui` 並重啟後，可直接開啟 `https://你的-pi-web/omnigent` 進入設定分頁。
+
+v0.3.9 在登入／修復及 Codex 驗證時，將明確設定的 gateway／key／local provider 模型同步為 Codex 官方 `model_catalog_json`，使 Omnigent 獨立網頁與新建對話的模型選單一致。模型變更後請執行修復或 Codex 驗證，再重新開啟選單。此設定寫入 Omnigent 所使用的 Codex source home，也會影響共用該 home 的 Codex 模型選單；不變更 provider、登入或權限。既有自訂清單不覆蓋，會回報衝突。取消連線或切回訂閱後執行修復會移除插件管理的設定，已建立對話使用的檔案保留。
 
 - `/omnigent setup`：設定或重新登入。
 - `/omnigent disconnect`：清除此容器對該 server 的登入，並等待此 host 離線。
@@ -114,7 +118,7 @@ pi-omnigent install-ui
 
 這個明確安裝動作會下載固定官方 commit、驗證整合 patch，在使用者資料目錄建置並串接下次啟動。若既有 pi-paseo-plugin，驗證並保留其 native UI patch。建置完成後需重啟 Pi Web；安裝器不自動中斷運行中的對話。只實測 Linux x64、Pi Web 0.10.0。見 [整合說明](integrations/pi-web/README.md)。
 
-v0.3.1 使用安裝器自己的私有 npm 快取，修正非 root 容器繼承 `/tmp/npm-cache` 時的 EACCES。服務啟動的 PATH 必須包含 `$HOME/.local/bin`，並優先於原生 `pi-web`；`install-ui` 回傳 `pathUpdateRequired: true` 時，請更新服務的啟動環境後重啟。命令列可使用 `PATH="$HOME/.local/bin:$PATH" pi-web`。全新容器若尚無任何對話，Web Plugins API 的工作目錄檢查會拒絕安裝；可先新增對話，或用 `pi install git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.8`。
+v0.3.1 使用安裝器自己的私有 npm 快取，修正非 root 容器繼承 `/tmp/npm-cache` 時的 EACCES。服務啟動的 PATH 必須包含 `$HOME/.local/bin`，並優先於原生 `pi-web`；`install-ui` 回傳 `pathUpdateRequired: true` 時，請更新服務的啟動環境後重啟。命令列可使用 `PATH="$HOME/.local/bin:$PATH" pi-web`。全新容器若尚無任何對話，Web Plugins API 的工作目錄檢查會拒絕安裝；可先新增對話，或用 `pi install git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.9`。
 
 v0.3.2 在原生分頁登入／取消成功後，同步刷新插件專用的設定對話，避免已連線卻仍顯示舊網址視窗。專用對話若正在執行模型回合則跳過；其他對話不受影響。刷新不送出模型訊息，失敗也不撤回已成功的 server 登入。
 
