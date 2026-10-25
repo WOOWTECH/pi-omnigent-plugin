@@ -13,9 +13,18 @@ export const PI_WEB_VERSION = '0.10.0';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MARKER = '// pi-omnigent-web managed web launcher';
 const sha = value => createHash('sha256').update(value).digest('hex');
+const RESOURCE_CODES = new Map([
+  ['ENOSPC', 'INSTALL_DISK_FULL'], ['EDQUOT', 'INSTALL_DISK_FULL'],
+  ['EACCES', 'INSTALL_PERMISSION_DENIED'], ['EPERM', 'INSTALL_PERMISSION_DENIED'],
+  ['ENOMEM', 'INSTALL_MEMORY_EXHAUSTED'],
+]);
+const COMMAND_STAGES = new Set(['source', 'patch', 'dependencies', 'audit', 'build', 'prebuilt', 'promote']);
 
 export class UiInstallError extends Error {
-  constructor(code) { super(code); this.name = 'UiInstallError'; this.code = code; }
+  constructor(code, stage) {
+    super(code); this.name = 'UiInstallError'; this.code = code;
+    if (COMMAND_STAGES.has(stage)) this.stage = stage;
+  }
 }
 const fail = code => { throw new UiInstallError(code); };
 function exists(file) { try { fs.lstatSync(file); return true; } catch (e) { if (e.code === 'ENOENT') return false; throw e; } }
@@ -47,22 +56,41 @@ function atomic(file, value, mode = 0o600, expected) {
 }
 function json(file, value) { atomic(file, JSON.stringify(value, null, 2) + '\n'); }
 
-// Child output is deliberately drained without being logged: npm/git can echo
-// credentials from external configuration or lifecycle scripts on failure.
-export function runCommand(command, args, { cwd, env, timeoutMs = 900000 } = {}) {
+// npm/git can echo credentials from configuration or lifecycle scripts. Scan
+// output for fixed errno literals only; never attach output/arguments to errors.
+// The small per-stream tail handles split codes without retaining stderr logs.
+export function runCommand(command, args, { cwd, env, timeoutMs = 900000, stage } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], shell: false });
     let output = '', oversized = false, timedOut = false;
+    let resourceCode;
+    const scanner = () => {
+      let tail = '';
+      return chunk => {
+        if (resourceCode) return;
+        const text = tail + chunk.toString();
+        const match = /(?:^|[\s:])(ENOSPC|EDQUOT|EACCES|EPERM|ENOMEM)(?=[:\s,])/.exec(text);
+        if (match) resourceCode = RESOURCE_CODES.get(match[1]);
+        tail = text.slice(-64);
+      };
+    };
+    const scanStdout = scanner(), scanStderr = scanner();
     child.stdout.on('data', chunk => {
+      scanStdout(chunk);
       if (output.length + chunk.length <= 4 * 1024 * 1024) output += chunk.toString();
       else oversized = true;
     });
-    child.stderr.on('data', () => {});
+    child.stderr.on('data', scanStderr);
+    child.stdout.on('end', () => scanStdout('\n'));
+    child.stderr.on('end', () => scanStderr('\n'));
     const timer = setTimeout(() => { timedOut = true; child.kill('SIGTERM'); }, timeoutMs);
-    child.once('error', () => { clearTimeout(timer); reject(new UiInstallError('COMMAND_UNAVAILABLE')); });
+    child.once('error', error => {
+      clearTimeout(timer);
+      reject(new UiInstallError(RESOURCE_CODES.get(error.code) || 'COMMAND_UNAVAILABLE', stage));
+    });
     child.once('close', code => {
       clearTimeout(timer);
-      if (timedOut || oversized || code !== 0) reject(new UiInstallError(timedOut ? 'COMMAND_TIMEOUT' : 'COMMAND_FAILED'));
+      if (timedOut || oversized || code !== 0) reject(new UiInstallError(timedOut ? 'COMMAND_TIMEOUT' : code !== 0 && resourceCode ? resourceCode : 'COMMAND_FAILED', stage));
       else resolve(output.trim());
     });
   });
@@ -131,14 +159,14 @@ function cached(dir, meta, key) {
 }
 async function copyPrebuilt(source, stage, run, env, meta) {
   verifyBuild(source);
-  if (await run('git', ['rev-parse', 'HEAD'], { cwd: source, env }) !== PI_WEB_BASE) fail('PREBUILT_BASE_MISMATCH');
-  for (const patchFile of [...meta.patchFiles].reverse()) await run('git', ['apply', '--reverse', '--check', patchFile], { cwd: source, env });
+  if (await run('git', ['rev-parse', 'HEAD'], { cwd: source, env, stage: 'prebuilt' }) !== PI_WEB_BASE) fail('PREBUILT_BASE_MISMATCH');
+  for (const patchFile of [...meta.patchFiles].reverse()) await run('git', ['apply', '--reverse', '--check', patchFile], { cwd: source, env, stage: 'prebuilt' });
   // Compare every tracked/new source file, including the lockfile, against the
   // freshly patched checkout. Reusing arbitrary .next directories is rejected.
-  const files = (await run('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: stage, env })).split('\0').filter(Boolean).sort();
+  const files = (await run('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: stage, env, stage: 'prebuilt' })).split('\0').filter(Boolean).sort();
   // Managed releases add this receipt after the build. It is regenerated for
   // the destination and is not part of the upstream source comparison.
-  const actual = (await run('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: source, env }))
+  const actual = (await run('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: source, env, stage: 'prebuilt' }))
     .split('\0').filter(file => file && file !== '.pi-omnigent-web-install.json').sort();
   const present = files.filter(file => exists(path.join(stage, file)));
   if (JSON.stringify(present) !== JSON.stringify(actual.filter(file => exists(path.join(source, file))))) fail('PREBUILT_SOURCE_MISMATCH');
@@ -283,26 +311,26 @@ export async function installUi(options = {}) {
       if (!overlayHash && exists(path.join(active, 'app/api/plugin-paseo/route.ts'))) fail('EXISTING_UI_OVERLAY_MISSING');
     }
     let reused = active !== null && cached(active, meta, key);
-    if (reused && await run('git', ['rev-parse', 'HEAD'], { cwd: active, env }) !== PI_WEB_BASE) reused = false;
+    if (reused && await run('git', ['rev-parse', 'HEAD'], { cwd: active, env, stage: 'source' }) !== PI_WEB_BASE) reused = false;
     let release = active;
     if (!reused) {
       const stage = fs.mkdtempSync(path.join(releases, '.build-'));
       try {
         if (options.prebuiltRoot) {
           const prebuilt = fs.realpathSync(path.resolve(options.prebuiltRoot));
-          await run('git', ['clone', '--no-hardlinks', '--no-checkout', '--', prebuilt, stage], { env });
-          await run('git', ['remote', 'set-url', 'origin', PI_WEB_REPOSITORY], { cwd: stage, env });
+          await run('git', ['clone', '--no-hardlinks', '--no-checkout', '--', prebuilt, stage], { env, stage: 'source' });
+          await run('git', ['remote', 'set-url', 'origin', PI_WEB_REPOSITORY], { cwd: stage, env, stage: 'source' });
         } else {
-          await run('git', ['init', '--quiet'], { cwd: stage, env });
-          await run('git', ['remote', 'add', 'origin', PI_WEB_REPOSITORY], { cwd: stage, env });
-          await run('git', ['fetch', '--quiet', '--depth=1', 'origin', PI_WEB_BASE], { cwd: stage, env });
+          await run('git', ['init', '--quiet'], { cwd: stage, env, stage: 'source' });
+          await run('git', ['remote', 'add', 'origin', PI_WEB_REPOSITORY], { cwd: stage, env, stage: 'source' });
+          await run('git', ['fetch', '--quiet', '--depth=1', 'origin', PI_WEB_BASE], { cwd: stage, env, stage: 'source' });
         }
-        await run('git', ['checkout', '--quiet', '--detach', PI_WEB_BASE], { cwd: stage, env });
-        if (await run('git', ['rev-parse', 'HEAD'], { cwd: stage, env }) !== PI_WEB_BASE) fail('PI_WEB_BASE_MISMATCH');
+        await run('git', ['checkout', '--quiet', '--detach', PI_WEB_BASE], { cwd: stage, env, stage: 'source' });
+        if (await run('git', ['rev-parse', 'HEAD'], { cwd: stage, env, stage: 'source' }) !== PI_WEB_BASE) fail('PI_WEB_BASE_MISMATCH');
         verifyPackage(stage);
         for (const patchFile of meta.patchFiles) {
-          await run('git', ['apply', '--check', patchFile], { cwd: stage, env });
-          await run('git', ['apply', patchFile], { cwd: stage, env });
+          await run('git', ['apply', '--check', patchFile], { cwd: stage, env, stage: 'patch' });
+          await run('git', ['apply', patchFile], { cwd: stage, env, stage: 'patch' });
         }
         verifyPackage(stage);
         if (options.prebuiltRoot) await copyPrebuilt(fs.realpathSync(path.resolve(options.prebuiltRoot)), stage, run, env, meta);
@@ -313,11 +341,15 @@ export async function installUi(options = {}) {
           safeDirectory(npmCache, home);
           // Next's default counts host CPUs, which can exceed container quotas.
           const buildEnv = { ...env, HOME: home, CI: '1', CIRCLE_NODE_TOTAL: '3', NEXT_TELEMETRY_DISABLED: '1', PI_OMNIGENT_UI_SKIP_POSTINSTALL: '1', npm_config_production: 'false', NPM_CONFIG_PRODUCTION: 'false', npm_config_cache: npmCache, NPM_CONFIG_CACHE: npmCache };
-          await run('npm', ['ci', '--include=dev', '--no-audit', '--no-fund'], { cwd: stage, env: { ...buildEnv, NODE_ENV: 'development' } });
-          await run('npm', ['audit', '--audit-level=high', '--no-fund'], { cwd: stage, env: { ...buildEnv, NODE_ENV: 'development' } });
-          await run('npm', ['run', 'build'], { cwd: stage, env: { ...buildEnv, NODE_ENV: 'production' } });
+          await run('npm', ['ci', '--include=dev', '--no-audit', '--no-fund'], { cwd: stage, env: { ...buildEnv, NODE_ENV: 'development' }, stage: 'dependencies' });
+          await run('npm', ['audit', '--audit-level=high', '--no-fund'], { cwd: stage, env: { ...buildEnv, NODE_ENV: 'development' }, stage: 'audit' });
+          await run('npm', ['run', 'build'], { cwd: stage, env: { ...buildEnv, NODE_ENV: 'production' }, stage: 'build' });
         }
         verifyBuild(stage);
+        // Runtime output is retained; only this new build's disposable cache is
+        // removed. Never traverse a linked .next into an existing user's files.
+        if (!fs.lstatSync(path.join(stage, '.next')).isDirectory()) fail('UNSAFE_BUILD_PATH');
+        fs.rmSync(path.join(stage, '.next/cache'), { recursive: true, force: true });
         fs.chmodSync(path.join(stage, 'bin/pi-web.js'), 0o755);
         json(path.join(stage, '.pi-omnigent-web-install.json'), { schemaVersion: 1, key, repository: PI_WEB_REPOSITORY, baseCommit: PI_WEB_BASE, piWebVersion: PI_WEB_VERSION,
           patchSha256: meta.patchSha256, composition: meta.composition, contributors: meta.contributors, settingsSections: meta.settingsSections,
@@ -349,7 +381,7 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
     if (args.some((arg, i) => arg !== '--prebuilt-root' && i !== index + 1) || (index >= 0 && !args[index + 1])) fail('INVALID_ARGUMENTS');
     console.log(JSON.stringify(await installUi(index < 0 ? {} : { prebuiltRoot: args[index + 1] }), null, 2));
   } catch (error) {
-    console.error(JSON.stringify({ error: 'UiInstallError', code: error instanceof UiInstallError ? error.code : 'HOST_INSTALL_FAILED' }));
+    console.error(JSON.stringify({ error: 'UiInstallError', code: error instanceof UiInstallError ? error.code : 'HOST_INSTALL_FAILED', stage: error instanceof UiInstallError ? error.stage : undefined }));
     process.exitCode = 1;
   }
 }

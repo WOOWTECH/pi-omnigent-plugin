@@ -40,7 +40,7 @@ function fixture(t) {
   let failBuild = false, failAudit = false, buildDelay = 0;
   const env = { ...process.env, HOME: home, PI_CODING_AGENT_DIR: path.join(home, 'agent'), PI_AGENT_DATA_DIR: path.join(home, 'agent'), PATH: path.dirname(native) + path.delimiter + process.env.PATH };
   const runner = async (command, args, options = {}) => {
-    calls.push({ command, args: [...args], cwd: options.cwd, nodeEnv: options.env?.NODE_ENV, production: options.env?.npm_config_production, home: options.env?.HOME, buildCpuTotal: options.env?.CIRCLE_NODE_TOTAL, npmCache: options.env?.npm_config_cache, upperNpmCache: options.env?.NPM_CONFIG_CACHE });
+    calls.push({ command, args: [...args], cwd: options.cwd, nodeEnv: options.env?.NODE_ENV, production: options.env?.npm_config_production, home: options.env?.HOME, buildCpuTotal: options.env?.CIRCLE_NODE_TOTAL, npmCache: options.env?.npm_config_cache, upperNpmCache: options.env?.NPM_CONFIG_CACHE, stage: options.stage });
     if (command === 'npm') {
       if (args[0] === 'ci') write(path.join(options.cwd, 'node_modules/next/dist/bin/next'), '// fixture next\n');
       else if (args[0] === 'audit') {
@@ -50,6 +50,8 @@ function fixture(t) {
         await delay(buildDelay);
         if (failBuild) throw new Error('fixture build failure');
         write(path.join(options.cwd, '.next/BUILD_ID'), 'fixture-production-build\n');
+        write(path.join(options.cwd, '.next/cache/webpack/build.pack'), 'discard build cache\n');
+        write(path.join(options.cwd, '.next/server/app/index.html'), 'keep runtime output\n');
       }
       return '';
     }
@@ -185,6 +187,9 @@ test('pinned fetch builds with dev dependencies; rerun reuses; wrapper preserves
   assert.deepEqual(f.calls.find(c => c.args[0] === 'remote').args, ['remote', 'add', 'origin', PI_WEB_REPOSITORY]);
   const ci = f.calls.find(c => c.command === 'npm' && c.args[0] === 'ci');
   assert.ok(ci.args.includes('--include=dev')); assert.equal(ci.nodeEnv, 'development'); assert.equal(ci.production, 'false');
+  assert.equal(ci.stage, 'dependencies');
+  assert.equal(f.calls.find(c => c.command === 'npm' && c.args[0] === 'audit').stage, 'audit');
+  assert.equal(f.calls.find(c => c.command === 'npm' && c.args[0] === 'run').stage, 'build');
   assert.equal(f.calls.find(c => c.command === 'npm' && c.args[0] === 'run').nodeEnv, 'production');
   assert.equal(f.calls.find(c => c.command === 'npm' && c.args[0] === 'run').buildCpuTotal, '3');
   assert.equal(fs.readFileSync(path.join(first.adapterRoot, 'adapter.txt'), 'utf8'), 'paseo adapter\n');
@@ -277,12 +282,15 @@ test('explicit matching prebuiltRoot copies its build without fetch or npm', asy
   const f = fixture(t);
   git(f.source, 'apply', path.join(f.pkg, 'integrations/pi-web/adapter.patch'));
   write(path.join(f.source, '.next/BUILD_ID'), 'existing-production-build\n');
+  write(path.join(f.source, '.next/cache/user-cache'), 'preserve source cache');
   write(path.join(f.source, 'node_modules/next/dist/bin/next'), '// fixture next\n');
   const original = fs.readFileSync(path.join(f.source, 'adapter.txt'), 'utf8');
   const result = await installUi({ ...f.options, prebuiltRoot: f.source });
   assert.equal(f.calls.filter(c => c.command === 'npm' || c.args[0] === 'fetch').length, 0);
   assert.equal(fs.readFileSync(path.join(result.adapterRoot, '.next/BUILD_ID'), 'utf8'), 'existing-production-build\n');
   assert.equal(fs.readFileSync(path.join(f.source, 'adapter.txt'), 'utf8'), original);
+  assert.equal(fs.existsSync(path.join(result.adapterRoot, '.next/cache')), false);
+  assert.equal(fs.readFileSync(path.join(f.source, '.next/cache/user-cache'), 'utf8'), 'preserve source cache');
   assert.equal(JSON.parse(fs.readFileSync(path.join(result.adapterRoot, '.pi-omnigent-web-install.json'))).prebuilt, true);
 });
 
@@ -323,4 +331,144 @@ test('child failure never includes stderr or external credentials', async () => 
   await assert.rejects(runCommand(process.execPath, ['-e', 'process.stderr.write("credential-sentinel");process.exit(7)']), error => {
     assert.equal(error.code, 'COMMAND_FAILED'); assert.ok(!String(error).includes('credential-sentinel')); return true;
   });
+});
+
+test('resource failures expose only a fixed code and stage, never child output or arguments', async () => {
+  for (const [errno, code] of [['ENOSPC', 'INSTALL_DISK_FULL'], ['EDQUOT', 'INSTALL_DISK_FULL'], ['EACCES', 'INSTALL_PERMISSION_DENIED'], ['EPERM', 'INSTALL_PERMISSION_DENIED'], ['ENOMEM', 'INSTALL_MEMORY_EXHAUSTED']]) {
+    const script = `process.stdout.write('stdout-secret');process.stderr.write('npm error code ${errno}\\nhttps://user:password-secret@example.invalid/private-path\\n');process.exit(1)`;
+    await assert.rejects(runCommand(process.execPath, ['-e', script, 'argument-secret'], { stage: 'dependencies' }), error => {
+      assert.equal(error.name, 'UiInstallError');
+      assert.equal(error.code, code);
+      assert.equal(error.stage, 'dependencies');
+      assert.equal(error.message, code);
+      assert.deepEqual(Object.keys(error).sort(), ['code', 'name', 'stage']);
+      const exposed = JSON.stringify(error) + String(error) + error.stack;
+      for (const secret of ['stdout-secret', 'password-secret', 'private-path', 'argument-secret', script]) assert.ok(!exposed.includes(secret));
+      return true;
+    });
+  }
+});
+
+test('resource detection spans stderr chunks and drains large output without retaining it', async () => {
+  const script = `process.stderr.write('secret-noise'.repeat(800000));process.stderr.write('\\nnpm error code EN');setTimeout(()=>{process.stderr.write('OSPC\\nsecret-tail');process.exitCode=1},25)`;
+  await assert.rejects(runCommand(process.execPath, ['-e', script], { stage: 'dependencies' }), { code: 'INSTALL_DISK_FULL', stage: 'dependencies' });
+});
+
+test('resource diagnostics support stdout errors, while success retains its original contract', async () => {
+  await assert.rejects(runCommand(process.execPath, ['-e', 'console.log("Error: ENOMEM: allocation failed");process.exitCode=1'], { stage: 'build' }), { code: 'INSTALL_MEMORY_EXHAUSTED', stage: 'build' });
+  assert.equal(await runCommand(process.execPath, ['-e', 'console.log("ENOSPC");console.error("npm error code ENOSPC")']), 'ENOSPC');
+});
+
+test('unknown failures and untrusted stage labels remain generic without leaking credentials', async () => {
+  const stage = 'stage-secret https://user:password@example.invalid';
+  await assert.rejects(runCommand(process.execPath, ['-e', 'console.error("npm error code UNKNOWN_SECRET\\ncredential-secret");process.exit(1)'], { stage }), error => {
+    assert.equal(error.code, 'COMMAND_FAILED');
+    assert.equal(error.stage, undefined);
+    const exposed = JSON.stringify(error) + String(error) + error.stack;
+    for (const secret of [stage, 'UNKNOWN_SECRET', 'credential-secret']) assert.ok(!exposed.includes(secret));
+    return true;
+  });
+});
+
+test('only complete allowlisted errno literals are classified, including at end of stream', async () => {
+  await assert.rejects(runCommand(process.execPath, ['-e', 'process.stderr.write("npm error code ENOSPC");process.exitCode=1']), { code: 'INSTALL_DISK_FULL' });
+  for (const text of ['npm error code EUNRECOGNIZED', 'npm error code EMFILE', 'npm error code ENOSPC_SUFFIX', 'token-prefix-ENOSPC']) {
+    await assert.rejects(runCommand(process.execPath, ['-e', `process.stderr.write(${JSON.stringify(text)});process.exitCode=1`]), { code: 'COMMAND_FAILED' });
+  }
+  await assert.rejects(runCommand(process.execPath, ['-e', 'process.stderr.write("npm error code ENOSPC");setTimeout(()=>{process.stderr.write("_SUFFIX\\n");process.exitCode=1},25)']), { code: 'COMMAND_FAILED' });
+});
+
+test('spawn permission errors use the safe resource code without exposing the executable path', async t => {
+  const f = fixture(t), denied = path.join(f.root, 'credential-secret-command');
+  write(denied, '#!/bin/sh\nexit 0\n', 0o600);
+  await assert.rejects(runCommand(denied, ['argument-secret'], { stage: 'source' }), error => {
+    assert.equal(error.code, 'INSTALL_PERMISSION_DENIED');
+    assert.equal(error.stage, 'source');
+    assert.ok(!(JSON.stringify(error) + error.stack).includes('credential-secret-command'));
+    assert.ok(!(JSON.stringify(error) + error.stack).includes('argument-secret'));
+    return true;
+  });
+});
+
+test('installer CLI emits only safe diagnostics on a command resource failure', t => {
+  const f = fixture(t), fakeBin = path.join(f.root, 'fake-bin');
+  write(path.join(fakeBin, 'git'), '#!/usr/bin/env node\nconsole.log("stdout-secret");console.error("npm error code ENOSPC\\nprivate-registry-secret");process.exitCode=1;\n', 0o755);
+  const result = spawnSync(process.execPath, [path.resolve(import.meta.dirname, '../bin/install-ui.mjs')], {
+    encoding: 'utf8', env: { ...f.options.env, PATH: fakeBin + path.delimiter + f.options.env.PATH },
+  });
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  assert.deepEqual(JSON.parse(result.stderr), { error: 'UiInstallError', code: 'INSTALL_DISK_FULL', stage: 'source' });
+});
+
+test('timeouts and missing commands keep their specific generic diagnostics and safe stage', async () => {
+  await assert.rejects(runCommand(process.execPath, ['-e', 'console.error("npm error code ENOSPC");setInterval(()=>{},1000)'], { stage: 'build', timeoutMs: 100 }), { code: 'COMMAND_TIMEOUT', stage: 'build' });
+  await assert.rejects(runCommand('/nonexistent/credential-secret-command', ['argument-secret'], { stage: 'source' }), error => {
+    assert.equal(error.code, 'COMMAND_UNAVAILABLE');
+    assert.equal(error.stage, 'source');
+    assert.ok(!(JSON.stringify(error) + error.stack).includes('credential-secret-command'));
+    assert.ok(!(JSON.stringify(error) + error.stack).includes('argument-secret'));
+    return true;
+  });
+});
+
+test('npm ci ENOSPC reports dependencies stage and preserves the live release and routing', async t => {
+  const f = fixture(t), first = await installUi(f.options);
+  const launcher = fs.readFileSync(first.routing.launcher, 'utf8');
+  const receiptFile = path.join(f.managed, 'host-install.json'), receipt = fs.readFileSync(receiptFile, 'utf8');
+  const patch = fs.readFileSync(path.join(f.pkg, 'integrations/pi-web/adapter.patch'), 'utf8') + '\n';
+  write(path.join(f.pkg, 'integrations/pi-web/adapter.patch'), patch);
+  write(path.join(f.pkg, 'integrations/pi-web/adapter-meta.json'), JSON.stringify({ ...f.meta, patchSha256: sha(patch) }));
+  const run = async (command, args, options) => command === 'npm' && args[0] === 'ci'
+    ? runCommand(process.execPath, ['-e', 'console.error("npm error code ENOSPC\\nprivate-registry-secret");process.exitCode=1'], options)
+    : f.options.run(command, args, options);
+  await assert.rejects(installUi({ ...f.options, run }), { code: 'INSTALL_DISK_FULL', stage: 'dependencies' });
+  assert.equal(fs.realpathSync(first.adapterRoot), first.releaseRoot);
+  assert.equal(fs.readFileSync(first.routing.launcher, 'utf8'), launcher);
+  assert.equal(fs.readFileSync(receiptFile, 'utf8'), receipt);
+  assert.equal(fs.readdirSync(path.join(f.managed, 'pi-web-releases')).some(n => n.startsWith('.build-')), false);
+});
+
+test('only a newly successful staged build loses its build cache; active and unrelated files remain intact', async t => {
+  const f = fixture(t), first = await installUi(f.options);
+  assert.equal(fs.existsSync(path.join(first.releaseRoot, '.next/cache')), false);
+  assert.equal(fs.readFileSync(path.join(first.releaseRoot, '.next/server/app/index.html'), 'utf8'), 'keep runtime output\n');
+  write(path.join(first.releaseRoot, '.next/cache/user-data'), 'keep active cache');
+  write(path.join(f.home, '.next/cache/user-data'), 'keep unrelated cache');
+  const reused = await installUi(f.options);
+  assert.equal(reused.reused, true);
+  assert.equal(fs.readFileSync(path.join(first.releaseRoot, '.next/cache/user-data'), 'utf8'), 'keep active cache');
+  const patch = fs.readFileSync(path.join(f.pkg, 'integrations/pi-web/adapter.patch'), 'utf8') + '\n';
+  write(path.join(f.pkg, 'integrations/pi-web/adapter.patch'), patch);
+  write(path.join(f.pkg, 'integrations/pi-web/adapter-meta.json'), JSON.stringify({ ...f.meta, patchSha256: sha(patch) }));
+  const next = await installUi(f.options);
+  assert.equal(fs.existsSync(path.join(next.releaseRoot, '.next/cache')), false);
+  assert.equal(fs.readFileSync(path.join(next.releaseRoot, '.next/server/app/index.html'), 'utf8'), 'keep runtime output\n');
+  assert.equal(fs.readFileSync(path.join(first.releaseRoot, '.next/cache/user-data'), 'utf8'), 'keep active cache');
+  assert.equal(fs.readFileSync(path.join(f.home, '.next/cache/user-data'), 'utf8'), 'keep unrelated cache');
+});
+
+test('staged cache cleanup never follows symlinks into unrelated directories', async t => {
+  for (const linkedNext of [false, true]) {
+    const f = fixture(t), outside = path.join(f.home, 'unrelated-next');
+    write(path.join(outside, '.next/BUILD_ID'), 'external build');
+    write(path.join(outside, '.next/cache/user-data'), 'keep unrelated cache');
+    const run = async (command, args, options) => {
+      const output = await f.options.run(command, args, options);
+      if (command === 'npm' && args[0] === 'run') {
+        const relative = linkedNext ? '.next' : '.next/cache';
+        fs.rmSync(path.join(options.cwd, relative), { recursive: true });
+        fs.symlinkSync(path.join(outside, relative), path.join(options.cwd, relative), 'dir');
+      }
+      return output;
+    };
+    if (linkedNext) {
+      await assert.rejects(installUi({ ...f.options, run }), { code: 'UNSAFE_BUILD_PATH' });
+      assert.equal(fs.existsSync(path.join(f.managed, 'pi-web')), false);
+    } else {
+      const result = await installUi({ ...f.options, run });
+      assert.equal(fs.existsSync(path.join(result.releaseRoot, '.next/cache')), false);
+    }
+    assert.equal(fs.readFileSync(path.join(outside, '.next/cache/user-data'), 'utf8'), 'keep unrelated cache');
+  }
 });
