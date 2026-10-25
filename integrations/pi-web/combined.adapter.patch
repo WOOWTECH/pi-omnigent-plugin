@@ -2448,7 +2448,7 @@ index 0000000..7ecc171
 +const runtimeLayout = await import(pathToFileURL(path.join(root, "src/runtime-layout.mjs")).href);
 +const require = createRequire(import.meta.url);
 +
-+test("the host name save reaches the configuration applied by the actual Paseo runtime", async (t) => {
++test("the host note remains visible without entering the strict Paseo daemon configuration", async (t) => {
 +  const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-web-paseo-name-"));
 +  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
 +  const loc = { home, agentDir: path.join(home, "agent"), stateDir: path.join(home, "state"), runtimeDir: path.join(home, "runtime"), paseoHome: path.join(home, "daemon"), port: 6769 };
@@ -2471,7 +2471,7 @@ index 0000000..7ecc171
 +    "./onboarding.mjs": { readRecord, writeRecord, onboardingStatus: () => ({}) },
 +    "./supervisor.mjs": {},
 +  };
-+  const client = { getDaemonStatus: async () => ({ providers: [], relay: { enabled: true } }), reloadDaemonConfig: async () => ({ appliedPaths: ["daemon.name", "agents.providers"], restartRequiredPaths: [], overrideControlledPaths: [] }), close: async () => {} };
++  const client = { getDaemonStatus: async () => ({ providers: [], relay: { enabled: true } }), reloadDaemonConfig: async () => ({ appliedPaths: ["agents.providers"], restartRequiredPaths: [], overrideControlledPaths: [] }), close: async () => {} };
 +  const sandbox = vm.createContext({ process: { env: { HOME: home, PI_CODING_AGENT_DIR: loc.agentDir, PI_PASEO_STATE_DIR: loc.stateDir, PI_PASEO_RUNTIME_DIR: loc.runtimeDir }, versions: process.versions, platform: "fixture", getuid: () => 1000, execPath: process.execPath }, setTimeout, clearTimeout, console });
 +  const loaded = new Map();
 +  function load(file) {
@@ -2483,7 +2483,7 @@ index 0000000..7ecc171
 +    vm.runInContext(`(function(require,module,exports){${code}\n})`, sandbox, { filename: file })((specifier) => {
 +      if (Object.hasOwn(stubs, specifier)) return stubs[specifier];
 +      if (specifier.endsWith("/daemon-instance.js")) return { readDaemonInstance: async () => ({ pid: 5000, uid: 1000, startedAt: "fixture" }) };
-+      if (specifier.endsWith("/config.js")) return { savePersistedConfig: (dir, config) => writeRecord(path.join(dir, "config.json"), config) };
++      if (specifier.endsWith("/config.js")) return { savePersistedConfig: (dir, config) => { assert.equal(Object.hasOwn(config.daemon, "name"), false); writeRecord(path.join(dir, "config.json"), config); } };
 +      if (specifier.endsWith("/dist/utils/client.js")) return { connectToDaemon: async () => client };
 +      if (specifier.startsWith(".")) return load(path.resolve(path.dirname(file), specifier));
 +      return require(specifier);
@@ -2495,7 +2495,7 @@ index 0000000..7ecc171
 +  await api.saveConfig({ name: "Commercial fixture" });
 +  assert.equal((await api.status()).settings.name, "Commercial fixture", "The saved name is visible in host preferences");
 +  await runtime.activate();
-+  assert.equal(readRecord(path.join(loc.paseoHome, "config.json")).daemon?.name, "Commercial fixture", "The applied Paseo daemon configuration must use the saved name");
++  assert.equal(readRecord(path.join(loc.paseoHome, "config.json")).daemon?.name, undefined, "Display labels must stay outside the strict daemon configuration");
 +});
 diff --git a/lib/paseo-onboarding.ts b/lib/paseo-onboarding.ts
 new file mode 100644
