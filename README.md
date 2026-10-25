@@ -89,6 +89,15 @@ Pi Web Plugins 的停用／移除操作會停止插件自動處理；移除套�
 
 Omnigent server 帳密與模型供應商授權分開。新容器即使已登入 server、host 已在線，Claude Code／Codex 仍需各自完成官方模型登入，Pi 也需設定可用模型。插件會指出缺少哪一個授權；完成後使用 `/omnigent verify`，不必重新輸入 server 帳密。重新開啟已完成 server 登入的設定對話會續接模型授權說明；明確執行 `/omnigent setup` 或重新啟用仍會重新詢問。
 
+在執行 Pi Web 的容器內，使用**與 Pi Web 主程序相同的 `HOME`** 完成供應商登入；`kubectl exec` 開出的 shell 可能預設另一個 `HOME`，導致登入成功但 Omnigent 讀不到憑證。Pi7 的 Pi Web 使用 `/data/pi-agent/home`，可在該容器 shell 執行：
+
+```sh
+env HOME=/data/pi-agent/home codex login --device-auth
+env HOME=/data/pi-agent/home claude auth login --claudeai
+```
+
+Codex 會顯示網址和一次性代碼，由使用者在瀏覽器完成授權；Claude Code 會顯示授權網址，授權頁回傳的代碼需貼回等待中的 CLI。其他安裝請改用其 Pi Web 主程序的實際 `HOME`。完成後用相同的 `HOME` 執行 `codex login status`、`claude auth status --json`，再於 Pi Web 執行 `/omnigent verify` 驗證實際模型回覆。授權是使用者手動完成，插件不代按供應商確認畫面。
+
 v0.2.2 支援包含原生 fallback 的 shared-runtime 啟動器，先備份再串接；未辨識的自訂啟動器仍保留。背景啟動結果寫入私有 `boot.json`。尚未完成登入時，啟動程序會重載專用設定對話一次，讓舊 runtime 的精靈重新啟動；不重載其他對話。
 登入設定、重新連線與 repair 預設不建立測試對話、不發送模型訊息。只有明確執行 `/omnigent verify`、verify 工具或 `acceptance --chat` 才建立 connection check 對話。啟動與背景狀態檢查不執行聊天驗證。
 
