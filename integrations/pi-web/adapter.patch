@@ -509,10 +509,10 @@ index 0000000..20ec1fd
 +});
 diff --git a/lib/omnigent-runtime.test.mjs b/lib/omnigent-runtime.test.mjs
 new file mode 100644
-index 0000000..ac7cac9
+index 0000000..88e513f
 --- /dev/null
 +++ b/lib/omnigent-runtime.test.mjs
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,91 @@
 +import assert from "node:assert/strict";
 +import test from "node:test";
 +import { createJiti } from "jiti";
@@ -575,6 +575,28 @@ index 0000000..ac7cac9
 +  assert.deepEqual(calls, [{ engine: "claude", model: "opus" }]);
 +  assert.deepEqual(result.operation, { ok: false, code: "OPERATION_BUSY" });
 +});
++test("a successful selected Pi chat reports operation success without claiming every engine is ready", async () => {
++  const f = fixture();
++  const proof = { ok: true, reply: "OMNIGENT_CONNECTION_OK", cleanup: "stopped", model: "omnigent/deepseek/deepseek-v4.1-flash",
++    server: "https://omni.example", hostId: "own-host" };
++  f.current.engines.pi = { available: true, version: "1.4.0", configured: true };
++  f.current.verification.pi = proof;
++  f.plugin.runtime.verify = async () => ({ ok: false, phase: "needs-verification", verification: { pi: proof } });
++  const result = await f.bridge.act({ action: "verify", engine: "pi", model: proof.model });
++  assert.deepEqual(result.operation, { ok: true, code: null });
++  assert.equal(result.phase, "needs-verification");
++  assert.equal(result.engines.find(item => item.key === "pi").verified, true);
++  assert.equal(result.engines.find(item => item.key === "claude").verified, false);
++});
++test("a failed selected model reports its safe error code and never reuses a prior receipt", async () => {
++  const f = fixture();
++  const failed = { ok: false, cleanup: "stopped", model: "omnigent/apporo/gpt-5.6-sol", reason: "RUNTIMEERROR" };
++  f.plugin.runtime.verify = async () => ({ ok: false, phase: "needs-verification", verification: { pi: failed } });
++  const result = await f.bridge.act({ action: "verify", engine: "pi", model: failed.model });
++  assert.deepEqual(result.operation, { ok: false, code: "RUNTIMEERROR" });
++  f.plugin.runtime.verify = async () => ({ ok: false, busy: true, error: { code: "OPERATION_BUSY" } });
++  assert.deepEqual((await f.bridge.act({ action: "verify", engine: "pi" })).operation, { ok: false, code: "OPERATION_BUSY" });
++});
 +test("disabled and absent plugins cannot operate or probe a host", async () => {
 +  const ctx = fixture(); ctx.plugin.lifecycle = async () => ({ active: false });
 +  ctx.plugin.runtime.status = () => assert.fail("disabled plugin must not probe a host");
@@ -584,10 +606,10 @@ index 0000000..ac7cac9
 +});
 diff --git a/lib/omnigent-runtime.ts b/lib/omnigent-runtime.ts
 new file mode 100644
-index 0000000..1728a7a
+index 0000000..5b75a41
 --- /dev/null
 +++ b/lib/omnigent-runtime.ts
-@@ -0,0 +1,111 @@
+@@ -0,0 +1,125 @@
 +import { existsSync, readFileSync } from "node:fs";
 +import { join, resolve } from "node:path";
 +import { pathToFileURL } from "node:url";
@@ -694,8 +716,22 @@ index 0000000..1728a7a
 +        // an active model turn. A UI sync failure cannot undo a successful login.
 +        try { await plugin.refreshOnboarding?.(); } catch {}
 +      }
++      // A targeted verification can succeed while other installed engines still
++      // keep the overall setup in needs-verification. Report the operation's
++      // result from this call's receipt, without changing global readiness.
++      let operationOk = result.ok === true;
++      let operationCode = code(record(result.error).code);
++      if (body.action === "verify" && typeof body.engine === "string" && result.verification && !result.busy) {
++        const proof = record(record(result.verification)[body.engine]);
++        operationOk = proof.ok === true && proof.reply === "OMNIGENT_CONNECTION_OK" && proof.cleanup === "stopped"
++          && (body.model === undefined || proof.model === body.model);
++        if (!operationOk) operationCode = code(proof.reason) || operationCode;
++      }
++      if (body.action === "verify" && !operationOk && !operationCode && result.phase === "needs-verification")
++        operationCode = "INCOMPLETE_CHAT_VERIFICATION";
++      if (operationOk) operationCode = null;
 +      // Never project raw adapter messages, connection payloads or login inputs.
-+      return { ...await snapshot(plugin), operation: { ok: result.ok === true, code: code(record(result.error).code) } };
++      return { ...await snapshot(plugin), operation: { ok: operationOk, code: operationCode } };
 +    },
 +  };
 +}

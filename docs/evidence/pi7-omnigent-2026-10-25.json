@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-25",
+  "deployment": "paas-ws-504a2b17/svc-08cf5049-pi-agent",
+  "pluginVersionAtTest": "0.3.4",
+  "paseoVersionAtTest": "0.1.4",
+  "hostConnected": true,
+  "loginConfirmed": true,
+  "phase": "needs-verification",
+  "nativeSettingsSections": ["mcp", "omnigent", "paseo"],
+  "engines": {
+    "claude": { "installed": true, "configured": "needs-auth", "modelsListed": 0, "chatVerified": false },
+    "codex": { "installed": true, "modelsListed": 8, "chatVerified": false },
+    "pi": { "installed": true, "modelsListed": 53, "chatVerified": true }
+  },
+  "selectedModelTests": [
+    { "engine": "pi", "model": "omnigent/deepseek/deepseek-v4.1-flash", "replyReceived": true, "cleanup": "stopped" },
+    { "engine": "pi", "model": "omnigent/apporo/gpt-5.6-sol", "replyReceived": false, "reason": "RUNTIMEERROR", "cleanup": "stopped" }
+  ],
+  "notes": "The original 0.3.4 UI reported the successful Pi-only check as an unsuccessful global operation. Version 0.3.6 corrects the operation projection without changing overall readiness. No conversation transcript or credential is stored here."
+}

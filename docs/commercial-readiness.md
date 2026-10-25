@@ -1,3 +1,9 @@
+# v0.3.6 Pi 7 選模與原生操作結果（2026-10-25）
+
+Pi 7 已安裝 Omnigent 0.16.0、插件 0.3.4、Paseo 0.1.4，重新登入後 host 在線。原生設定列為 MCP → Omnigent → Paseo。Pi 可列出 53 個模型，`omnigent/deepseek/deepseek-v4.1-flash` 的指定模型短對話收到固定回覆並成功停止；`omnigent/apporo/gpt-5.6-sol` 實測回傳 `RUNTIMEERROR`，驗證對話也已停止。Claude 顯示 `needs-auth`，Codex 尚未收到對話回覆，因此整體保持 `needs-verification`，不可宣稱所有引擎商用可用。公開選單是可選模型清單，不是模型逐項健康保證。[實測紀錄](evidence/pi7-omnigent-2026-10-25.json) 僅存非機密狀態與回條，不存對話內容。
+
+原生 UI 先前將單一 Pi 成功驗證顯示成「操作失敗」，因為插件的 `ok` 代表所有引擎都驗證完成。v0.3.6 在原生 API 針對本次指定引擎檢查固定回覆、停止回條與指定模型一致性，操作按鈕顯示該次結果；總體 `ready` 規則不變。失敗時僅投射白名單錯誤代碼。獨立與 Omnigent＋Paseo 合併 UI 都包含相同修正，並保留 v0.3.5 的 Paseo 分頁標籤修正。
+
 # v0.3.3 依賴安全與 Pi 7 重新驗收（2026-10-25）
 
 公開 v0.3.2 的新掃描發現插件測試依賴 1 筆 high／1 筆 moderate；原生 Pi Web 正式依賴 1 筆 critical、5 筆 high、2 筆 moderate。當時 Pi 7 執行的合併版有 1 筆 critical、2 筆 high、1 筆 moderate。這些是受影響套件數，不代表已確認漏洞可從產品路由利用；舊版的「audit 為零」只描述其發佈當日。
