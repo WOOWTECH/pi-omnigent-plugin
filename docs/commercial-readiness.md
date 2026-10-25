@@ -1,6 +1,10 @@
+# Pi 7 Omnigent Codex 後續複驗（2026-10-25）
+
+在公開 v0.3.6 的 Pi 7 容器，Omnigent server 登入已確認且 host 在線。Codex 模型目錄列出 8 個選項；原生 Codex 引擎實際回傳固定驗收文字。第一次測試的停止事件未取得成功回執，測試 session 後來呈 idle；針對該 session 重送停止事件時伺服器回覆已排入處理。單一 Codex 複驗再次收到正確回覆，且取得 `cleanup: "stopped"`。第一次停止失敗的根因尚未確認，不據此宣稱已修復。整體狀態仍為 `needs-verification`，因 Claude Code 在此容器仍需官方帳號登入與實際回覆。[後續非機密回條](evidence/pi7-omnigent-codex-2026-10-25.json) 不含憑證或對話內容。
+
 # v0.3.6 Pi 7 選模與原生操作結果（2026-10-25）
 
-Pi 7 已安裝 Omnigent 0.16.0、插件 0.3.4、Paseo 0.1.4，重新登入後 host 在線。原生設定列為 MCP → Omnigent → Paseo。Pi 可列出 53 個模型，`omnigent/deepseek/deepseek-v4.1-flash` 的指定模型短對話收到固定回覆並成功停止；`omnigent/apporo/gpt-5.6-sol` 實測回傳 `RUNTIMEERROR`，驗證對話也已停止。Claude 顯示 `needs-auth`，Codex 尚未收到對話回覆，因此整體保持 `needs-verification`，不可宣稱所有引擎商用可用。公開選單是可選模型清單，不是模型逐項健康保證。[實測紀錄](evidence/pi7-omnigent-2026-10-25.json) 僅存非機密狀態與回條，不存對話內容。
+Pi 7 已安裝 Omnigent 0.16.0、當次測試的插件 0.3.4、Paseo 0.1.4，重新登入後 host 在線。原生設定列為 MCP → Omnigent → Paseo。Pi 可列出 53 個模型，`omnigent/deepseek/deepseek-v4.1-flash` 的指定模型短對話收到固定回覆並成功停止；`omnigent/apporo/gpt-5.6-sol` 實測回傳 `RUNTIMEERROR`，驗證對話也已停止。當次 Claude 顯示 `needs-auth`，Codex 尚未收到對話回覆，因此整體保持 `needs-verification`；Codex 後續複驗見上方。公開選單是可選模型清單，不是模型逐項健康保證。[初次實測紀錄](evidence/pi7-omnigent-2026-10-25.json) 僅存非機密狀態與回條，不存對話內容。
 
 原生 UI 先前將單一 Pi 成功驗證顯示成「操作失敗」，因為插件的 `ok` 代表所有引擎都驗證完成。v0.3.6 在原生 API 針對本次指定引擎檢查固定回覆、停止回條與指定模型一致性，操作按鈕顯示該次結果；總體 `ready` 規則不變。失敗時僅投射白名單錯誤代碼。獨立與 Omnigent＋Paseo 合併 UI 都包含相同修正，並保留 v0.3.5 的 Paseo 分頁標籤修正。
 

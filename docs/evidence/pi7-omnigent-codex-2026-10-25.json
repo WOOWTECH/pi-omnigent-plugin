@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-25",
+  "deployment": "paas-ws-504a2b17/svc-08cf5049-pi-agent",
+  "pluginVersionAtTest": "0.3.6",
+  "serverLoginConfirmed": true,
+  "hostConnected": true,
+  "codexModelsListed": 8,
+  "attempts": [
+    {
+      "engine": "codex",
+      "checkedAt": "2026-10-25T05:53:20.003Z",
+      "replyReceived": true,
+      "replyMatched": true,
+      "cleanup": "stop_failed",
+      "manualStopEventQueued": true
+    },
+    {
+      "engine": "codex",
+      "checkedAt": "2026-10-25T06:07:25.314Z",
+      "replyReceived": true,
+      "replyMatched": true,
+      "cleanup": "stopped"
+    }
+  ],
+  "overallPhase": "needs-verification",
+  "remaining": "Claude Code provider needs authentication and an actual reply. The first stop failure was not reproducible in the immediate retry; its root cause is unconfirmed."
+}
