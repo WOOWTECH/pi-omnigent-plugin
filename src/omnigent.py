@@ -255,6 +255,22 @@ class Plugin:
     def server(self) -> str:
         return normalize_server(self.request.get("server") or self.config().get("server"))
 
+    def configured_codex_models(self) -> list[dict] | None:
+        """Use declared gateway models when Codex's built-in picker is stale."""
+        from omnigent.onboarding.provider_config import get_default_provider
+
+        provider = get_default_provider(self.config(), "openai")
+        if provider is None or provider.kind not in ("gateway", "key", "local"):
+            return None
+        family = provider.families.get("openai")
+        if family is None or not family.models:
+            return None
+        default = safe_text(family.resolve_model_tier(family.models.get("default", "")))
+        ids = [default, *(safe_text(family.resolve_model_tier(value)) for value in family.models.values())]
+        unique = list(dict.fromkeys(model for model in ids if model))
+        return [{"id": model, "model": model, "displayName": model, "isDefault": model == default}
+                for model in unique] or None
+
     def timeout(self, default=120, maximum=180) -> float:
         raw = self.request.get("timeoutSeconds", default)
         if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not math.isfinite(raw):
@@ -393,16 +409,20 @@ class Plugin:
             models = []
             model_error = None
             if host["connected"] and available is True:
-                try:
-                    result = client.request("GET", f"/v1/hosts/{quote(host['id'], safe='')}/harnesses/{spec['harness']}/model-options")
-                    for row in result.get("models", []):
-                        if not isinstance(row, dict) or not isinstance(row.get("id"), str):
-                            continue
-                        models.append({"id": safe_text(row["id"]), "model": safe_text(row.get("model") or row["id"]),
-                                       "displayName": safe_text(row.get("displayName") or row["id"]),
-                                       "isDefault": row.get("isDefault") is True})
-                except PluginError as error:
-                    model_error = error.code
+                configured_models = self.configured_codex_models() if key == "codex" else None
+                if configured_models:
+                    models = configured_models
+                else:
+                    try:
+                        result = client.request("GET", f"/v1/hosts/{quote(host['id'], safe='')}/harnesses/{spec['harness']}/model-options")
+                        for row in result.get("models", []):
+                            if not isinstance(row, dict) or not isinstance(row.get("id"), str):
+                                continue
+                            models.append({"id": safe_text(row["id"]), "model": safe_text(row.get("model") or row["id"]),
+                                           "displayName": safe_text(row.get("displayName") or row["id"]),
+                                           "isDefault": row.get("isDefault") is True})
+                    except PluginError as error:
+                        model_error = error.code
             engines[key] = {"key": key, "harness": spec["harness"], "configured": available,
                             "installed": available not in (None, False, "binary-missing"),
                             "ready": host["connected"] and available is True and bool(models) and bool(agent),
@@ -663,6 +683,21 @@ class Plugin:
         return False
 
     @staticmethod
+    def session_failure_reason(info: object) -> str | None:
+        """Classify a failed probe without returning provider error text."""
+        if not isinstance(info, dict):
+            return None
+        error = info.get("last_task_error")
+        if isinstance(error, dict):
+            message = error.get("message")
+            if isinstance(message, str) and re.search(r"\b(?:status\s+402|402\s+payment\s+required)\b", message, re.I):
+                return "PROVIDER_PAYMENT_REQUIRED"
+            return "SESSION_TASK_FAILED"
+        if info.get("status") == "failed":
+            return "SESSION_FAILED"
+        return None
+
+    @staticmethod
     def exact_probe_draft(pane: str) -> bool:
         """Match the entire fixed probe in the last framed chat composer.
 
@@ -775,6 +810,7 @@ class Plugin:
                 "type": "message", "data": {"role": "user", "content": [
                     {"type": "input_text", "text": PROBE_PROMPT}]}})
             recover_after = self.clock() + 8.0
+            inspect_after = self.clock() + 6.0
             while True:
                 page = client.request("GET", f"/v1/sessions/{quote(session_id, safe='')}/items?limit=100&order=desc")
                 if self.assistant_sentinel(page.get("data")):
@@ -787,6 +823,16 @@ class Plugin:
                 if failure:
                     result["reason"] = failure.upper()
                     break
+                if self.clock() >= inspect_after:
+                    inspect_after = self.clock() + 8.0
+                    try:
+                        info = client.request("GET", f"/v1/sessions/{quote(session_id, safe='')}")
+                    except PluginError:
+                        info = {}
+                    session_failure = self.session_failure_reason(info)
+                    if session_failure:
+                        result["reason"] = session_failure
+                        break
                 if self.clock() >= deadline:
                     break
                 if key == 'claude' and self.clock() >= recover_after and deadline - self.clock() > 10 \

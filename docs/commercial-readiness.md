@@ -1,3 +1,13 @@
+# v0.3.8 Pi 7 三引擎對話及 gateway 選模驗收（2026-10-25）
+
+Pi 7 升級到公開 v0.3.7 並重啟後，Claude Code 與 Pi 的真實驗證通過，但 Codex 兩次在 120 秒後回報 `REPLY_TIMEOUT`。針對插件自行建立的測試 session 查到 `codex_turn_error`，其上游回應為 HTTP 402。這是模型供應商拒絕，不是 server 登入或插件清理失敗。原生 Codex 模型目錄仍列出 8 個 GPT 訂閱選項，與當時的 gateway 預設模型不一致。
+
+Pi 7 保留既有引擎與憑證，使用既有 LiteLLM gateway 的 Anthropic Messages 路由供 Claude Code 使用 `deepseek/deepseek-v4.1-flash`，並以 OpenAI Responses 路由供 Codex 使用 `deepseek/deepseek-v4-flash-0731`；Pi 的路由維持原樣。兩條協定先各以固定無工具短訊息取得成功回應，再用 Omnigent 原生引擎實測；配置變更前的檔案只保存在 Pi 7 私有備份目錄。Codex 指定模型即使未出現在其舊 CLI 型錄，server 仍接受明確的 `model_override`，實際回覆後也成功停止測試 session。
+
+v0.3.8 候選版在驗證中定期查詢**插件新建測試 session** 的狀態，將 HTTP 402 投射為不含原始錯誤內文的 `PROVIDER_PAYMENT_REQUIRED`，其他任務錯誤顯示安全的 `SESSION_TASK_FAILED`。Codex 使用明確設定的 gateway／key／local provider 時，Pi Web 原生 Omnigent 分頁以該 provider 宣告的模型取代不相符的 CLI 型錄；只有未設定此類 provider 時才沿用 server 模型清單。Pi 7 候選包的選單為 Claude 1、Codex 1、Pi 50 個模型；Codex 明確選取 `deepseek/deepseek-v4-flash-0731` 的對話驗證通過。完整 `acceptance --chat` 於 06:52 UTC 回傳 `ready`，Claude、Codex、Pi 三引擎逐一取得真實回覆與停止回條。[非機密驗收回條](evidence/pi7-omnigent-v038-2026-10-25.json) 不含帳密、token 或對話逐字稿。117 個 Node、47 個 Python 回歸測試、語法檢查和正式依賴 audit 均通過。
+
+Omnigent **獨立 Web 介面**的 Codex 預建對話模型選單仍由 Codex CLI 探測，可能列出原本的 8 個 GPT 模型；v0.3.8 修正的是 Pi Web 插件分頁的型錄與明確選模。Pi 的 `omnigent/apporo/gpt-5.6-sol` 曾回傳 `RUNTIMEERROR`；每個新增模型仍須個別驗證，不把一個可用模型的成功擴張成全型錄可用保證。
+
 # v0.3.7 驗收 session 停止事件重試（2026-10-25）
 
 一次 Pi 7 Codex 驗收收到了正確模型回覆，停止事件卻未取得成功回執；隨後重送事件被伺服器接受，另一個新 session 的停止事件也成功。尚未確認首次失敗的根因。v0.3.7 對連線中斷、登入過期及特定暫時性 HTTP 錯誤，間隔 0.5 秒後最多重試一次，並在第二次請求時重新整理官方登入 token；永久權限錯誤與其他非暫時性錯誤不重試。若最終仍未取得成功回執，驗收維持 `cleanup: "stop_failed"`，不判定完整通過。

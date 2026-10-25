@@ -48,6 +48,7 @@ class FakeClient:
         self.offline = offline
         self.calls = []
         self.poll_error = None
+        self.session_info = {}
         self.stop_error = None
         self.stop_errors = []
         self.stop_attempts = []
@@ -78,6 +79,8 @@ class FakeClient:
             return {"models": [{"id": "real-model", "displayName": "Real Model", "isDefault": True, "api_key": "do-not-output-this"}]}
         if path == "/v1/sessions" and method == "POST":
             return {"id": "own-verification-session"}
+        if path == "/v1/sessions/own-verification-session" and method == "GET":
+            return self.session_info
         if "/items?" in path:
             if self.poll_error:
                 raise self.poll_error
@@ -309,6 +312,26 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(len(queried), 3)
         self.assertTrue(all("this-machine" in path for path in queried))
 
+    def test_codex_gateway_uses_declared_models_instead_of_stale_cli_catalog(self):
+        import yaml
+
+        self.initial_config["providers"]["codex-gateway"] = {"kind": "gateway", "default": "openai", "openai": {
+            "base_url": "https://gateway.example/v1", "wire_api": "responses",
+            "auth_command": "printf private-token", "models": {
+                "default": "deepseek/v4-flash", "fast": "deepseek/v4-flash"}}}
+        (self.config_home / "config.yaml").write_text(yaml.safe_dump(self.initial_config))
+        catalog = self.plugin().catalog()
+        models = catalog["engines"]["codex"]["models"]
+        self.assertEqual(models, [{"id": "deepseek/v4-flash", "model": "deepseek/v4-flash",
+                                   "displayName": "deepseek/v4-flash", "isDefault": True}])
+        self.assertFalse(any("codex-native/model-options" in path for _, path, _, _ in self.client.calls))
+        self.assertNotIn("private-token", json.dumps(catalog))
+        result = self.plugin(engine="codex", model="deepseek/v4-flash").verify()
+        self.assertTrue(result["ok"])
+        created = next(payload for method, path, payload, _ in self.client.calls
+                       if method == "POST" and path == "/v1/sessions")
+        self.assertEqual(created["model_override"], "deepseek/v4-flash")
+
     def test_connect_reuses_auth_and_kit_without_second_host(self):
         plugin = self.plugin()
         with patch.object(plugin, "ensure_host", return_value="kit") as ensure, patch.object(adapter.shutil, "which", return_value="/test/bin/engine"):
@@ -489,6 +512,27 @@ class AdapterTests(unittest.TestCase):
         result = self.plugin(engine="codex", model="real-model").verify()
         self.assertEqual(result["cleanup"], "stop_failed")
         self.assertEqual(len(self.client.stop_attempts), 1)
+
+    def test_provider_payment_error_is_reported_without_waiting_for_reply_timeout(self):
+        self.client.items = []
+        self.client.session_info = {"status": "failed", "last_task_error": {
+            "code": "codex_turn_error",
+            "message": "unexpected status 402 Payment Required: upstream billing failure secret-token"}}
+        result = self.plugin(engine="codex").verify()
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "PROVIDER_PAYMENT_REQUIRED")
+        self.assertEqual(result["cleanup"], "stopped")
+        self.assertLess(self.clock.value, 120)
+        self.assertNotIn("secret-token", json.dumps(result))
+
+    def test_other_failed_session_task_returns_safe_error_code(self):
+        self.client.items = []
+        self.client.session_info = {"status": "failed", "last_task_error": {
+            "code": "codex_turn_error", "message": "private upstream detail"}}
+        result = self.plugin(engine="codex").verify()
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "SESSION_TASK_FAILED")
+        self.assertNotIn("private upstream detail", json.dumps(result))
 
     def test_user_echo_and_unrelated_text_do_not_pass_verification(self):
         self.client.items = [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": adapter.SENTINEL}]},

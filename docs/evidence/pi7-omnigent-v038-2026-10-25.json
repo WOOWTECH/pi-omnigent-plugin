@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-25",
+  "deployment": "paas-ws-504a2b17/svc-08cf5049-pi-agent",
+  "installedVersionDuringCandidateTest": "0.3.7",
+  "isolatedCandidateVersion": "0.3.8",
+  "gateway": {
+    "claude": {
+      "wireApi": "anthropic-messages",
+      "defaultModel": "deepseek/deepseek-v4.1-flash"
+    },
+    "codex": {
+      "wireApi": "openai-responses",
+      "defaultModel": "deepseek/deepseek-v4-flash-0731"
+    }
+  },
+  "catalog": {
+    "hostConnected": true,
+    "claudeModelCount": 1,
+    "codexModelCount": 1,
+    "piModelCount": 50
+  },
+  "selectedCodexProbe": {
+    "model": "deepseek/deepseek-v4-flash-0731",
+    "replyMatched": true,
+    "cleanup": "stopped",
+    "checkedAt": "2026-10-25T06:50:46.977Z"
+  },
+  "fullAcceptance": {
+    "checkedAt": "2026-10-25T06:52:10.717Z",
+    "chatRequested": true,
+    "ok": true,
+    "phase": "ready",
+    "chatChecks": {
+      "claude": true,
+      "codex": true,
+      "pi": true
+    }
+  },
+  "limitations": [
+    "Standalone Omnigent Codex pre-session picker still reflects the CLI's GPT catalog.",
+    "A separate Pi apporo model previously returned RUNTIMEERROR; it is not covered by this successful route."
+  ]
+}
