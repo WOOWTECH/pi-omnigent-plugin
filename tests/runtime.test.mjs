@@ -17,7 +17,7 @@ function fixture(t, failed) {
     if (input.action === 'status') return { ok: true, data: { server: 'https://omni.test', host: { connected: true, id: 'host-1' }, engines: { claude: { ready: true }, codex: { ready: true }, pi: { ready: true } } } };
     if (input.action === 'catalog') return { ok: true, data: { host: { id: 'host-1' } } };
     if (input.action === 'connect') return { ok: true, data: { host: { id: 'host-1' } } };
-    return { ok: true, data: { engine: input.engine, ok: input.engine !== failed, reply: input.engine === failed ? undefined : 'OMNIGENT_CONNECTION_OK', sessionId: `test-${input.engine}` } };
+    return { ok: true, data: { engine: input.engine, ok: input.engine !== failed, reply: input.engine === failed ? undefined : 'OMNIGENT_CONNECTION_OK', sessionId: `test-${input.engine}`, cleanup: 'stopped' } };
   };
   return { loc, dependencies, callAdapter, calls, verify: true, server: 'https://omni.test', username: 'admin', password: 'SECRET_TEST_PASSWORD' };
 }
@@ -153,6 +153,19 @@ test('a successful reply whose test session could not be stopped remains incompl
   };
   assert.equal((await initialize(ctx)).ok, false);
   assert.notEqual((await status(ctx)).phase, 'ready');
+});
+
+test('a successful reply without confirmed session cleanup remains incomplete', async t => {
+  const ctx = fixture(t); const base = ctx.callAdapter;
+  ctx.callAdapter = async input => {
+    const result = await base(input);
+    if (input.action === 'verify') delete result.data.cleanup;
+    return result;
+  };
+  const initialized = await initialize(ctx);
+  assert.equal(initialized.ok, false);
+  assert.equal(initialized.phase, 'needs-verification');
+  assert.equal((await status(ctx)).phase, 'needs-verification');
 });
 
 test('disabled plugin never creates verification sessions', async t => {
