@@ -169,3 +169,9 @@ HTTP 連線池行為依據 [HTTPX 官方文件](https://www.python-httpx.org/adv
 更新前保留 plugin state、Pi settings、Omnigent config 的私有備份。失敗時可以安裝前一版 `@v0.1.2`；核准及驗證檔格式維持相容。回退不自動恢復已取消的登入。設定損毀會明確報錯，需由私有備份還原；不以空白設定掩蓋問題。
 
 測試對話只發送固定無工具提示，完成後停止；歷史對話留下供查核。不得把密碼貼入對話、命令參數、GitHub、測試報告或應用日誌。
+
+## Paseo 共用部署補充（2026-10-25）
+
+Omnigent v0.3.12 搭配 Paseo v0.1.7 已在兩個容器完成部署與重啟驗收，三種引擎在官方 Paseo Web 的指定模型完成兩輪對話。第三個容器因儲存不足及待核准的恢復作業未完成，未列為通過。本版加入固定資源錯誤碼、安裝階段及成功建置後的快取清理。
+
+[完整 Paseo 驗收紀錄](https://github.com/WOOWTECH/pi-paseo-plugin/blob/main/docs/pi234-paseo-2026-10-25.json)。
