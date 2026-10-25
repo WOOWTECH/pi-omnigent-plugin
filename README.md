@@ -15,10 +15,10 @@ Repository 為公開，可直接安裝，不需要 GitHub token。安裝會自�
 商業部署請固定版本，避免不同容器在更新時取得不同程式：
 
 ```text
-git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.10
+git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.11
 ```
 
-同一 Pi Web 安裝 `git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.5` 後，執行 `pi-omnigent install-ui`，由 `v0.3.10` 驗證兩個固定補丁並產生一份共用 Pi Web 建置。重新啟動後，設定列順序為 **MCP → Omnigent → Paseo**；兩個服務各自維持原本的登入、連線與停用狀態。
+同一 Pi Web 安裝 `git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.5` 後，執行 `pi-omnigent install-ui`，由 `v0.3.11` 驗證兩個固定補丁並產生一份共用 Pi Web 建置。重新啟動後，設定列順序為 **MCP → Omnigent → Paseo**；兩個服務各自維持原本的登入、連線與停用狀態。
 
 ```bash
 pi install /path/to/pi-omnigent-plugin
@@ -118,7 +118,7 @@ pi-omnigent install-ui
 
 這個明確安裝動作會下載固定官方 commit、驗證整合 patch，在使用者資料目錄建置並串接下次啟動。若既有 pi-paseo-plugin，驗證並保留其 native UI patch。建置完成後需重啟 Pi Web；安裝器不自動中斷運行中的對話。只實測 Linux x64、Pi Web 0.10.0。見 [整合說明](integrations/pi-web/README.md)。
 
-v0.3.1 使用安裝器自己的私有 npm 快取，修正非 root 容器繼承 `/tmp/npm-cache` 時的 EACCES。服務啟動的 PATH 必須包含 `$HOME/.local/bin`，並優先於原生 `pi-web`；`install-ui` 回傳 `pathUpdateRequired: true` 時，請更新服務的啟動環境後重啟。命令列可使用 `PATH="$HOME/.local/bin:$PATH" pi-web`。全新容器若尚無任何對話，Web Plugins API 的工作目錄檢查會拒絕安裝；可先新增對話，或用 `pi install git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.10`。
+v0.3.1 使用安裝器自己的私有 npm 快取，修正非 root 容器繼承 `/tmp/npm-cache` 時的 EACCES。服務啟動的 PATH 必須包含 `$HOME/.local/bin`，並優先於原生 `pi-web`；`install-ui` 回傳 `pathUpdateRequired: true` 時，請更新服務的啟動環境後重啟。命令列可使用 `PATH="$HOME/.local/bin:$PATH" pi-web`。全新容器若尚無任何對話，Web Plugins API 的工作目錄檢查會拒絕安裝；可先新增對話，或用 `pi install git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.11`。
 
 v0.3.2 在原生分頁登入／取消成功後，同步刷新插件專用的設定對話，避免已連線卻仍顯示舊網址視窗。專用對話若正在執行模型回合則跳過；其他對話不受影響。刷新不送出模型訊息，失敗也不撤回已成功的 server 登入。
 
@@ -139,3 +139,7 @@ v0.3.8 在驗證時定期查詢插件建立的測試 session 狀態；上游 HTT
 ### Paseo 手機捲動（v0.3.10）
 
 共用介面搭配 Paseo v0.1.5，修正設定面板與初始化頁無法向下捲動的問題。更新兩個插件後執行 `pi-omnigent install-ui` 並重啟 Pi Web；現有連線與提供者登入沿用原設定。
+
+### 多容器部署修正（v0.3.11）
+
+維持已安裝引擎原有的 PATH 優先順序，避免 image 內另一版本覆蓋使用者選擇。驗證在尚未建立 session 時失敗，會保留實際原因；Pi 的 HTTP 402 會顯示 `PROVIDER_PAYMENT_REQUIRED`，不輸出供應商原始錯誤內容。

@@ -10,7 +10,7 @@
   },
   "omnigent": {
     "packageName": "@woowtech/pi-omnigent-plugin",
-    "packageVersion": "0.3.10",
+    "packageVersion": "0.3.11",
     "adapterPatchSha256": "028f8317b02944fc56942090040e9414bb5f5db07393f2d034868bb96839c734"
   },
   "patchSha256": "e63e6262db3a54ff4021277623fc98dd10fafc24556891094bf04d863725e1c5",
