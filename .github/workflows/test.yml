@@ -55,3 +55,44 @@ jobs:
         env:
           NEXT_TELEMETRY_DISABLED: '1'
           CIRCLE_NODE_TOTAL: '3'
+  combined-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.3'
+      - name: Verify published contributors and combined adapter
+        run: |
+          git clone --depth=1 --branch v0.1.4 https://github.com/WOOWTECH/pi-paseo-plugin.git /tmp/pi-paseo
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import crypto from 'node:crypto';
+          const sha = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+          const combined = JSON.parse(fs.readFileSync('integrations/pi-web/combined.adapter-meta.json'));
+          const omni = JSON.parse(fs.readFileSync('package.json'));
+          const paseo = JSON.parse(fs.readFileSync('/tmp/pi-paseo/package.json'));
+          if (combined.patchSha256 !== sha('integrations/pi-web/combined.adapter.patch') ||
+              combined.omnigent.adapterPatchSha256 !== sha('integrations/pi-web/adapter.patch') ||
+              combined.paseo.adapterPatchSha256 !== sha('/tmp/pi-paseo/host/adapter.patch') ||
+              combined.omnigent.packageVersion !== omni.version ||
+              combined.paseo.packageVersion !== paseo.version ||
+              combined.settingsSections.join(',') !== 'mcp,omnigent,paseo') process.exit(1);
+          JS
+          git clone https://github.com/agegr/pi-web.git /tmp/pi-web-combined
+          git -C /tmp/pi-web-combined checkout --detach 6fcd7d44981ab51a21d6cd6eb06d361d0e3d3068
+          git -C /tmp/pi-web-combined apply --check "$GITHUB_WORKSPACE/integrations/pi-web/combined.adapter.patch"
+          git -C /tmp/pi-web-combined apply "$GITHUB_WORKSPACE/integrations/pi-web/combined.adapter.patch"
+          git -C /tmp/pi-web-combined apply --reverse --check "$GITHUB_WORKSPACE/integrations/pi-web/combined.adapter.patch"
+      - run: npm ci --ignore-scripts --no-fund
+        working-directory: /tmp/pi-web-combined
+      - run: node --test lib/settings-navigation.test.mjs app/api/plugin-paseo/route.test.mjs app/api/omnigent/route.test.mjs components/PaseoPluginPanel.behavior.test.mjs
+        working-directory: /tmp/pi-web-combined
+      - run: npx tsc --noEmit
+        working-directory: /tmp/pi-web-combined
+      - run: npm run build
+        working-directory: /tmp/pi-web-combined
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+          CIRCLE_NODE_TOTAL: '3'

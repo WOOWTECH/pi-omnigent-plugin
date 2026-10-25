@@ -219,6 +219,7 @@ export async function installUi(options = {}) {
   const releases = path.join(root, 'pi-web-releases');
   const destination = path.join(root, 'pi-web');
   const meta = readAdapter(path.resolve(options.packageRoot || ROOT));
+  meta.ownPatchSha256 = meta.patchSha256;
   safeDirectory(releases, home);
   const run = options.run || runCommand;
   const sharedHostPath = options.sharedHostPath ?? env.PI_OMNIGENT_UI_SHARED_HOST_METADATA ?? path.join(
@@ -227,17 +228,48 @@ export async function installUi(options = {}) {
     env.PI_CODING_AGENT_DIR || env.PI_AGENT_DATA_DIR || (home.startsWith('/data/pi-agent/') ? '/data/pi-agent' : path.join(home, '.pi/agent')), 'omnigent-plugin/host.json');
   const patchFiles = [meta.patchFile];
   const agentDir = env.PI_CODING_AGENT_DIR || env.PI_AGENT_DATA_DIR || path.join(home, '.pi/agent');
-  const overlayRoot = options.overlayPackageRoot ?? path.join(agentDir, 'git/github.com/WOOWTECH/pi-paseo-plugin');
+  const overlayRoot = options.overlayPackageRoot ?? env.PI_PASEO_PLUGIN_ROOT ?? path.join(agentDir, 'git/github.com/WOOWTECH/pi-paseo-plugin');
   const overlayMeta = path.join(overlayRoot, 'host/adapter-meta.json');
   let overlayHash = null;
   if (exists(overlayMeta)) {
     const overlay = readJson(overlayMeta), file = path.join(overlayRoot, 'host/adapter.patch');
     if (overlay.schemaVersion !== 1 || overlay.repository?.replace(/\.git$/, '').replace(/\/$/, '') !== PI_WEB_REPOSITORY || overlay.baseCommit !== PI_WEB_BASE || overlay.piWebVersion !== PI_WEB_VERSION || !exists(file) || sha(fs.readFileSync(file)) !== overlay.patchSha256) fail('EXISTING_UI_OVERLAY_MISMATCH');
-    overlayHash = overlay.patchSha256; patchFiles.unshift(file);
+    overlayHash = overlay.patchSha256;
+    const ownPackage = readJson(path.join(path.resolve(options.packageRoot || ROOT), 'package.json'));
+    const paseoPackageFile = path.join(overlayRoot, 'package.json');
+    const paseoPackage = exists(paseoPackageFile) ? readJson(paseoPackageFile) : null;
+    if (paseoPackage && paseoPackage.name !== '@woowtech/pi-paseo') fail('EXISTING_UI_OVERLAY_MISMATCH');
+    const combinedManifestFile = path.join(path.resolve(options.packageRoot || ROOT), 'integrations/pi-web/combined.adapter-meta.json');
+    const combinedPatchFile = path.join(path.resolve(options.packageRoot || ROOT), 'integrations/pi-web/combined.adapter.patch');
+    if (exists(combinedManifestFile) || exists(combinedPatchFile)) {
+      if (!paseoPackage || !exists(combinedManifestFile) || !exists(combinedPatchFile)) fail('COMBINED_ADAPTER_MISMATCH');
+      const combined = readJson(combinedManifestFile);
+      const combinedPatchHash = sha(fs.readFileSync(combinedPatchFile));
+      if (combined.schemaVersion !== 1 || combined.repository?.replace(/\.git$/, '').replace(/\/$/, '') !== PI_WEB_REPOSITORY ||
+          combined.baseCommit !== PI_WEB_BASE || combined.piWebVersion !== PI_WEB_VERSION ||
+          combined.paseo?.packageName !== paseoPackage.name || combined.paseo.packageVersion !== paseoPackage.version || combined.paseo.adapterPatchSha256 !== overlayHash ||
+          combined.omnigent?.packageName !== ownPackage.name || combined.omnigent.packageVersion !== ownPackage.version || combined.omnigent.adapterPatchSha256 !== meta.ownPatchSha256 ||
+          combined.patchSha256 !== combinedPatchHash ||
+          JSON.stringify(combined.contributors) !== JSON.stringify(['@woowtech/pi-paseo', '@woowtech/pi-omnigent-plugin']) ||
+          JSON.stringify(combined.settingsSections) !== JSON.stringify(['mcp', 'omnigent', 'paseo'])) fail('COMBINED_ADAPTER_MISMATCH');
+      patchFiles.splice(0, patchFiles.length, combinedPatchFile);
+      meta.patchSha256 = sha(JSON.stringify({ manifest: combined, patchSha256: combinedPatchHash }));
+      meta.composition = 'omnigent+paseo';
+      meta.contributors = combined.contributors;
+      meta.settingsSections = combined.settingsSections;
+    } else {
+      patchFiles.unshift(file);
+      meta.patchSha256 = sha(JSON.stringify([meta.patchSha256, overlayHash]));
+      meta.composition = 'legacy-omnigent+paseo';
+      meta.contributors = [paseoPackage?.name ?? '@woowtech/pi-paseo', ownPackage.name];
+    }
   }
   meta.patchFiles = patchFiles;
-  meta.ownPatchSha256 = meta.patchSha256;
-  if (overlayHash) meta.patchSha256 = sha(JSON.stringify([meta.patchSha256, overlayHash]));
+  if (!overlayHash) {
+    meta.composition = 'omnigent';
+    meta.contributors = ['@woowtech/pi-omnigent-plugin'];
+    meta.settingsSections = ['mcp', 'omnigent'];
+  }
   const key = sha(JSON.stringify([PI_WEB_BASE, meta.patchSha256, process.version, process.platform, process.arch]));
   return locked(root, async () => {
     let active = null;
@@ -283,7 +315,8 @@ export async function installUi(options = {}) {
         verifyBuild(stage);
         fs.chmodSync(path.join(stage, 'bin/pi-web.js'), 0o755);
         json(path.join(stage, '.pi-omnigent-web-install.json'), { schemaVersion: 1, key, repository: PI_WEB_REPOSITORY, baseCommit: PI_WEB_BASE, piWebVersion: PI_WEB_VERSION,
-          patchSha256: meta.patchSha256, binSha256: sha(fs.readFileSync(path.join(stage, 'bin/pi-web.js'))), lockSha256: sha(fs.readFileSync(path.join(stage, 'package-lock.json'))),
+          patchSha256: meta.patchSha256, composition: meta.composition, contributors: meta.contributors, settingsSections: meta.settingsSections,
+          binSha256: sha(fs.readFileSync(path.join(stage, 'bin/pi-web.js'))), lockSha256: sha(fs.readFileSync(path.join(stage, 'package-lock.json'))),
           buildId: fs.readFileSync(path.join(stage, '.next/BUILD_ID'), 'utf8').trim(), prebuilt: !!options.prebuiltRoot, installedAt: new Date().toISOString() });
         release = path.join(releases, `${key}-${randomUUID()}`);
         fs.renameSync(stage, release);
@@ -297,7 +330,7 @@ export async function installUi(options = {}) {
     const firstLauncher = (env.PATH || '').split(path.delimiter).filter(Boolean)
       .map(dir => path.resolve(dir, 'pi-web')).find(executable);
     const result = { status: reused ? 'already-installed' : 'installed', adapterRoot: destination, releaseRoot: release, baseCommit: PI_WEB_BASE, piWebVersion: PI_WEB_VERSION,
-      patchSha256: meta.patchSha256, reused, routing, pendingRestart: nativeBin, restartRequired: true, restarted: false,
+      patchSha256: meta.patchSha256, composition: meta.composition, contributors: meta.contributors, settingsSections: meta.settingsSections, reused, routing, pendingRestart: nativeBin, restartRequired: true, restarted: false,
       launcherDirectory: path.dirname(routing.launcher), pathUpdateRequired: firstLauncher !== routing.launcher };
     json(path.join(root, 'host-install.json'), result);
     return result;

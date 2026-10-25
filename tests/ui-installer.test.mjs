@@ -31,6 +31,7 @@ function fixture(t) {
   const patch = git(source, 'diff', '--binary') + '\n';
   git(source, 'checkout', '--', 'adapter.txt');
   const meta = { schemaVersion: 1, repository: PI_WEB_REPOSITORY, baseCommit: PI_WEB_BASE, piWebVersion: PI_WEB_VERSION, patchSha256: sha(patch) };
+  write(path.join(pkg, 'package.json'), JSON.stringify({ name: '@woowtech/pi-omnigent-plugin', version: '0.3.1' }));
   write(path.join(pkg, 'integrations/pi-web/adapter.patch'), patch);
   write(path.join(pkg, 'integrations/pi-web/adapter-meta.json'), JSON.stringify(meta));
   const native = path.join(root, 'native/pi-web');
@@ -83,6 +84,53 @@ test('existing Paseo UI overlay is preserved alongside the Omnigent patch and pa
   assert.equal(fs.readFileSync(path.join(result.releaseRoot, 'adapter.txt'), 'utf8'), 'paseo adapter\n');
   assert.notEqual(result.patchSha256, f.meta.patchSha256);
   assert.equal((await installUi({ ...f.options, overlayPackageRoot: overlay })).reused, true);
+});
+
+test('pinned combined adapter installs the Omnigent and Paseo settings tabs as one reproducible build', async t => {
+  const f = fixture(t), overlay = path.join(f.root, 'paseo');
+  const paseoPatch = 'paseo contribution';
+  const combinedPatch = [
+    'diff --git a/combined-adapter.txt b/combined-adapter.txt',
+    'new file mode 100644',
+    '--- /dev/null',
+    '+++ b/combined-adapter.txt',
+    '@@ -0,0 +1 @@',
+    '+Omnigent + Paseo',
+    '',
+  ].join('\n');
+  write(path.join(overlay, 'package.json'), JSON.stringify({ name: '@woowtech/pi-paseo', version: '0.1.3' }));
+  write(path.join(overlay, 'host/adapter.patch'), paseoPatch);
+  write(path.join(overlay, 'host/adapter-meta.json'), JSON.stringify({ ...f.meta, patchSha256: sha(paseoPatch) }));
+  write(path.join(f.pkg, 'integrations/pi-web/combined.adapter.patch'), combinedPatch);
+  write(path.join(f.pkg, 'integrations/pi-web/combined.adapter-meta.json'), JSON.stringify({
+    schemaVersion: 1, repository: PI_WEB_REPOSITORY, baseCommit: PI_WEB_BASE, piWebVersion: PI_WEB_VERSION,
+    paseo: { packageName: '@woowtech/pi-paseo', packageVersion: '0.1.3', adapterPatchSha256: sha(paseoPatch) },
+    omnigent: { packageName: '@woowtech/pi-omnigent-plugin', packageVersion: '0.3.1', adapterPatchSha256: f.meta.patchSha256 },
+    patchSha256: sha(combinedPatch), settingsSections: ['mcp', 'omnigent', 'paseo'],
+    contributors: ['@woowtech/pi-paseo', '@woowtech/pi-omnigent-plugin'],
+  }));
+
+  const result = await installUi({ ...f.options, overlayPackageRoot: overlay });
+  assert.equal(result.composition, 'omnigent+paseo');
+  assert.deepEqual(result.contributors, ['@woowtech/pi-paseo', '@woowtech/pi-omnigent-plugin']);
+  assert.deepEqual(result.settingsSections, ['mcp', 'omnigent', 'paseo']);
+  assert.equal(fs.readFileSync(path.join(result.releaseRoot, 'combined-adapter.txt'), 'utf8'), 'Omnigent + Paseo\n');
+  assert.equal(fs.readFileSync(path.join(result.releaseRoot, 'adapter.txt'), 'utf8'), 'base\n');
+  const receipt = JSON.parse(fs.readFileSync(path.join(result.releaseRoot, '.pi-omnigent-web-install.json')));
+  assert.equal(receipt.composition, 'omnigent+paseo');
+  assert.deepEqual(receipt.settingsSections, ['mcp', 'omnigent', 'paseo']);
+  assert.equal((await installUi({ ...f.options, overlayPackageRoot: overlay })).reused, true);
+});
+
+test('combined adapter metadata rejects stale contributor patches before any command', async t => {
+  const f = fixture(t), overlay = path.join(f.root, 'paseo');
+  write(path.join(overlay, 'package.json'), JSON.stringify({ name: '@woowtech/pi-paseo', version: '0.1.3' }));
+  const paseoPatch = 'paseo contribution'; write(path.join(overlay, 'host/adapter.patch'), paseoPatch);
+  write(path.join(overlay, 'host/adapter-meta.json'), JSON.stringify({ ...f.meta, patchSha256: sha(paseoPatch) }));
+  write(path.join(f.pkg, 'integrations/pi-web/combined.adapter.patch'), 'bad patch');
+  write(path.join(f.pkg, 'integrations/pi-web/combined.adapter-meta.json'), JSON.stringify({ schemaVersion: 1 }));
+  await assert.rejects(installUi({ ...f.options, overlayPackageRoot: overlay }), { code: 'COMBINED_ADAPTER_MISMATCH' });
+  assert.equal(f.calls.length, 0);
 });
 
 test('changed existing UI overlay stops before building or changing any routing', async t => {

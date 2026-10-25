@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "repository": "https://github.com/agegr/pi-web",
+  "baseCommit": "6fcd7d44981ab51a21d6cd6eb06d361d0e3d3068",
+  "piWebVersion": "0.10.0",
+  "paseo": {
+    "packageName": "@woowtech/pi-paseo",
+    "packageVersion": "0.1.4",
+    "adapterPatchSha256": "89e88d894580fa8a4c08a66e20e10317dcef75bda62eb20e8538c4bc37b0b5c5"
+  },
+  "omnigent": {
+    "packageName": "@woowtech/pi-omnigent-plugin",
+    "packageVersion": "0.3.3",
+    "adapterPatchSha256": "c8ba8153bb46269571e7ad82d553f937875be3621ec80d2fe77ecdc49d25eb7d"
+  },
+  "patchSha256": "9a019e76f04664dffc309d000d90f654bb1fc520de6d51e6dadba25f5d9a374c",
+  "settingsSections": [
+    "mcp",
+    "omnigent",
+    "paseo"
+  ],
+  "contributors": [
+    "@woowtech/pi-paseo",
+    "@woowtech/pi-omnigent-plugin"
+  ]
+}
