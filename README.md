@@ -15,10 +15,10 @@ Repository 為公開，可直接安裝，不需要 GitHub token。安裝會自�
 商業部署請固定版本，避免不同容器在更新時取得不同程式：
 
 ```text
-git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.9
+git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.10
 ```
 
-同一 Pi Web 安裝 `git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.4` 後，執行 `pi-omnigent install-ui`，由 `v0.3.9` 驗證兩個固定補丁並產生一份共用 Pi Web 建置。重新啟動後，設定列順序為 **MCP → Omnigent → Paseo**；兩個服務各自維持原本的登入、連線與停用狀態。
+同一 Pi Web 安裝 `git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.5` 後，執行 `pi-omnigent install-ui`，由 `v0.3.10` 驗證兩個固定補丁並產生一份共用 Pi Web 建置。重新啟動後，設定列順序為 **MCP → Omnigent → Paseo**；兩個服務各自維持原本的登入、連線與停用狀態。
 
 ```bash
 pi install /path/to/pi-omnigent-plugin
@@ -118,7 +118,7 @@ pi-omnigent install-ui
 
 這個明確安裝動作會下載固定官方 commit、驗證整合 patch，在使用者資料目錄建置並串接下次啟動。若既有 pi-paseo-plugin，驗證並保留其 native UI patch。建置完成後需重啟 Pi Web；安裝器不自動中斷運行中的對話。只實測 Linux x64、Pi Web 0.10.0。見 [整合說明](integrations/pi-web/README.md)。
 
-v0.3.1 使用安裝器自己的私有 npm 快取，修正非 root 容器繼承 `/tmp/npm-cache` 時的 EACCES。服務啟動的 PATH 必須包含 `$HOME/.local/bin`，並優先於原生 `pi-web`；`install-ui` 回傳 `pathUpdateRequired: true` 時，請更新服務的啟動環境後重啟。命令列可使用 `PATH="$HOME/.local/bin:$PATH" pi-web`。全新容器若尚無任何對話，Web Plugins API 的工作目錄檢查會拒絕安裝；可先新增對話，或用 `pi install git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.9`。
+v0.3.1 使用安裝器自己的私有 npm 快取，修正非 root 容器繼承 `/tmp/npm-cache` 時的 EACCES。服務啟動的 PATH 必須包含 `$HOME/.local/bin`，並優先於原生 `pi-web`；`install-ui` 回傳 `pathUpdateRequired: true` 時，請更新服務的啟動環境後重啟。命令列可使用 `PATH="$HOME/.local/bin:$PATH" pi-web`。全新容器若尚無任何對話，Web Plugins API 的工作目錄檢查會拒絕安裝；可先新增對話，或用 `pi install git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.10`。
 
 v0.3.2 在原生分頁登入／取消成功後，同步刷新插件專用的設定對話，避免已連線卻仍顯示舊網址視窗。專用對話若正在執行模型回合則跳過；其他對話不受影響。刷新不送出模型訊息，失敗也不撤回已成功的 server 登入。
 
@@ -135,3 +135,7 @@ v0.3.7 對驗收 session 的暫時性停止失敗最多重試一次，第二次�
 v0.3.8 在驗證時定期查詢插件建立的測試 session 狀態；上游 HTTP 402 會以不含原始錯誤內文的 `PROVIDER_PAYMENT_REQUIRED` 回報，不再等 120 秒才顯示逾時。Codex 若以 Omnigent 的 gateway／key／local provider 為預設，模型選單改顯示該 provider 明確設定的模型，避免原生 CLI 的舊訂閱型錄遮住實際可用模型；選模仍需執行真實對話驗證。
 
 升級相同的 Pi Web 補丁時，可用已安裝且受信任的建置作為來源：`pi-omnigent install-ui --prebuilt-root "$HOME/.local/share/pi-omnigent-web/pi-web"`。安裝器會核對補丁、所有來源檔案與必要建置檔案是否存在，並為新版建立獨立的發佈目錄；若來源檔案有差異則拒絕重用。首次安裝仍使用 `pi-omnigent install-ui`。
+
+### Paseo 手機捲動（v0.3.10）
+
+共用介面搭配 Paseo v0.1.5，修正設定面板與初始化頁無法向下捲動的問題。更新兩個插件後執行 `pi-omnigent install-ui` 並重啟 Pi Web；現有連線與提供者登入沿用原設定。

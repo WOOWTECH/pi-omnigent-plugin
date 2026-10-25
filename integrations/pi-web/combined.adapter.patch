@@ -873,9 +873,28 @@ index 1c0670c..851a3b9 100644
 +    return response({ error: "Plugin operation could not be completed; check installation and settings" }, { status: 500 });
    }
  }
+diff --git a/app/omnigent/page.tsx b/app/omnigent/page.tsx
+new file mode 100644
+index 0000000..a04d263
+--- /dev/null
++++ b/app/omnigent/page.tsx
+@@ -0,0 +1,13 @@
++import { Suspense } from "react";
++import { AppShell } from "@/components/AppShell";
++import { I18nProvider } from "@/hooks/useI18n";
++
++export default function OmnigentSettingsPage() {
++  return (
++    <Suspense>
++      <I18nProvider>
++        <AppShell initialSettingsSection="omnigent" />
++      </I18nProvider>
++    </Suspense>
++  );
++}
 diff --git a/app/paseo/setup/page.tsx b/app/paseo/setup/page.tsx
 new file mode 100644
-index 0000000..dd4dfc5
+index 0000000..85e3cb0
 --- /dev/null
 +++ b/app/paseo/setup/page.tsx
 @@ -0,0 +1,16 @@
@@ -887,7 +906,7 @@ index 0000000..dd4dfc5
 +export default async function PaseoSetupPage({ searchParams }: { searchParams: Promise<{ cwd?: string }> }) {
 +  const { cwd } = await searchParams;
 +  return (
-+    <main style={{ minHeight: "100dvh", background: "var(--bg)", color: "var(--text)", padding: "32px 20px" }}>
++    <main className="paseo-setup-page">
 +      <div style={{ maxWidth: 780, margin: "0 auto", display: "flex", flexDirection: "column", gap: 24 }}>
 +        <header><Link href="/" style={{ fontSize: 13 }}>← 回到 Pi Web</Link><h1 style={{ fontSize: 24, marginBottom: 8 }}>Paseo 初始化與連線</h1><p style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.7 }}>首次安裝／啟用會自動建立初始化對話；未完成時可續接同一對話。此頁沿用 Pi Web 的登入保護。</p></header>
 +        <PaseoPluginPanel cwd={typeof cwd === "string" ? cwd : ""} setup />
@@ -896,10 +915,10 @@ index 0000000..dd4dfc5
 +  );
 +}
 diff --git a/app/settings.css b/app/settings.css
-index 66e0880..fea2228 100644
+index 66e0880..7637e6c 100644
 --- a/app/settings.css
 +++ b/app/settings.css
-@@ -2427,3 +2427,12 @@
+@@ -2427,3 +2427,47 @@
      }
    }
  }
@@ -912,6 +931,63 @@ index 66e0880..fea2228 100644
 +.omnigent-engine small { color: var(--text-muted); }
 +.omnigent-actions select { color: var(--text); background: var(--bg-panel); border: 1px solid var(--border); padding: 8px; border-radius: 6px; max-width: 100%; }
 +@media (max-width: 640px) { .omnigent-detail { padding: 16px; } .omnigent-engines { grid-template-columns: 1fr; } }
++
++/* Settings clips its main area: each embedded panel owns vertical scrolling. */
++.paseo-plugin-panel {
++  display: flex;
++  flex-direction: column;
++  gap: 12px;
++  min-width: 0;
++  overflow-wrap: anywhere;
++}
++
++.paseo-plugin-panel > * {
++  flex-shrink: 0;
++  min-width: 0;
++}
++
++.settings-section-host > .paseo-plugin-panel {
++  height: 100%;
++  min-height: 0;
++  overflow-y: auto;
++  overscroll-behavior-y: contain;
++  padding: 16px;
++  box-sizing: border-box;
++}
++
++/* The standalone route also lives inside Pi Web's overflow-hidden body. */
++.paseo-setup-page {
++  height: var(--app-viewport-height, 100dvh);
++  min-height: 0;
++  overflow-y: auto;
++  overscroll-behavior-y: contain;
++  box-sizing: border-box;
++  padding: 32px 20px calc(32px + env(safe-area-inset-bottom, 0px));
++  background: var(--bg);
++  color: var(--text);
++}
+diff --git a/components/AppShell.tsx b/components/AppShell.tsx
+index c50b18f..8ce6ae4 100644
+--- a/components/AppShell.tsx
++++ b/components/AppShell.tsx
+@@ -77,7 +77,7 @@ function parkedNewSessionDraftKey(cwd: string): string {
+   return `parked-new:${cwd}`;
+ }
+
+-export function AppShell() {
++export function AppShell({ initialSettingsSection = null }: { initialSettingsSection?: SettingsSection | null }) {
+   const router = useRouter();
+   const searchParams = useSearchParams();
+   const [initialNavigation, setInitialNavigation] = useState(() => getInitialNavigation(searchParams));
+@@ -171,7 +171,7 @@ export function AppShell() {
+     setSearchTarget((current) => current === target ? null : current);
+   }, []);
+   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
+-  const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
++  const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(initialSettingsSection);
+   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
+   const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
+   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
 diff --git a/components/OmnigentConfig.tsx b/components/OmnigentConfig.tsx
 new file mode 100644
 index 0000000..7c40d0e
@@ -1046,10 +1122,10 @@ index 0000000..7c40d0e
 +}
 diff --git a/components/PaseoPluginPanel.behavior.test.mjs b/components/PaseoPluginPanel.behavior.test.mjs
 new file mode 100644
-index 0000000..66de7d8
+index 0000000..0a168cc
 --- /dev/null
 +++ b/components/PaseoPluginPanel.behavior.test.mjs
-@@ -0,0 +1,229 @@
+@@ -0,0 +1,243 @@
 +import assert from "node:assert/strict";
 +import fs from "node:fs";
 +import { fileURLToPath } from "node:url";
@@ -1279,9 +1355,23 @@ index 0000000..66de7d8
 +  } finally { release(Response.json({ phase: "running", enabled: true, packageEnabled: true, daemon: { healthy: true } })); await f.settle(); }
 +  assert.equal(f.button("產生配對連結").props.disabled, false);
 +});
++
++// The gesture regression lives in e2e/paseo-mobile-scroll.mjs. This contract
++// also catches accidentally detaching the component from its scroll styles.
++test("Paseo panel participates in the bounded settings scroll layout", (t) => {
++  const f = fixture(t);
++  assert.equal(f.render().props.className, "paseo-plugin-panel");
++  const css = fs.readFileSync(new URL("../app/settings.css", import.meta.url), "utf8");
++  const rule = css.match(/\.settings-section-host > \.paseo-plugin-panel\s*\{([^}]+)\}/)?.[1];
++  assert.ok(rule);
++  for (const declaration of ["height: 100%", "min-height: 0", "overflow-y: auto", "overscroll-behavior-y: contain"]) assert.ok(rule.includes(declaration));
++  const page = fs.readFileSync(new URL("../app/paseo/setup/page.tsx", import.meta.url), "utf8");
++  assert.ok(page.includes('className="paseo-setup-page"'));
++  assert.match(css, /\.paseo-setup-page\s*\{[^}]*overflow-y: auto/);
++});
 diff --git a/components/PaseoPluginPanel.tsx b/components/PaseoPluginPanel.tsx
 new file mode 100644
-index 0000000..54fbe91
+index 0000000..bb4168b
 --- /dev/null
 +++ b/components/PaseoPluginPanel.tsx
 @@ -0,0 +1,206 @@
@@ -1422,7 +1512,7 @@ index 0000000..54fbe91
 +  const serviceReady = statusCurrent && !packageDisabled && status.enabled !== false && status.daemon?.healthy === true && status.phase !== "restart_required";
 +  const mutationBusy = Boolean(busy) && !["diagnose", "models"].includes(busy);
 +  return (
-+    <section style={{ display: "flex", flexDirection: "column", gap: 12 }} aria-label="Paseo 連線設定">
++    <section className="paseo-plugin-panel" aria-label="Paseo 連線設定">
 +      <ConfigSectionTitle>Paseo 連線</ConfigSectionTitle>
 +      <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0, lineHeight: 1.7 }}>
 +        在 Paseo 操作這個容器的 Claude Code、Codex 與 Pi。沿用現有登入、模型與權限，透過官方 relay 配對。
@@ -1567,7 +1657,7 @@ index bf3a2ff..a46f2f2 100644
        </div>
      </div>
 diff --git a/docs/agents/settings-ui.md b/docs/agents/settings-ui.md
-index 274b438..b71a5a9 100644
+index 274b438..38d3238 100644
 --- a/docs/agents/settings-ui.md
 +++ b/docs/agents/settings-ui.md
 @@ -2,6 +2,7 @@
@@ -1578,12 +1668,156 @@ index 274b438..b71a5a9 100644
  - `/api/skills` lists through `DefaultResourceLoader`, so settings paths, package skills and project `.agents/skills` appear as the runtime sees them. Toggling a skill edits only the `disable-model-invocation` frontmatter key of its `SKILL.md`, so user formatting survives, and `PATCH /api/skills` edits only `.md` files (its roots also hold `auth.json`, settings and project files). `/api/skills/install` shells through `npx skills add ... --agent pi`; project installs run in the selected cwd.
  - **Group switches.** Each sidebar group of the Skills, Plugins and MCP panels (a skill scope, a package scope, an `mcp.json`; not standalone extensions) has a `ConfigSidebarGroupSwitch` in its heading row, so the 190px phone sidebar loses no height. As with the Models provider switch, it is on only while every row is: a partial group reads as off beside its `n/m` count and one click completes it. A panel whose group can hold rows its switch never turns on passes its own `checked` (MCP: `mcpGroupSwitchChecked()`), or the switch stays off for good. One request carries the list (`PATCH /api/skills` `filePaths`, `POST /api/plugins` `packages`, `POST /api/mcp` `set-enabled` `servers`) and answers per item, so a refused row does not stop the rest; what was left undone shows under the heading (`ConfigSidebarGroupStatus`). An entry already in the requested state is left alone; enabling keeps an entry's own keys such as `autoload`. `SettingsManager` never throws a failed load or write (`flush()` resolves), so the bulk plugin path reads `drainErrors()`, or an unreadable settings.json would report success. Disabling empties the four resource lists and keeps no filters, so a group switched off leaves an enabled filtered package on (the SDK reports every object entry as `filtered`) and says so; the bulk route refuses it.
 
-@@ -10,3 +11,5 @@
+@@ -10,3 +11,7 @@
  - **Every add pane chooses global or project in one place:** a `ConfigSaveTarget` (scope switch aria-labelled `config.saveTo`, plus the path that choice writes to) first under the pane's title, where a detail pane shows its `ConfigScopeTag` and path. Skills, Plugins and MCP get it through `ConfigAddSourceHeading` (title, the catalog links at its right, then the save target); Sub-agents put it in the detail header in place of the tag while creating. The submit button stays where its flow needs it (Install under the source box or on each skill result, Save in the footer, Add at the end of the MCP form), with why it waits beside it, not under the save target. The path is shown whole, never cut short: it wraps after a separator (`<wbr>`), then anywhere. Sub-agents offer both scopes whatever the folder's trust: profiles are not project resources that wait for it.
  - **Why a control is unavailable is visible text** — a scope switch's `disabledReason` (under the switch's whole line, so controls passed as its `children` stay level with it), the note under a detail header, a footer summary that opens its diagnostics — never only a `title` tooltip, which a touch screen cannot show.
  - `ConfigTrustNotice` shows its button only when given `onTrust`; Settings › MCP passes AppShell's trust dialog through `SettingsPanel` (see **Trust from Settings** in [mcp-settings.md](mcp-settings.md)). Skills and Plugins take the page's `trust` and reload after a decision but have no Trust button; adding one needs `onOpenTrustDialog` passed to them and `mcpProjectTrustable()`'s rule.
 +
 +- Plugin/Paseo mutations parse bounded UTF-8 JSON objects before settings or runtime discovery (64 KiB plugins, 16 KiB Paseo). Reject malformed scopes/sources/cwds without SDK work; success and refusal responses use no-store. The Paseo panel pauses polls during mutations, ignores obsolete workspace/action responses, and expires readiness after 15 seconds without a confirmed status. Slow polls share one pending read. `restart_required` instructs Stop then Start and disables pairing/model reads until recovery. Runtime status cache invalidation remains the installed plugin’s responsibility.
++
++- Paseo owns scrolling inside the bounded `.settings-section-host`; keep its `paseo-plugin-panel` class and height/min-height/overflow rules together. The standalone `/paseo/setup` route scrolls its viewport-sized main element because the app body hides overflow. Verify physical touch/wheel access to bottom controls, expanded catalogs and back to the heading with `PI_WEB_E2E_URL=... node e2e/paseo-mobile-scroll.mjs`.
+diff --git a/e2e/paseo-mobile-scroll-runner.mjs b/e2e/paseo-mobile-scroll-runner.mjs
+new file mode 100644
+index 0000000..5f5aa46
+--- /dev/null
++++ b/e2e/paseo-mobile-scroll-runner.mjs
+@@ -0,0 +1,32 @@
++import {spawn} from 'node:child_process';
++import {once} from 'node:events';
++import {mkdtempSync,rmSync} from 'node:fs';
++import {createServer} from 'node:net';
++import {tmpdir} from 'node:os';
++import {join} from 'node:path';
++import {setTimeout as delay} from 'node:timers/promises';
++
++// Production build, isolated HOME and agent store; never use operator settings.
++const home=mkdtempSync(join(tmpdir(),'paseo-scroll-e2e-'));
++const probe=createServer();probe.listen(0,'127.0.0.1');await once(probe,'listening');
++const port=probe.address().port;await new Promise(resolve=>probe.close(resolve));
++const base=`http://127.0.0.1:${port}`;
++const env={...process.env,HOME:home,PI_CODING_AGENT_DIR:join(home,'agent'),PI_WEB_PASSWORD:'',PI_PASEO_PLUGIN_ROOT:'',PI_OMNIGENT_PLUGIN_ROOT:'',PI_PASEO_DISCOVERY_ONLY:'1',PI_PASEO_SKIP_POSTINSTALL:'1',NEXT_TELEMETRY_DISABLED:'1'};
++const server=spawn(process.execPath,['node_modules/next/dist/bin/next','start','-H','127.0.0.1','-p',String(port)],{env,stdio:['ignore','ignore','inherit']});
++const stopped=once(server,'exit');
++try {
++  let ready=false;
++  for(let i=0;i<120&&server.exitCode===null;i++){
++    if(await fetch(base).then(r=>r.ok,()=>false)){ready=true;break;}
++    await delay(250);
++  }
++  if(!ready)throw new Error('Production server did not become ready');
++  const child=spawn(process.execPath,['e2e/paseo-mobile-scroll.mjs'],{env:{...env,PI_WEB_E2E_URL:base},stdio:'inherit'});
++  const [code]=await once(child,'exit');
++  if(code!==0)throw new Error('Paseo scroll regression failed');
++} finally {
++  server.kill('SIGTERM');
++  const timeout=setTimeout(()=>server.kill('SIGKILL'),5000);
++  await stopped;clearTimeout(timeout);
++  rmSync(home,{recursive:true,force:true});
++}
+diff --git a/e2e/paseo-mobile-scroll.mjs b/e2e/paseo-mobile-scroll.mjs
+new file mode 100644
+index 0000000..e94e62e
+--- /dev/null
++++ b/e2e/paseo-mobile-scroll.mjs
+@@ -0,0 +1,98 @@
++import assert from 'node:assert/strict';
++import {chromium} from 'playwright';
++
++// Existing Pi Web build, real components/styles/touch events. Mock only Paseo
++// data to reproduce long content without credentials or runtime mutations.
++const base = process.env.PI_WEB_E2E_URL || 'http://127.0.0.1:30141';
++const browser = await chromium.launch({
++  ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? {executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH} : {}),
++});
++const status = {
++  enabled:true,packageEnabled:true,packageInstalled:true,phase:'running',
++  daemon:{healthy:true,running:true,installed:true},
++  providers:['claude','codex','pi'].map(id=>({id,chatVerified:true})),
++};
++const viewports = [
++  {name:'phone',width:390,height:780,mobile:true},
++  {name:'small-phone',width:360,height:640,mobile:true},
++  {name:'landscape',width:844,height:390,mobile:true},
++  {name:'desktop',width:1280,height:900,mobile:false},
++  {name:'setup-phone',width:390,height:780,mobile:true,setup:true},
++];
++const cases = process.env.PI_WEB_SCROLL_SURFACE === 'setup'
++  ? viewports.filter(c=>!c.setup).map(c=>({...c,name:`setup-${c.name}`,setup:true}))
++  : viewports;
++const results = [];
++try {
++  for (const c of cases) {
++    const context = await browser.newContext({viewport:{width:c.width,height:c.height},isMobile:c.mobile,hasTouch:c.mobile,locale:'en-US'});
++    try {
++      const page = await context.newPage();
++      const errors=[];page.on('pageerror',e=>errors.push(e.name));
++      await page.route('**/api/plugin-paseo*', async route => {
++        const request=route.request();
++        const body=request.method()==='POST' ? request.postDataJSON() : {};
++        assert.ok(!body.action || body.action==='models', 'Layout test must not mutate runtime');
++        await route.fulfill({json:body.action==='models' ? {
++          modes:[],models:Array.from({length:60},(_,i)=>({id:`model-${i}`,label:`Scroll model ${i} ${'long-name-'.repeat(8)}`})),
++        } : status});
++      });
++      await page.goto(new URL(c.setup ? '/paseo/setup' : '/',base).href,{waitUntil:'domcontentloaded'});
++      if(!c.setup) {
++        await page.getByRole('button',{name:/^(Settings|設定)$/}).waitFor({state:'attached'});
++        // Open the dialog directly; scroll assertions below use physical input only.
++        await page.getByRole('button',{name:/^(Settings|設定)$/}).evaluate(el=>el.click());
++        const select=page.locator('select').filter({has:page.locator('option[value="paseo"]')});
++        if(await select.isVisible())await select.selectOption('paseo');
++        else await page.locator('.settings-section-tab').filter({hasText:'Paseo'}).click();
++      }
++      const panel=page.getByRole('region',{name:'Paseo 連線設定'});
++      await panel.waitFor();
++      const button=panel.getByRole('button',{name:'讀取 Pi 模型',exact:true});
++      await page.waitForFunction(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent==='讀取 Pi 模型');return b&&!b.disabled;});
++      const cdp=await context.newCDPSession(page);
++      async function swipe(direction=1) {
++        const box=await panel.boundingBox();
++        const x=Math.min(c.width-32,box.x+box.width*0.65);
++        const top=Math.max(90,box.y+30),bottom=Math.min(c.height-48,box.y+box.height-32);
++        if(c.mobile){
++          const start=direction>0?bottom:top,end=direction>0?top:bottom;
++          await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y:start}]});
++          for(let i=1;i<=10;i++){
++            await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y:start+(end-start)*i/10}]});
++            await page.waitForTimeout(16);
++          }
++          await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
++        }else{
++          await page.mouse.move(x,bottom);await page.mouse.wheel(0,direction*600);
++        }
++        await page.waitForTimeout(100);
++      }
++      async function inViewport(locator) {
++        return locator.evaluate(el=>{
++          const r=el.getBoundingClientRect();
++          if(r.top<0||r.bottom>innerHeight||r.left<0||r.right>innerWidth)return false;
++          const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
++          return hit===el||el.contains(hit);
++        });
++      }
++      async function reach(locator,direction=1) {
++        for(let i=0;i<35 && !(await inViewport(locator));i++)await swipe(direction);
++        assert.ok(await inViewport(locator), `${c.name}: control reachable by ${c.mobile?'touch':'wheel'} scrolling`);
++      }
++      // Never let click/scrollIntoView hide a broken gesture scroll path.
++      await reach(button);
++      await button.click();
++      const last=panel.locator('li').last();
++      await last.waitFor();
++      await reach(last);
++      assert.ok((await last.textContent()).startsWith('Scroll model 59'));
++      assert.equal(await panel.evaluate(el=>el.scrollWidth>el.clientWidth+1),false,`${c.name}: long model names must wrap`);
++      await reach(panel.getByText('Paseo 連線',{exact:true}),-1);
++      assert.deepEqual(errors,[]);
++      results.push({case:c.name,touch:c.mobile,bottomControls:true,expandedCatalog:true,returnToTop:true,pageErrors:0});
++      console.log(JSON.stringify(results.at(-1)));
++    } finally {await context.close();}
++  }
++} finally {await browser.close();}
++assert.equal(results.length,cases.length);
 diff --git a/instrumentation-node.ts b/instrumentation-node.ts
 index 782f95a..11362fc 100644
 --- a/instrumentation-node.ts
@@ -6575,44 +6809,3 @@ index 1977e56..2e489f4 100644
 
 -export const config = { matcher: ["/", "/login", "/api/:path*"] };
 +export const config = { matcher: ["/", "/login", "/paseo/:path*", "/api/:path*"] };
-diff --git a/app/omnigent/page.tsx b/app/omnigent/page.tsx
-new file mode 100644
-index 0000000..a04d263
---- /dev/null
-+++ b/app/omnigent/page.tsx
-@@ -0,0 +1,13 @@
-+import { Suspense } from "react";
-+import { AppShell } from "@/components/AppShell";
-+import { I18nProvider } from "@/hooks/useI18n";
-+
-+export default function OmnigentSettingsPage() {
-+  return (
-+    <Suspense>
-+      <I18nProvider>
-+        <AppShell initialSettingsSection="omnigent" />
-+      </I18nProvider>
-+    </Suspense>
-+  );
-+}
-diff --git a/components/AppShell.tsx b/components/AppShell.tsx
-index c50b18f..8ce6ae4 100644
---- a/components/AppShell.tsx
-+++ b/components/AppShell.tsx
-@@ -77,7 +77,7 @@ function parkedNewSessionDraftKey(cwd: string): string {
-   return `parked-new:${cwd}`;
- }
-
--export function AppShell() {
-+export function AppShell({ initialSettingsSection = null }: { initialSettingsSection?: SettingsSection | null }) {
-   const router = useRouter();
-   const searchParams = useSearchParams();
-   const [initialNavigation, setInitialNavigation] = useState(() => getInitialNavigation(searchParams));
-@@ -171,7 +171,7 @@ export function AppShell() {
-     setSearchTarget((current) => current === target ? null : current);
-   }, []);
-   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
--  const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
-+  const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(initialSettingsSection);
-   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
-   const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
-   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
