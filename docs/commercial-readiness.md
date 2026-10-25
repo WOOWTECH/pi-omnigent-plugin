@@ -1,5 +1,11 @@
 # v0.3.8 Pi 7 三引擎對話及 gateway 選模驗收（2026-10-25）
 
+正式 v0.3.8 已釘選安裝於 Pi7，使用完整共用 Pi Web 建置重新啟動；新 Pod 兩個容器就緒、重啟數皆為 0。實際瀏覽器開啟 Omnigent 與 Paseo 原生分頁，首頁和兩個 API 回 200、無 JavaScript 錯誤。Omnigent 分頁顯示版本 0.3.8、Claude／Codex／Pi 模型數 1／1／50，server 登入與 host 在線。重啟後的新一輪驗證於 07:02–07:03 UTC 讓三引擎各自取得固定正確回覆與 `cleanup: "stopped"`，整體回到 `ready`。[正式部署與容量回條](evidence/pi7-omnigent-v038-production-2026-10-25.json) 為非機密摘要。Paseo 的三種 CLI provider 要各自驗收；其 Pi Web Remote 實測見 [Paseo 驗證紀錄](https://github.com/WOOWTECH/pi-paseo-plugin/blob/main/docs/validation.md)。
+
+本次完整建置後，Pi7 的 30 GB 持久磁碟達 80% 使用率；11 份共用 UI 建置合計約 19 GB。確認只有現行版本被路由引用後，保留現行版、前兩份受管回滾版及一份非受管備份，清理其餘 7 份舊受管建置。使用率降至 39%，可用空間由 6 GB 增至 19 GB，Pod 仍正常運作。清理清單留在 Pi7 私有工作目錄。安裝器目前**不會自動限制**舊建置數量，持續發佈時仍需監控與定期清理。
+
+目前 Claude Code 經既有 gateway 使用 DeepSeek 模型通過短對話；[Anthropic 官方 gateway 文件](https://code.claude.com/docs/en/llm-gateway) 明言不支援透過 gateway 將 Claude Code 路由到非 Claude 模型。商業支援與長期相容性不能由這次成功推定；需改用受支援的 Claude 路由或向供應商確認。Codex 自訂 gateway 亦應持續核對模型 metadata、工具與續聊能力，不能只憑短對話宣稱完整相容。
+
 Pi 7 升級到公開 v0.3.7 並重啟後，Claude Code 與 Pi 的真實驗證通過，但 Codex 兩次在 120 秒後回報 `REPLY_TIMEOUT`。針對插件自行建立的測試 session 查到 `codex_turn_error`，其上游回應為 HTTP 402。這是模型供應商拒絕，不是 server 登入或插件清理失敗。原生 Codex 模型目錄仍列出 8 個 GPT 訂閱選項，與當時的 gateway 預設模型不一致。
 
 Pi 7 保留既有引擎與憑證，使用既有 LiteLLM gateway 的 Anthropic Messages 路由供 Claude Code 使用 `deepseek/deepseek-v4.1-flash`，並以 OpenAI Responses 路由供 Codex 使用 `deepseek/deepseek-v4-flash-0731`；Pi 的路由維持原樣。兩條協定先各以固定無工具短訊息取得成功回應，再用 Omnigent 原生引擎實測；配置變更前的檔案只保存在 Pi 7 私有備份目錄。Codex 指定模型即使未出現在其舊 CLI 型錄，server 仍接受明確的 `model_override`，實際回覆後也成功停止測試 session。

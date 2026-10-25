@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-25",
+  "deployment": "paas-ws-504a2b17/svc-08cf5049-pi-agent",
+  "pluginVersion": "0.3.8",
+  "source": "git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.8",
+  "paseoPluginVersion": "0.1.4",
+  "sourceCiRun": "https://github.com/WOOWTECH/pi-omnigent-plugin/actions/runs/40170926699",
+  "sourceCiConclusion": "success",
+  "ui": {
+    "composition": "omnigent+paseo",
+    "prebuiltSourceUsed": false,
+    "settingsSections": ["mcp", "omnigent", "paseo"],
+    "homeHttpStatus": 200,
+    "omnigentApiStatus": 200,
+    "paseoApiStatus": 200,
+    "browserPanelsOpened": ["omnigent", "paseo"],
+    "browserPageErrors": 0,
+    "modelCountsShown": {"claude": 1, "codex": 1, "pi": 50}
+  },
+  "pod": {"readyContainers": 2, "totalContainers": 2, "containerRestarts": [0, 0]},
+  "serverLoginConfirmed": true,
+  "hostConnected": true,
+  "latestVerification": {
+    "phase": "ready",
+    "claude": {"checkedAt": "2026-10-25T07:02:47.186Z", "replyMatched": true, "cleanup": "stopped"},
+    "codex": {"checkedAt": "2026-10-25T07:03:10.192Z", "replyMatched": true, "cleanup": "stopped"},
+    "pi": {"checkedAt": "2026-10-25T07:03:40.351Z", "replyMatched": true, "cleanup": "stopped"}
+  },
+  "storageMaintenance": {
+    "persistentVolumeSizeGiB": 30,
+    "before": {"usedGiB": 24, "availableGiB": 6, "usedPercent": 80, "uiReleaseCount": 11, "uiReleaseDirectoryUsedGiB": 19},
+    "removedOlderManagedReleases": 7,
+    "preserved": "Current release, two most recent managed rollback releases, and one non-managed backup",
+    "after": {"usedGiB": 12, "availableGiB": 19, "usedPercent": 39, "uiReleaseCount": 4},
+    "auditManifest": "/data/pi-agent/home/work/pi7-ui-prune-20261025.json"
+  },
+  "limitations": [
+    "The installer does not yet bound the number of retained UI releases automatically.",
+    "Claude Code's official gateway documentation does not support routing it to a non-Claude model; the current DeepSeek gateway route is outside that supported combination.",
+    "Successful short probes do not establish every model route, tool behavior, capacity, or SLA."
+  ]
+}
