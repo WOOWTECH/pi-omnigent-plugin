@@ -1545,7 +1545,7 @@ index 0000000..bb4168b
 +        <>
 +          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 16, display: "flex", flexDirection: "column", gap: 12 }}>
 +            <ConfigSectionTitle>容器資訊</ConfigSectionTitle>
-+            <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13 }}>Paseo 顯示名稱
++            <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13 }}>容器備註（僅供此設定頁使用）
 +              <input className="config-add-source-input" value={name} onChange={(event) => { nameEdited.current = true; setName(event.target.value); }} maxLength={100} placeholder="例如：Pi Agent 容器" disabled={Boolean(busy)} />
 +            </label>
 +            {cwd && <p style={{ fontSize: 12, margin: 0, overflowWrap: "anywhere" }}>初始化工作目錄：{cwd}</p>}
