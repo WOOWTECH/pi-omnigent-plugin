@@ -1,10 +1,10 @@
-# v0.3.20 Paseo 0.1.10 compatibility candidate (2026-10-26)
+# v0.3.20 Paseo 0.1.10 compatibility (2026-10-26)
 
 The combined installer explicitly accepts Paseo 0.1.10 with adapter SHA256 `b303204227080acd6ca0a2326cb9594caa4769d32052ce0269b96fcde9cb11c2`, retaining 0.1.9 under its original `b542d86c95c9a10f6567048084359f39691f9f6e14c09cc038af51aa3a9132d9` hash and the existing separately pinned 0.1.7/0.1.8 adapters. Unlisted versions, prereleases and changed contributor bytes remain rejected. The installer and native patch are unchanged. The combined patch mirrors only the upstream `lib/paseo-name.test.mjs` fixture correction: its non-Linux display-preferences VM stubs readiness/marking, while real plugin runtime/security tests retain their checks. Production UI bytes are unchanged.
 
-CI pins Paseo 0.1.10 source `142290a98d00464e5fa753bde44bd62571dcacb4` and runs the production combined UI matrix. For 0.1.9 and 0.1.10 it also packs the actual plugin without hooks and runs the real installer against the compiled UI in a temporary home: source-verified prebuilt activation, reuse, package preservation, unlisted-version and forged-hash rejection. This exercises UI installation; it does not run a daemon or model conversation.
+CI pins final Paseo 0.1.10 source `d544c9510dcb8b84c9b97a21562644415b000f12` and runs the production combined UI matrix. For 0.1.9 and 0.1.10 it also packs the actual plugin without hooks and runs the real installer against the compiled UI in a temporary home: source-verified prebuilt activation, reuse, package preservation, unlisted-version and forged-hash rejection. This exercises UI installation; it does not run a daemon or model conversation.
 
-Parent reports Paseo 0.1.10/r3 actual-daemon acceptance and unchanged product bytes at the final host-fixture commit; publication remains held pending parent integration approval and final exact-head host/combined CI. Omnigent 0.3.19 actual fixed-HA full-VM acceptance is still pending; the published HA0.15.6 target contains 0.3.18 and is not proof for 0.3.19. No root/HA/PaaS publication is authorized by these UI tests.
+Parent actual-daemon acceptance passed for source3585b36d, and source142290a plus final docs commitd544c951 preserve those product bytes. Publication requires exact-head host/combined CI, real packed-package installer acceptance and anonymous verification of the official Paseo0.1.10 archive. Omnigent 0.3.19 actual fixed-HA full-VM acceptance is still pending; the published HA0.15.6 target contains 0.3.18 and is not proof for 0.3.19. No root/HA/PaaS publication is authorized by these UI tests.
 
 # v0.3.19 Cross-UID stale PID recovery follow-up (2026-10-26)
 
