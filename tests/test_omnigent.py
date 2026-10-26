@@ -518,6 +518,148 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(self.clock.value, 3.0)  # Startup settling only; no reply polling wait.
         self.assertNotIn("sensitive raw error", json.dumps(result))
 
+    @staticmethod
+    def terminal_event(action='deleted', *, engine='pi', event_id='terminal-event', **fields):
+        return {'type': 'resource_event', 'event_type': f'session.resource.{action}',
+                'resource_type': 'terminal', 'resource_id': f'terminal_{engine}_main',
+                'id': event_id, **fields}
+
+    def run_terminal_lifecycle(self, pages, *, engine='pi', **options):
+        """Feed descending pages into the real verifier with a fake clock/client."""
+        request = self.client.request
+        observations = []
+        def scripted(method, path, *args, **kwargs):
+            if '/items?' in path:
+                self.client.items = pages[min(len(observations), len(pages) - 1)]
+                observations.append(self.clock.value)
+            return request(method, path, *args, **kwargs)
+        with patch.object(self.client, 'request', side_effect=scripted):
+            result = self.plugin(engine=engine, timeoutSeconds=options.pop('timeoutSeconds', 120), **options).verify()
+        return result, observations
+
+    def test_idle_native_terminal_removal_ends_wait_before_cleanup(self):
+        for engine in ('pi', 'claude'):
+            with self.subTest(engine=engine):
+                self.clock.value = 0
+                self.client.calls.clear()
+                self.client.session_info = {'status': 'idle', 'last_task_error': None}
+                created = self.terminal_event('created', engine=engine, event_id='created')
+                deleted = self.terminal_event(engine=engine, event_id='deleted', message='private-output')
+                result, polls = self.run_terminal_lifecycle([[created], [created], [deleted, created]], engine=engine)
+                self.assertEqual(result['reason'], 'NATIVE_TERMINAL_REMOVED')
+                self.assertFalse(result['ok'])
+                self.assertEqual(result['cleanup'], 'stopped')
+                self.assertLessEqual(self.clock.value, 9)
+                self.assertEqual(len(polls), 4)
+                self.assertEqual(result['terminalDiagnostic'], {
+                    'resourceId': f'terminal_{engine}_main', 'event': 'session.resource.deleted',
+                    'phase': 'before_cleanup', 'exitCode': None})
+                self.assertNotIn('private-output', json.dumps(result))
+                posts = [body['type'] for method, path, body, _ in self.client.calls if path.endswith('/events')]
+                self.assertEqual(posts, ['message', 'stop_session'])
+
+    def test_terminal_replacement_and_late_reply_cancel_removal_candidate(self):
+        created = self.terminal_event('created', event_id='original')
+        deleted = self.terminal_event(event_id='deleted')
+        replacement = self.terminal_event('created', event_id='replacement')
+        reply = {'type': 'message', 'role': 'assistant', 'content': [{'type': 'output_text', 'text': adapter.SENTINEL}]}
+        # A newer create wins over a stale delete, including across polls.
+        for pages in ([[deleted, created], [replacement, deleted, created], [reply]],
+                      [[replacement, deleted, created], [reply]],
+                      [[deleted, created], [reply, deleted, created]]):
+            with self.subTest(pages=pages):
+                self.clock.value = 0
+                result, _ = self.run_terminal_lifecycle(pages)
+                self.assertTrue(result['ok'])
+                self.assertNotIn('terminalDiagnostic', result)
+
+    def test_only_matching_native_main_terminal_can_end_wait(self):
+        for engine, event in [('codex', self.terminal_event(engine='codex')),
+                              ('pi', self.terminal_event(resource_id='terminal_pi_secondary')),
+                              ('pi', self.terminal_event(resource_type='browser')),
+                              ('pi', self.terminal_event(type='message')),
+                              ('pi', self.terminal_event(session_id='unrelated-session')),
+                              ('pi', self.terminal_event(resource={'session_id': 'unrelated-session'})),
+                              ('pi', self.terminal_event(id=None))]:
+            with self.subTest(engine=engine, event=event):
+                self.clock.value = 0
+                result, _ = self.run_terminal_lifecycle([[event]], engine=engine, timeoutSeconds=6)
+                self.assertEqual(result['reason'], 'REPLY_TIMEOUT')
+                self.assertNotIn('terminalDiagnostic', result)
+
+    def test_removal_already_present_on_first_poll_is_not_own_cleanup(self):
+        result, polls = self.run_terminal_lifecycle([[self.terminal_event()]])
+        self.assertEqual(result['reason'], 'NATIVE_TERMINAL_REMOVED')
+        self.assertEqual(polls, [0, 2])
+        self.assertEqual(result['terminalDiagnostic']['phase'], 'before_cleanup')
+
+    def test_new_terminal_generation_gets_its_own_removal_grace(self):
+        first = self.terminal_event(event_id='first-removal', exit_status=1)
+        replacement = self.terminal_event('created', event_id='replacement')
+        second = self.terminal_event(event_id='second-removal', exit_status=2)
+        result, polls = self.run_terminal_lifecycle([[first], [replacement, first], [second, replacement, first]])
+        self.assertEqual(polls, [0, 2, 4, 6])
+        self.assertEqual(result['reason'], 'NATIVE_TERMINAL_REMOVED')
+        self.assertEqual(result['terminalDiagnostic']['exitCode'], 2)
+
+    def test_terminal_diagnostic_keeps_only_explicit_numeric_exit_status(self):
+        for value in (None, 0, 1, 137, -9, True, '1 private-output', 1.5, 2**63):
+            with self.subTest(value=value):
+                self.clock.value = 0
+                result, _ = self.run_terminal_lifecycle([[self.terminal_event(exit_status=value)]])
+                expected = value if type(value) is int and -(2**31) <= value < 2**31 else None
+                self.assertEqual(result['terminalDiagnostic']['exitCode'], expected)
+                self.assertNotIn('private-output', json.dumps(result))
+
+    def test_structured_error_keeps_priority_over_terminal_loss(self):
+        deleted = self.terminal_event()
+        for event_error in (True, False):
+            with self.subTest(event_error=event_error):
+                self.clock.value = 0
+                error = {'type': 'error', 'code': 'native_error', 'status_code': 402, 'message': 'private-output'}
+                self.client.session_info = {} if event_error else {'last_task_error': error}
+                result, _ = self.run_terminal_lifecycle([[deleted], [error, deleted]] if event_error else [[deleted]])
+                self.assertEqual(result['reason'], 'PROVIDER_PAYMENT_REQUIRED')
+                self.assertNotIn('private-output', json.dumps(result))
+
+    def test_terminal_loss_does_not_require_successful_session_info_lookup(self):
+        request = self.client.request
+        def unavailable(method, path, *args, **kwargs):
+            if method == 'GET' and path == '/v1/sessions/own-verification-session':
+                self.assertEqual(kwargs['timeout_seconds'], 3.0)
+                self.assertFalse(kwargs['refresh_auth'])
+                raise adapter.PluginError('server_unreachable', 'private-output')
+            return request(method, path, *args, **kwargs)
+        with patch.object(self.client, 'request', side_effect=unavailable):
+            result, polls = self.run_terminal_lifecycle([[self.terminal_event()]])
+        self.assertEqual(result['reason'], 'NATIVE_TERMINAL_REMOVED')
+        self.assertEqual(polls, [0, 2])
+        self.assertEqual(result['cleanup'], 'stopped')
+
+    def test_cleanup_exit_does_not_turn_success_or_timeout_into_early_failure(self):
+        request = self.client.request
+        def stopping(method, path, payload=None, **kwargs):
+            if method == 'POST' and payload.get('type') == 'stop_session':
+                self.client.items = [self.terminal_event()]
+            return request(method, path, payload, **kwargs)
+        for reply in (True, False):
+            with self.subTest(reply=reply):
+                self.clock.value = 0
+                self.client.items = [{'type': 'message', 'role': 'assistant', 'content': [
+                    {'type': 'output_text', 'text': adapter.SENTINEL}]}] if reply else []
+                with patch.object(self.client, 'request', side_effect=stopping):
+                    result = self.plugin(engine='pi', timeoutSeconds=2).verify()
+                self.assertEqual(result['ok'], reply)
+                self.assertEqual(result['reason'], None if reply else 'REPLY_TIMEOUT')
+                self.assertNotIn('terminalDiagnostic', result)
+
+    def test_cleanup_failure_preserves_prior_terminal_loss_evidence(self):
+        self.client.stop_errors = [adapter.PluginError('forbidden', 'private-output')]
+        result, _ = self.run_terminal_lifecycle([[self.terminal_event(exit_status=1)]])
+        self.assertEqual(result['reason'], 'NATIVE_TERMINAL_REMOVED')
+        self.assertEqual(result['cleanup'], 'stop_failed')
+        self.assertEqual(result['terminalDiagnostic']['exitCode'], 1)
+
     def test_config_backup_is_private_exact_and_only_when_changed(self):
         original = (self.config_home / "config.yaml").read_bytes()
         plugin = self.plugin()

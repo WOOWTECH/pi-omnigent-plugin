@@ -860,6 +860,42 @@ class Plugin:
         return None
 
     @staticmethod
+    def native_terminal_removal(items: object, engine: str, session_id: str) -> tuple[str, dict] | None:
+        """Read the newest primary-terminal lifecycle event from a descending page.
+
+        SDK 0.16 reports idle required-terminal exits as resource deletion only.
+        Pi/Claude main terminals are required; Codex's TUI is auxiliary. This
+        observes resource loss, not its cause, and never examines pane output.
+        """
+        if engine not in ('pi', 'claude') or not isinstance(items, list):
+            return None
+        resource_id = f'terminal_{engine}_main'
+        for item in items:
+            if not isinstance(item, dict) or item.get('type') != 'resource_event' \
+                    or item.get('resource_type') != 'terminal' or item.get('resource_id') != resource_id:
+                continue
+            resource = item.get('resource')
+            if item.get('session_id', session_id) != session_id or (isinstance(resource, dict)
+                    and resource.get('session_id', session_id) != session_id):
+                continue
+            event = item.get('event_type')
+            if event in ('session.resource.created', 'session.resource.updated'):
+                return None  # A newer replacement supersedes an older deletion.
+            if event != 'session.resource.deleted':
+                continue
+            event_id = item.get('id')
+            if not isinstance(event_id, str) or not event_id or len(event_id) > 256:
+                return None
+            # 0.16 omits this field. Keep unknown as null; never infer a status
+            # from deletion, a failed session, free text, or cleanup's result.
+            exit_code = item.get('exit_status')
+            if type(exit_code) is not int or not -(2**31) <= exit_code < 2**31:
+                exit_code = None
+            return event_id, {'resourceId': resource_id, 'event': event,
+                              'phase': 'before_cleanup', 'exitCode': exit_code}
+        return None
+
+    @staticmethod
     def exact_probe_draft(pane: str) -> bool:
         """Match the entire fixed probe in the last framed chat composer.
 
@@ -976,6 +1012,7 @@ class Plugin:
                     {"type": "input_text", "text": PROBE_PROMPT}]}})
             recover_after = self.clock() + 8.0
             inspect_after = self.clock() + 6.0
+            terminal_candidate = None
             while True:
                 page = client.request("GET", f"/v1/sessions/{quote(session_id, safe='')}/items?limit=100&order=desc")
                 if self.assistant_sentinel(page.get("data")):
@@ -988,16 +1025,30 @@ class Plugin:
                 if failure:
                     result["reason"] = self.provider_failure_reason(failure) or failure['code'].upper()
                     break
-                if self.clock() >= inspect_after:
+                removal = self.native_terminal_removal(page.get('data'), key, session_id)
+                if removal is None:
+                    terminal_candidate = None
+                elif terminal_candidate is None or terminal_candidate[0] != removal[0]:
+                    terminal_candidate = (removal[0], self.clock())
+                # Require the same removal across polls, allowing a replacement
+                # terminal or a final reply/error to arrive before concluding.
+                terminal_removed = terminal_candidate is not None and self.clock() - terminal_candidate[1] >= 2.0
+                if terminal_removed:
+                    result['terminalDiagnostic'] = removal[1]
+                if terminal_removed or self.clock() >= inspect_after:
                     inspect_after = self.clock() + 8.0
                     try:
-                        info = client.request("GET", f"/v1/sessions/{quote(session_id, safe='')}")
+                        info = client.request("GET", f"/v1/sessions/{quote(session_id, safe='')}",
+                                              **({'timeout_seconds': 3.0, 'refresh_auth': False} if terminal_removed else {}))
                     except PluginError:
                         info = {}
                     session_failure = self.session_failure_reason(info)
                     if session_failure:
                         result["reason"] = session_failure
                         break
+                if terminal_removed:
+                    result['reason'] = 'NATIVE_TERMINAL_REMOVED'
+                    break
                 if self.clock() >= deadline:
                     break
                 if key == 'claude' and self.clock() >= recover_after and deadline - self.clock() > 10 \

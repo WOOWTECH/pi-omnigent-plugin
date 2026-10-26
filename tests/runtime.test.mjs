@@ -34,6 +34,54 @@ test('missing response never becomes ready', async t => {
   const ctx = fixture(t, 'codex'); const result = await initialize(ctx);
   assert.equal(result.ok, false); assert.equal(result.phase, 'needs-verification');
 });
+test('terminal removal evidence persists separately from cleanup with no raw output', async t => {
+  const ctx = fixture(t); const base = ctx.callAdapter;
+  for (const exitCode of [null, 0, 1, -9, true, 'private-output', 1.5, 2 ** 40]) {
+    for (const cleanup of ['stopped', 'stop_failed']) {
+      ctx.callAdapter = async input => {
+        const result = await base(input);
+        if (input.action === 'verify') Object.assign(result.data, {
+          ok: false, reply: null, reason: 'NATIVE_TERMINAL_REMOVED', cleanup,
+          terminalDiagnostic: { resourceId: `terminal_${input.engine}_main`, event: 'session.resource.deleted',
+            phase: 'before_cleanup', exitCode, message: 'private-output', credentials: 'private-output' }
+        });
+        return result;
+      };
+      const result = await initialize(ctx);
+      assert.equal(result.ok, false);
+      const receipts = JSON.parse(fs.readFileSync(path.join(ctx.loc.stateDir, 'verification.json')));
+      const expectedCode = Number.isInteger(exitCode) && exitCode >= -(2 ** 31) && exitCode < 2 ** 31 ? exitCode : null;
+      for (const engine of ['pi', 'claude']) {
+        assert.deepEqual(receipts[engine].terminalDiagnostic, {
+          resourceId: `terminal_${engine}_main`, event: 'session.resource.deleted', phase: 'before_cleanup', exitCode: expectedCode
+        });
+        assert.equal(receipts[engine].cleanup, cleanup);
+        assert.equal(receipts[engine].reason, cleanup === 'stopped' ? 'NATIVE_TERMINAL_REMOVED' : 'SESSION_STOP_FAILED');
+      }
+      assert.equal(receipts.codex.terminalDiagnostic, undefined);
+      assert.equal(JSON.stringify(receipts).includes('private-output'), false);
+    }
+  }
+});
+test('receipt boundary drops mismatched, cleanup-phase or successful terminal diagnostics', async t => {
+  const ctx = fixture(t); const base = ctx.callAdapter;
+  for (const extra of [{ resourceId: 'terminal_other_main' }, { event: 'session.resource.created' },
+    { phase: 'cleanup' }, { success: true }]) {
+    ctx.callAdapter = async input => {
+      const result = await base(input);
+      if (input.action === 'verify') Object.assign(result.data, {
+        ok: extra.success === true, reason: 'NATIVE_TERMINAL_REMOVED',
+        terminalDiagnostic: { resourceId: `terminal_${input.engine}_main`, event: 'session.resource.deleted',
+          phase: 'before_cleanup', exitCode: 1, ...extra }
+      });
+      return result;
+    };
+    await initialize(ctx);
+    const receipts = JSON.parse(fs.readFileSync(path.join(ctx.loc.stateDir, 'verification.json')));
+    assert.equal(receipts.pi.terminalDiagnostic, undefined);
+    assert.equal(receipts.claude.terminalDiagnostic, undefined);
+  }
+});
 test('verification persists the requested alias and sanitized resolved model separately', async t => {
   const ctx = fixture(t); const base = ctx.callAdapter;
   ctx.callAdapter = async input => {

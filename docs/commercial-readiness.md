@@ -1,3 +1,15 @@
+# v0.3.14 Verification terminal-removal diagnostic (2026-10-26)
+
+An idle required native terminal can disappear while Omnigent 0.16.0 publishes only `session.resource.deleted`, leaving the session idle and the verifier waiting for `REPLY_TIMEOUT`. The plugin now observes the latest lifecycle event for the exact Pi/Claude main terminal in its own freshly created verification session. The same deletion must remain visible across polls for at least two seconds. A newer creation/update cancels the candidate, assistant success and structured provider errors keep precedence, and Codex's auxiliary TUI is excluded.
+
+`NATIVE_TERMINAL_REMOVED` means the main terminal resource was removed before the verification reply; it does not identify a process crash, provider quota, or authentication cause. The sanitized `terminalDiagnostic` records `phase: "before_cleanup"` independently of cleanup success. Its `exitCode` is null unless the event explicitly supplies an integer `exit_status`; Omnigent 0.16.0 does not supply one on this event. No pane output, private conversation text, or credentials are added to receipts.
+
+In an offline fake-client/fake-clock replay, a terminal created at t=0 and removed at t=4 caused the released baseline to wait 120 simulated seconds (61 item polls). The fix returned the removal diagnostic at t=6 (four polls) and still stopped its own test session. These are simulated verification waiting times, not production wall-clock measurements or an SLA; transport, the bounded status confirmation and cleanup add time. [Sanitized fixture evidence](evidence/verification-terminal-removal-v0314.json) describes the scope and lifecycle coverage.
+
+This release preparation makes no new live model requests and includes no fleet deployment. The original Pi3 native exit cause remains unknown, this change does not establish all engines as ready, and the standalone Omnigent SDK/server's general conversation status is unchanged. Readiness still requires an actual assistant sentinel and successful cleanup for every installed engine. Existing provider limits and prior validation boundaries remain in effect.
+
+Local release validation on Node 22.23.3 passed 154 Node tests, 69 Python tests, syntax checks and the dependency audit with zero vulnerabilities. Public PR CI must validate the final release head before merge/publication. The version metadata retains the unchanged native UI patches and Paseo 0.1.7/0.1.8 compatibility list.
+
 # v0.3.13 Managed UI build retention (2026-10-26)
 
 Pi4 already had Paseo 0.1.8 while the combined installer accepted only 0.1.7. The released tags have identical adapter hashes, but installation still failed with `COMBINED_ADAPTER_MISMATCH`. An explicit compatibility list now accepts these two versions while retaining contributor and combined patch verification. Unknown versions and changed patches remain rejected; CI builds and browser-tests each pinned contributor commit separately.

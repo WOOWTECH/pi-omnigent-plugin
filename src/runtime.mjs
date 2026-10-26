@@ -76,6 +76,14 @@ export async function catalog(options = {}) {
   if (response.ok) saveJSON(path.join(loc.stateDir, 'catalog.json'), response.data);
   return response;
 }
+function terminalDiagnostic(proof, engine) {
+  const value = proof.terminalDiagnostic;
+  if (proof.ok === true || !['pi', 'claude'].includes(engine) || !value
+    || value.resourceId !== `terminal_${engine}_main` || value.event !== 'session.resource.deleted'
+    || value.phase !== 'before_cleanup') return {};
+  return { terminalDiagnostic: { resourceId: value.resourceId, event: value.event, phase: value.phase,
+    exitCode: Number.isInteger(value.exitCode) && value.exitCode >= -(2 ** 31) && value.exitCode < 2 ** 31 ? value.exitCode : null } };
+}
 async function verifyInternal(ctx, { engine, model } = {}) {
   const { loc, call } = ctx; const state = stateOf(loc);
   if (state.enabled === false) return { ok: false, phase: 'disabled' };
@@ -106,6 +114,7 @@ async function verifyInternal(ctx, { engine, model } = {}) {
       ...(proof.model ? { model: proof.model } : {}),
       ...(typeof proof.resolvedModel === 'string' && /^[A-Za-z0-9][A-Za-z0-9_./:+-]{0,255}$/.test(proof.resolvedModel)
         ? { resolvedModel: proof.resolvedModel } : {}),
+      ...terminalDiagnostic(proof, name),
       ...(proof.cleanup ? { cleanup: proof.cleanup } : {}),
       ...(proof.nativeSubmitRecovered === true ? { nativeSubmitRecovered: true } : {}),
       ...(proof.reply === 'OMNIGENT_CONNECTION_OK' ? { reply: proof.reply } : {}),
