@@ -466,6 +466,27 @@ test('combined adapter rejects an untested package version even when its patch i
   assert.equal(f.calls.length, 0);
 });
 
+test('a separately pinned older adapter remains compatible with the new combined UI', async t => {
+  const f = combinedFixture(t, '0.1.8');
+  const file = path.join(f.pkg, 'integrations/pi-web/combined.adapter-meta.json');
+  const meta = JSON.parse(fs.readFileSync(file));
+  const previous = meta.paseo;
+  meta.paseo = { packageName: previous.packageName, packageVersion: '0.1.9', adapterPatchSha256: sha('new adapter'), compatibleAdapters: [previous] };
+  write(file, JSON.stringify(meta));
+  assert.equal((await installUi({ ...f.options, overlayPackageRoot: f.overlay })).composition, 'omnigent+paseo');
+});
+
+test('compatible adapter entries cannot mix one version with another version digest', async t => {
+  const f = combinedFixture(t, '0.1.9');
+  const file = path.join(f.pkg, 'integrations/pi-web/combined.adapter-meta.json');
+  const meta = JSON.parse(fs.readFileSync(file));
+  const previous = meta.paseo;
+  meta.paseo = { packageName: previous.packageName, packageVersion: '0.1.9', adapterPatchSha256: sha('new adapter'), compatibleAdapters: [previous] };
+  write(file, JSON.stringify(meta));
+  await assert.rejects(installUi({ ...f.options, overlayPackageRoot: f.overlay }), { code: 'COMBINED_ADAPTER_MISMATCH' });
+  assert.equal(f.calls.length, 0);
+});
+
 test('compatible package version cannot bypass combined contributor patch verification', async t => {
   const f = combinedFixture(t, '0.1.8');
   const file = path.join(f.overlay, 'host/adapter.patch'), changed = 'changed adapter';
