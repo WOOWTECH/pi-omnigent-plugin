@@ -15,8 +15,20 @@ Repository 為公開，可直接安裝，不需要 GitHub token。安裝會自�
 商業部署請固定版本，避免不同容器在更新時取得不同程式：
 
 ```text
-git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.15
+git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.16
 ```
+
+v0.3.16 在同一安裝重啟時恢復先前明確授權的 host。必須保留插件的
+`loginConfirmed`、啟用狀態及同 server／host／工作區的成功連線回條；只有
+Omnigent SDK 的舊登入不會觸發恢復。首次安裝、停用後重新啟用，或取消連線後，
+仍會要求網址、帳號及密碼。恢復只查核身分並重用既有 host 管理，不改 provider
+設定、不安裝缺少的引擎，也不自動發送模型對話。
+
+即使 server 暫時仍顯示舊 host 在線，啟動時也會先核對本機程序。存在的 PID
+必須符合 UID、server、設定與資料目錄，以及已記錄的程序啟動身分；無法確認就
+回報 `HOST_PROCESS_MISMATCH`，不終止或取代該程序。容器重建後若舊 PID 被
+無關程序占用，本版採取拒絕恢復並要求人工檢查，登入與原 host 身分仍保留。
+host 回線不代表模型供應商已授權或所有引擎的對話驗收完成。
 
 同一 Pi Web 安裝 `git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.9` 後，執行 `pi-omnigent install-ui`，由 `v0.3.15` 驗證兩個固定補丁並產生一份共用 Pi Web 建置。Paseo 設定頁會開啟同一 Pi Web 網域的 `/paseo-web`，使用包含串流重新整理修補的固定網頁版本。仍相容 Paseo `v0.1.7`／`v0.1.8`，舊版保留官方網頁入口。只接受已驗證的版本與補丁雜湊，不會降版既有 Paseo。重新啟動後，設定列順序為 **MCP → Omnigent → Paseo**；兩個服務各自維持原本的登入、連線與停用狀態。
 

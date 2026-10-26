@@ -666,6 +666,16 @@ class Plugin:
             if managed != server:
                 raise PluginError("server_managed_by_deployment", "此容器的 host 由部署連接至另一個 server；請先調整部署設定，或沿用目前 server。")
 
+    def require_resume_identity(self, server: str) -> str:
+        expected = self.request.get('resumeHostId')
+        config = self.config()
+        host = config.get('host')
+        if (not isinstance(expected, str) or not expected or not isinstance(host, dict)
+                or host.get('host_id') != expected or not config.get('server')
+                or normalize_server(config['server']) != server):
+            raise PluginError('connection_identity_mismatch', '既有連線身分不符；請在設定對話確認原本的 server 與 host。')
+        return expected
+
     def ensure_host(self, server: str) -> str:
         host = self.local_host()
         if host["managerRunning"]:
@@ -683,10 +693,9 @@ class Plugin:
         descriptor = os.open(self.state_dir / "host-launch.lock", os.O_CREAT | os.O_RDWR, 0o600)
         with os.fdopen(descriptor, "r+") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            existing = read_json(self.state_dir / "host-process.json")
-            if self.process_matches(existing.get("pid"), "omnigent"):
-                if existing.get("server") != server:
-                    raise PluginError("host_server_mismatch", "插件管理的 host 正連接另一個 server，請先停止該 host。")
+            if self.request.get('action') == 'resume' or 'resumeHostId' in self.request:
+                self.require_resume_identity(server)
+            if self.managed_host_pid(server) is not None:
                 return "plugin"
             descriptor = os.open(self.state_dir / "host.log", os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
             with os.fdopen(descriptor, "ab") as log:
@@ -697,8 +706,45 @@ class Plugin:
                 process = subprocess.Popen([binary, "host", "--server", server, "--non-interactive", "--no-open"],
                                            stdin=subprocess.DEVNULL, stdout=log, stderr=log, cwd=self.workspace,
                                            env=environment, start_new_session=True)
-            atomic_json(self.state_dir / "host-process.json", {"pid": process.pid, "server": server})
+            atomic_json(self.state_dir / "host-process.json", {"pid": process.pid, "server": server,
+                        **self.process_identity(process.pid)})
         return "plugin"
+
+    def resume(self) -> dict:
+        """Resume an already-consented identity; never configure providers or log in."""
+        server = self.server()
+        host_id = self.require_resume_identity(server)
+        if self.request.get('username') is not None or self.request.get('password') is not None:
+            raise PluginError('invalid_request', '恢復連線不可提交新的帳號密碼。')
+        self.require_compatible_kit_server(server)
+        if not self.auth.token(server):
+            raise PluginError('needs_login', '原連線登入已失效，請在設定對話重新登入。')
+        client = self.client_factory(server, False)
+        account = client.request('GET', '/v1/me')
+        # /v1/me uses user_id; /auth/login's user.id is a different envelope.
+        account_id = account.get('user_id') if isinstance(account, dict) else None
+        def valid_identity(value):
+            return isinstance(value, str) and bool(re.fullmatch(r'[A-Za-z0-9_-]{1,128}', value))
+        if not valid_identity(account_id):
+            raise PluginError('connection_identity_mismatch', '無法確認原連線帳號身分。')
+        def own_host():
+            self.require_resume_identity(server)
+            own = client.request('GET', f'/v1/hosts/{quote(host_id, safe="")}')
+            if not isinstance(own, dict) or own.get('host_id') != host_id or not valid_identity(own.get('owner')) or own['owner'] != account_id:
+                raise PluginError('connection_identity_mismatch', '原 host 不屬於目前登入；請在設定對話確認。')
+            return own
+        own_host()
+        manager = self.ensure_host(server)
+        deadline = self.clock() + self.timeout(default=90)
+        while True:
+            remote = own_host()
+            if manager == 'plugin' and self.managed_host_pid(server) is None:
+                raise PluginError('host_process_missing', '原 host 程序未保持執行；請查看插件狀態。')
+            if remote.get('status') == 'online':
+                return {'server': server, 'host': {'id': host_id, 'connected': True, 'manager': manager}}
+            if self.clock() >= deadline:
+                raise PluginError('host_connect_timeout', '原 host 尚未回線；請查看插件狀態。')
+            self.sleep(2)
 
     def connect(self) -> dict:
         server = self.server()
@@ -734,21 +780,41 @@ class Plugin:
                 raise PluginError("host_connect_timeout", "登入已完成，host 尚未在線；請查看插件狀態與 host supervisor。")
             self.sleep(2)
 
+    @staticmethod
+    def process_identity(pid: int) -> dict:
+        try:
+            stat = Path(f'/proc/{pid}/stat').read_text()
+            return {'processStart': stat[stat.rfind(')') + 2:].split()[19],
+                    'bootId': Path('/proc/sys/kernel/random/boot_id').read_text().strip()}
+        except (OSError, IndexError):
+            return {}
+
     def managed_host_pid(self, server: str) -> int | None:
         record = read_json(self.state_dir / "host-process.json")
         pid = record.get("pid")
-        if not self.process_matches(pid, "omnigent"):
+        if pid is None:
             return None
+        if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 1:
+            raise PluginError('host_process_mismatch', '既有 host 程序回條不正確。')
+        if record.get('server') != server:
+            raise PluginError('host_process_mismatch', '既有 host 程序的 server 不符。')
+        process = Path(f'/proc/{pid}')
         try:
-            pid = int(pid)
-            process = Path(f"/proc/{pid}")
+            process_stat = process.stat()
+        except FileNotFoundError:
+            return None
+        except OSError:
+            raise PluginError('host_process_mismatch', '無法確認既有 host 程序身分。') from None
+        try:
             argv = (process / "cmdline").read_bytes().decode().split("\0")
             environ = dict(entry.split("=", 1) for entry in (process / "environ").read_bytes().decode().split("\0") if "=" in entry)
             start = argv.index("host")
-            valid = argv[start + 1:start + 3] == ["--server", server]
-            valid = valid and record.get("server") == server and process.stat().st_uid == os.getuid()
+            valid = self.process_matches(pid, 'omnigent') and argv[start + 1:start + 3] == ["--server", server]
+            valid = valid and record.get("server") == server and process_stat.st_uid == os.getuid()
             valid = valid and environ.get("OMNIGENT_CONFIG_HOME") == str(self.config_home)
             valid = valid and environ.get("OMNIGENT_DATA_DIR") == str(self.data_dir)
+            identity = self.process_identity(pid)
+            valid = valid and all(record[key] == identity.get(key) for key in ('processStart', 'bootId') if key in record)
         except (OSError, ValueError, UnicodeError):
             valid = False
         if not valid:
@@ -1094,7 +1160,7 @@ def dispatch(request: dict, **dependencies) -> dict:
     if not isinstance(request, dict):
         raise PluginError("invalid_request", "請提供 JSON object。")
     action = request.get("action")
-    if action not in ("status", "catalog", "connect", "verify", "disconnect"):
+    if action not in ("status", "catalog", "connect", "resume", "verify", "disconnect"):
         raise PluginError("invalid_action", "不支援此 Omnigent 操作。")
     plugin = Plugin(request, **dependencies)
     try:

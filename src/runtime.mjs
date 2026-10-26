@@ -76,6 +76,59 @@ export async function catalog(options = {}) {
   if (response.ok) saveJSON(path.join(loc.stateDir, 'catalog.json'), response.data);
   return response;
 }
+function installation(loc) {
+  return { home: path.resolve(loc.home), configHome: path.resolve(loc.omniDir), dataDir: path.resolve(loc.omniDataDir) };
+}
+function privateReceipt(file) {
+  try {
+    const stat = fs.lstatSync(file);
+    if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o777) !== 0o600
+      || (process.getuid && stat.uid !== process.getuid())) return null;
+    return readJSON(file);
+  } catch { return null; }
+}
+/** Resume this installation's recorded consent; SDK credentials alone are never consent. */
+export async function resumeAuthorizedHost(options = {}) {
+  const ctx = await context(options); const { loc, call } = ctx;
+  return operation(ctx, async () => {
+    const lifecycle = typeof options.lifecycle === 'function' ? await options.lifecycle()
+      : options.lifecycle || await (await import('./web.mjs')).packageLifecycle({ ...options, loc });
+    const skip = reason => ({ ok: true, resumed: false, reason });
+    if (!lifecycle.active || lifecycle.registered !== true) return skip('inactive');
+    const state = privateReceipt(statePath(loc));
+    if (state?.enabled !== true || state.nativeActive === false || state.loginConfirmed !== true) return skip('fresh-login-required');
+    const proof = privateReceipt(path.join(loc.stateDir, 'connection.json'));
+    const bound = installation(loc);
+    const mismatch = () => {
+      const error = { code: 'CONNECTION_IDENTITY_MISMATCH' };
+      writeState(loc, { phase: 'error', issue: error });
+      return { ok: false, resumed: false, error };
+    };
+    // Legacy successful connections include workspace/server/host. Keep that
+    // upgrade path, but never manufacture consent from SDK config or a token.
+    if (!proof?.host?.id || !state.server || proof.server !== state.server || proof.workspace !== loc.home
+      || (proof.installation && Object.keys(bound).some(key => proof.installation[key] !== bound[key]))) {
+      return mismatch();
+    }
+    let server;
+    try { server = normalizeServer(state.server); }
+    catch { return mismatch(); }
+    if (server !== state.server) return mismatch();
+    const result = await call('resume', { server, resumeHostId: proof.host.id, allowManagedHost: true });
+    if (!result.ok) {
+      const loginRequired = ['NEEDS_LOGIN', 'UNAUTHORIZED', 'HTTP_401'].includes(result.error?.code);
+      writeState(loc, { phase: loginRequired ? 'needs-login' : 'error', issue: result.error,
+        ...(loginRequired ? { loginConfirmed: false } : {}) });
+      return { ok: false, resumed: false, error: result.error };
+    }
+    if (result.data?.host?.id !== proof.host.id || result.data?.server !== server || result.data?.host?.connected !== true) {
+      return mismatch();
+    }
+    writeState(loc, { phase: 'needs-verification', issue: null });
+    saveJSON(path.join(loc.stateDir, 'connection.json'), { ...proof, installation: bound });
+    return { ok: true, resumed: true, server, host: { id: proof.host.id, connected: true } };
+  });
+}
 function terminalDiagnostic(proof, engine) {
   const value = proof.terminalDiagnostic;
   if (proof.ok === true || !['pi', 'claude'].includes(engine) || !value
@@ -173,7 +226,7 @@ export async function initialize(options = {}) {
     }
     writeState(loc, { phase: 'needs-verification', loginConfirmed: true, issue: null });
     if (freshLogin) saveJSON(path.join(loc.stateDir, 'verification.json'), {});
-    saveJSON(path.join(loc.stateDir, 'connection.json'), connected.data);
+    saveJSON(path.join(loc.stateDir, 'connection.json'), { ...connected.data, installation: installation(loc) });
     if (options.verify !== true) return { ok: true, phase: 'needs-verification', server: normalized, connection: connected.data };
     return verifyInternal(ctx);
   });

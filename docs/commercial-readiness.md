@@ -1,3 +1,15 @@
+# v0.3.16 Authorized host recovery candidate (2026-10-26)
+
+An isolated HA 0.15.1 -> 0.15.2 upgrade retained the plugin's confirmed login and original host identity but lost the host process. The common `boot()` prepared dependencies and onboarding without restoring the authorized process. The candidate adds one shared runtime/adapter resume path; HA's entrypoint and UI patches remain unchanged.
+
+Resume requires the registered active plugin, explicit enable/login consent, private same-UID 0600 state and successful-connection receipts, matching server/host/workspace and installation directories, and a valid remote account owner. The current server's `/v1/me` returns `user_id`, which must match the exact host's required `owner`; a missing/invalid field fails closed. Existing legacy successful receipts are accepted only with their original workspace/server/host proof. SDK login alone never authorizes a fresh installation.
+
+The separate Python `resume` action does not call `initialize`, `connect`, `merge_config`, model APIs, or provider synchronization. It reuses `ensure_host` and its launch lock, with full UID/server/config/data/process-incarnation validation. A stale online heartbeat plus old verification cannot bypass local recovery. Native/CLI disable and re-enable, or disconnect, still require fresh consent. A reused or unverifiable live PID fails closed and is not killed, including during disconnect; this can require manual inspection after container restart.
+
+The original public HA 0.15.2 QA was kept offline and unmodified. Read-only preflight confirmed that its existing consent/receipt permissions, workspace, server, exact host and remote owner meet these guards, without reconnecting or copying credentials. New public-release upgrade and restart persistence acceptance remains pending. Host restoration does not establish provider authorization, model responses, or all-engine readiness.
+
+Tests include causal red/green reproductions of restart, stale heartbeat, owner/schema and PID identity failures, and concurrent boot/launch locks. Full release-head CI and parent review are required before merge. The local environment cannot create an isolated PID namespace, so the existing UI retention suite is delegated to the unchanged CI container job; its outer-namespace result is not claimed as passing.
+
 # v0.3.14 Verification terminal-removal diagnostic (2026-10-26)
 
 An idle required native terminal can disappear while Omnigent 0.16.0 publishes only `session.resource.deleted`, leaving the session idle and the verifier waiting for `REPLY_TIMEOUT`. The plugin now observes the latest lifecycle event for the exact Pi/Claude main terminal in its own freshly created verification session. The same deletion must remain visible across polls for at least two seconds. A newer creation/update cancels the candidate, assistant success and structured provider errors keep precedence, and Codex's auxiliary TUI is excluded.

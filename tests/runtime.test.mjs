@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { initialize, verify, status, prepare, disconnect } from '../src/runtime.mjs';
 import { normalizeServer, saveJSON, locked } from '../src/common.mjs';
+import * as runtime from '../src/runtime.mjs';
 
 function fixture(t, failed) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-omnigent-test-'));
@@ -158,6 +159,31 @@ test('new installation cannot reuse ambient login and verification cannot bypass
 test('startup preparation installs only and never connects or runs chats', async t => {
   const ctx = fixture(t); assert.equal((await prepare(ctx)).phase, 'needs-login');
   assert.equal(ctx.calls.length, 0);
+});
+
+test('authorized restart restores the original installation without credentials or model turns', async t => {
+  const ctx = fixture(t); let online = true;
+  ctx.callAdapter = async input => {
+    ctx.calls.push(input);
+    if (['connect', 'resume'].includes(input.action)) online = true;
+    return { ok: true, data: { server: ctx.server, workspace: ctx.loc.home,
+      host: { id: 'host-1', connected: online, managerRunning: false } } };
+  };
+  await initialize({ ...ctx, verify: false });
+  online = false; ctx.calls.length = 0;
+  const options = { ...ctx, username: undefined, password: undefined,
+    lifecycle: { active: true, registered: true } };
+  const restored = await runtime.resumeAuthorizedHost(options);
+  assert.equal(restored.ok, true);
+  assert.equal((await status(ctx)).host.connected, true);
+  assert.equal((await status(ctx)).host.id, 'host-1');
+  assert.equal(ctx.calls.filter(c => c.action === 'resume').length, 1);
+  assert.equal(ctx.calls.some(c => c.action === 'connect'), false);
+  const connect = ctx.calls.find(c => c.action === 'resume');
+  assert.equal(connect.resumeHostId, 'host-1');
+  assert.equal(connect.server, ctx.server);
+  assert.equal(connect.username, undefined); assert.equal(connect.password, undefined);
+  assert.equal(ctx.calls.some(c => c.action === 'verify'), false);
 });
 test('only the engines present in the environment are connected and verified', async t => {
   const ctx = fixture(t); ctx.dependencies.claude.available = false; ctx.dependencies.codex.available = false;
