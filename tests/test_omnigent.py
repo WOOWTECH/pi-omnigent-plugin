@@ -629,6 +629,62 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(result["reason"], "SESSION_TASK_FAILED")
         self.assertNotIn("private upstream detail", json.dumps(result))
 
+    def test_provider_failures_are_classified_on_both_native_error_paths(self):
+        cases = [
+            ({'code': 'native_error', 'message': 'API Error: 402 private-provider-secret'}, 'PROVIDER_PAYMENT_REQUIRED'),
+            ({'code': 'native_error', 'message': "You've hit your usage limit. private-provider-secret"}, 'PROVIDER_USAGE_LIMIT_REACHED'),
+            ({'code': 'RuntimeError', 'message': 'Pi model error: 429: usage limit reached private-provider-secret'}, 'PROVIDER_USAGE_LIMIT_REACHED'),
+            ({'code': 'RuntimeError', 'message': 'HTTP 429 Too Many Requests private-provider-secret'}, 'PROVIDER_RATE_LIMITED'),
+            ({'code': 'native_error', 'message': 'Upstream failure', 'details': {'error': {'code': 'insufficient_quota'}}}, 'PROVIDER_USAGE_LIMIT_REACHED'),
+            ({'code': 'native_error', 'status_code': 402}, 'PROVIDER_PAYMENT_REQUIRED'),
+            ({'code': 'native_error', 'status_code': 429}, 'PROVIDER_RATE_LIMITED'),
+        ]
+        for error, expected in cases:
+            for event in [False, True]:
+                with self.subTest(expected=expected, event=event):
+                    self.client.items = [dict(error, type='error')] if event else []
+                    self.client.session_info = {} if event else {'status': 'failed', 'last_task_error': error}
+                    result = self.plugin(engine='pi').verify()
+                    self.assertEqual(result['reason'], expected)
+                    self.assertFalse(result['ok'])
+                    self.assertEqual(result['cleanup'], 'stopped')
+                    self.assertNotIn('private-provider-secret', json.dumps(result))
+
+    def test_provider_classifier_does_not_treat_unrelated_numbers_as_http_status(self):
+        for message in ['Request 402 failed', 'Turn 429 failed', 'billing setting exists', 'try again later', 'context limit reached']:
+            with self.subTest(message=message):
+                self.assertEqual(adapter.Plugin.session_failure_reason({'last_task_error': {'message': message}}), 'SESSION_TASK_FAILED')
+
+    def test_verify_records_resolved_model_without_changing_default_selection(self):
+        self.client.session_info = {'llm_model': 'omnigent/provider/actual-model'}
+        result = self.plugin(engine='pi').verify()
+        self.assertEqual(result['model'], 'omnigent/provider/actual-model')
+        self.assertEqual(result['resolvedModel'], 'omnigent/provider/actual-model')
+        create = next(payload for method, path, payload, _ in self.client.calls if path == '/v1/sessions' and method == 'POST')
+        self.assertNotIn('model_override', create)
+
+    def test_resolved_model_keeps_requested_alias_and_rejects_unsafe_values(self):
+        self.client.session_info = {'llm_model': 'provider/actual-model'}
+        result = self.plugin(engine='pi', model='real-model').verify()
+        self.assertEqual(result['model'], 'real-model')
+        self.assertEqual(result['resolvedModel'], 'provider/actual-model')
+        self.client.session_info = {'llm_model': 'https://private.example/?token=private-provider-secret'}
+        result = self.plugin(engine='pi').verify()
+        self.assertIsNone(result['resolvedModel'])
+        self.assertNotIn('private-provider-secret', json.dumps(result))
+
+    def test_resolved_model_lookup_failure_does_not_skip_cleanup(self):
+        request = self.client.request
+        def flaky(method, path, *args, **kwargs):
+            if method == 'GET' and path == '/v1/sessions/own-verification-session':
+                raise adapter.PluginError('server_unreachable', 'private-provider-secret')
+            return request(method, path, *args, **kwargs)
+        with patch.object(self.client, 'request', side_effect=flaky):
+            result = self.plugin(engine='pi').verify()
+        self.assertTrue(result['ok'])
+        self.assertIsNone(result['resolvedModel'])
+        self.assertEqual(result['cleanup'], 'stopped')
+
     def test_user_echo_and_unrelated_text_do_not_pass_verification(self):
         self.client.items = [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": adapter.SENTINEL}]},
                              {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "private reply containing a secret"}]}]

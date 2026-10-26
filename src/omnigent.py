@@ -809,14 +809,43 @@ class Plugin:
         return False
 
     @staticmethod
-    def payment_required(error: object) -> bool:
+    def provider_failure_reason(error: object) -> str | None:
+        """Inspect known error fields in memory; only return fixed public codes."""
         if not isinstance(error, dict):
-            return False
-        if error.get('code') in (402, '402'):
-            return True
-        message = error.get('message')
-        return isinstance(message, str) and bool(re.search(
-            r'\b(?:(?:status|HTTP)\s+402|402\s+payment\s+required|Pi model error:\s*402\s*:)', message, re.I))
+            return None
+        messages, statuses = [], set()
+        def collect(value, depth=0):
+            if not isinstance(value, dict) or depth > 3:
+                return
+            for key in ('code', 'status', 'status_code'):
+                field = value.get(key)
+                if isinstance(field, (str, int)) and str(field) in ('402', '429'):
+                    statuses.add(str(field))
+            for key in ('message', 'code', 'type'):
+                field = value.get(key)
+                if isinstance(field, str):
+                    messages.append(field[:8192])
+            for key in ('error', 'details', 'cause'):
+                collect(value.get(key), depth + 1)
+        collect(error)
+        message = '\n'.join(messages)
+        statuses.update(re.findall(
+            r'\b(?:status(?:\s+code)?|HTTP(?:/\d(?:\.\d)?)?|API\s+Error|Pi\s+model\s+error)\s*[:=]?\s*(402|429)\b',
+            message, re.I))
+        if '402' in statuses or re.search(r'\b(?:402\s+payment\s+required|payment[_\s]+required)\b', message, re.I):
+            return 'PROVIDER_PAYMENT_REQUIRED'
+        # A 429 with an exhausted allowance is not a transient request-rate limit.
+        if re.search(r'\b(?:usage[_\s]+limit|insufficient[_\s]+quota|quota[_\s]+(?:exceeded|exhausted)|'
+                     r'(?:exceeded|exhausted)[_\s]+(?:your[_\s]+)?quota|'
+                     r'(?:insufficient|exhausted)[_\s]+credits?|credit[_\s]+balance[_\s]+(?:is[_\s]+)?too[_\s]+low)\b', message, re.I):
+            return 'PROVIDER_USAGE_LIMIT_REACHED'
+        if '429' in statuses or re.search(r'\b(?:rate[_\s-]+limit(?:ed|ing)?|too\s+many\s+requests)\b', message, re.I):
+            return 'PROVIDER_RATE_LIMITED'
+        return None
+
+    @staticmethod
+    def payment_required(error: object) -> bool:
+        return Plugin.provider_failure_reason(error) == 'PROVIDER_PAYMENT_REQUIRED'
 
     @staticmethod
     def session_failure_reason(info: object) -> str | None:
@@ -825,9 +854,7 @@ class Plugin:
             return None
         error = info.get("last_task_error")
         if isinstance(error, dict):
-            if Plugin.payment_required(error):
-                return "PROVIDER_PAYMENT_REQUIRED"
-            return "SESSION_TASK_FAILED"
+            return Plugin.provider_failure_reason(error) or "SESSION_TASK_FAILED"
         if info.get("status") == "failed":
             return "SESSION_FAILED"
         return None
@@ -928,7 +955,8 @@ class Plugin:
         if not isinstance(session_id, str) or not session_id:
             raise PluginError("invalid_session_response", "Server 沒有回傳已建立的驗證對話 ID。")
         result = {"engine": key, "ok": False, "reply": None, "sessionId": session_id,
-                  "url": f"{server}/c/{quote(session_id, safe='')}", "model": selected, "reason": "REPLY_TIMEOUT"}
+                  "url": f"{server}/c/{quote(session_id, safe='')}", "model": selected,
+                  "resolvedModel": None, "reason": "REPLY_TIMEOUT"}
         try:
             # Claude 2.1 can mount its initial Auto mode dialog after the first
             # composer paint. In live tests an immediate first event left the
@@ -958,7 +986,7 @@ class Plugin:
                                 and isinstance(item.get("code"), str)
                                 and re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]{0,63}", item["code"])), None)
                 if failure:
-                    result["reason"] = 'PROVIDER_PAYMENT_REQUIRED' if self.payment_required(failure) else failure['code'].upper()
+                    result["reason"] = self.provider_failure_reason(failure) or failure['code'].upper()
                     break
                 if self.clock() >= inspect_after:
                     inspect_after = self.clock() + 8.0
@@ -980,6 +1008,18 @@ class Plugin:
         except PluginError as error:
             result["reason"] = error.code
         finally:
+            # Resolve this probe's actual model, including native defaults. Never
+            # copy raw provider errors or session contents into the receipt.
+            try:
+                info = client.request("GET", f"/v1/sessions/{quote(session_id, safe='')}",
+                                      timeout_seconds=3.0, refresh_auth=False)
+                model = info.get('llm_model') if isinstance(info, dict) else None
+                if isinstance(model, str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_./:+-]{0,255}', model):
+                    result['resolvedModel'] = model
+                    if selected is None:
+                        result['model'] = model
+            except PluginError:
+                pass
             stop_path = f"/v1/sessions/{quote(session_id, safe='')}/events"
             stop_event = {"type": "stop_session", "data": {}}
             retryable = {"SERVER_UNREACHABLE", "NEEDS_LOGIN", "HTTP_408", "HTTP_409",
