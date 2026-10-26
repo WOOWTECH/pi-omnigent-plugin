@@ -157,7 +157,13 @@ class AdapterTests(unittest.TestCase):
 
     def managed_process(self, plugin, *, server="https://server.example", cwd=None, extra_args=(), **changes):
         env = {**os.environ, 'OMNIGENT_CONFIG_HOME': str(plugin.config_home),
-               'OMNIGENT_DATA_DIR': str(plugin.data_dir), **changes}
+               'OMNIGENT_DATA_DIR': str(plugin.data_dir)}
+        # Match ensure_host: an ambient runner binding must not make the fake
+        # managed process look foreign in CI or inside an Omnigent turn.
+        for key in ('OMNIGENT_HOST_ID', 'OMNIGENT_HOST_NAME', 'RUNNER_SERVER_URL',
+                    'RUNNER_AUTH_TOKEN', 'OMNIGENT_RUNNER_AUTH_TOKEN', 'OMNIGENT_HOST_BINDING_TOKEN'):
+            env.pop(key, None)
+        env.update(changes)
         child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)',
                                   'omnigent', 'host', '--server', server, *extra_args], env=env, cwd=cwd or self.home)
         def cleanup():
