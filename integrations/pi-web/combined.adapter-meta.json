@@ -5,16 +5,24 @@
   "piWebVersion": "0.10.0",
   "paseo": {
     "packageName": "@woowtech/pi-paseo",
-    "packageVersion": "0.1.7",
-    "compatiblePackageVersions": ["0.1.8"],
-    "adapterPatchSha256": "944a43de55b9ea2b7c956137a34790f228d1795e407030378a38cdefed69cd04"
+    "packageVersion": "0.1.9",
+    "adapterPatchSha256": "b542d86c95c9a10f6567048084359f39691f9f6e14c09cc038af51aa3a9132d9",
+    "compatibleAdapters": [
+      {
+        "packageVersion": "0.1.7",
+        "compatiblePackageVersions": [
+          "0.1.8"
+        ],
+        "adapterPatchSha256": "944a43de55b9ea2b7c956137a34790f228d1795e407030378a38cdefed69cd04"
+      }
+    ]
   },
   "omnigent": {
     "packageName": "@woowtech/pi-omnigent-plugin",
-    "packageVersion": "0.3.13",
+    "packageVersion": "0.3.14",
     "adapterPatchSha256": "028f8317b02944fc56942090040e9414bb5f5db07393f2d034868bb96839c734"
   },
-  "patchSha256": "eaddfb4cd9b3c748b84f7e7fe6fe1a51f1c8a8cc587eae4c8a04ceaff2c3205f",
+  "patchSha256": "daebb7d609b28b2776afaf11aa74cd6e9b24a02becbb20d51291f943ad63c41a",
   "settingsSections": [
     "mcp",
     "omnigent",
