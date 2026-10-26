@@ -1,3 +1,13 @@
+# v0.3.13 Managed UI build retention (2026-10-26)
+
+Pi4 already had Paseo 0.1.8 while the combined installer accepted only 0.1.7. The released tags have identical adapter hashes, but installation still failed with `COMBINED_ADAPTER_MISMATCH`. An explicit compatibility list now accepts these two versions while retaining contributor and combined patch verification. Unknown versions and changed patches remain rejected; CI builds and browser-tests each pinned contributor commit separately.
+
+Native provider failures now distinguish `PROVIDER_PAYMENT_REQUIRED`, `PROVIDER_USAGE_LIMIT_REACHED`, and `PROVIDER_RATE_LIMITED`. Six errors from the task-owned fleet probes replayed correctly without new model requests. Verification receipts retain requested aliases and sanitized actual model IDs separately. These diagnostics do not restore provider credits or account allowance. Pi3 native startup remains under investigation: the active SDK resolves the correct home wrapper, so the earlier shell-PATH explanation is not established as causal.
+
+Managed UI activation now preserves the active build, two prior rollback builds, running builds and launcher fallbacks, then reclaims at most four verified older builds per operation. Unmanaged, incomplete and unverified directories remain untouched. `pi-omnigent cleanup-ui` previews only; `--apply` explicitly executes the same guarded cleanup under the install lock.
+
+A uid1000 probe in Pi2 identified one inactive managed build (1,585,382,864 logical bytes). The fixed candidate was then applied under the installer lock and removed only that build, preserving the active release and two rollbacks. Free space measured before/after increased from 4,381,216,768 to 6,143,037,440 bytes; this is a host snapshot delta and can include concurrent filesystem activity. A second preview found no remaining candidate. Installer tests cover legacy receipts, process use, unsafe paths, partial activation rollback and bounded cleanup; release CI results must accompany publication.
+
 # v0.3.11 Pi2／Pi3／Pi4 部署與模型切換（2026-10-25）
 
 三台皆已安裝公開 v0.3.11，先取消本機連結，再透過插件以本次指定的 server 帳密重新登入。本次未主動補裝或升級引擎；Pi4 既有 Claude 自動更新由 2.1.292 到 2.1.310 後，舊回條正確失效，已另行重驗。Pi3 原 host 屬於另一帳號，使用官方 reset-id 後重新登入；舊註冊與歷史對話保留。設定頁可經各容器的 `/omnigent` 直達，公開入口仍保留既有 HTTP Basic 登入保護。

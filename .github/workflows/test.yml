@@ -25,7 +25,26 @@ jobs:
           python-version: '3.12'
       - run: npm ci --ignore-scripts
       - run: python -m pip install omnigent==0.16.0
-      - run: npm test
+      - name: Node and Python tests on the runner
+        shell: bash
+        run: |
+          tests=()
+          for file in tests/*.test.mjs; do
+            if [[ "$file" != tests/ui-installer.test.mjs ]]; then tests+=("$file"); fi
+          done
+          node --test "${tests[@]}"
+          node bin/test-python.mjs
+      - name: UI installer tests in an observable PID namespace
+        # Retention deliberately refuses cleanup if any /proc/*/cwd is denied.
+        # The runner has unrelated root processes; use a private PID namespace
+        # with all test processes under one UID, without weakening that check.
+        run: |
+          docker run --rm --network none --user "$(id -u):$(id -g)" \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace,readonly" \
+            --workdir /workspace \
+            "node:${{ matrix.node }}-bookworm" \
+            node --test tests/ui-installer.test.mjs
       - run: npm run check
       - run: npm audit --audit-level=high
       - run: npm pack --ignore-scripts
@@ -60,10 +79,20 @@ jobs:
           NEXT_TELEMETRY_DISABLED: '1'
           CIRCLE_NODE_TOTAL: '3'
   combined-ui:
+    name: combined-ui (${{ matrix.paseo.version }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      matrix:
+        paseo:
+          - version: '0.1.7'
+            commit: '9315fef802d37ccc310ac2cb25ab52557335b217'
+          - version: '0.1.8'
+            commit: '3d330e31623bc61e81e7b487cb87d78f2b94d5b6'
     env:
       PLAYWRIGHT_BROWSERS_PATH: /tmp/paseo-playwright
+      PASEO_COMMIT: ${{ matrix.paseo.commit }}
+      PASEO_VERSION: ${{ matrix.paseo.version }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -72,7 +101,7 @@ jobs:
       - name: Verify published contributors and combined adapter
         run: |
           git init /tmp/pi-paseo
-          git -C /tmp/pi-paseo fetch --depth=1 https://github.com/WOOWTECH/pi-paseo-plugin.git 9315fef802d37ccc310ac2cb25ab52557335b217
+          git -C /tmp/pi-paseo fetch --depth=1 https://github.com/WOOWTECH/pi-paseo-plugin.git "$PASEO_COMMIT"
           git -C /tmp/pi-paseo checkout --detach FETCH_HEAD
           node --input-type=module <<'JS'
           import fs from 'node:fs';
@@ -85,7 +114,8 @@ jobs:
               combined.omnigent.adapterPatchSha256 !== sha('integrations/pi-web/adapter.patch') ||
               combined.paseo.adapterPatchSha256 !== sha('/tmp/pi-paseo/host/adapter.patch') ||
               combined.omnigent.packageVersion !== omni.version ||
-              combined.paseo.packageVersion !== paseo.version ||
+              paseo.version !== process.env.PASEO_VERSION ||
+              ![combined.paseo.packageVersion, ...(combined.paseo.compatiblePackageVersions ?? [])].includes(paseo.version) ||
               combined.settingsSections.join(',') !== 'mcp,omnigent,paseo') process.exit(1);
           JS
           git clone https://github.com/agegr/pi-web.git /tmp/pi-web-combined

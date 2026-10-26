@@ -6,6 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
+import { retainManagedBuilds } from '../src/ui-retention.mjs';
 
 export const PI_WEB_REPOSITORY = 'https://github.com/agegr/pi-web';
 export const PI_WEB_BASE = '6fcd7d44981ab51a21d6cd6eb06d361d0e3d3068';
@@ -55,6 +56,11 @@ function atomic(file, value, mode = 0o600, expected) {
   } finally { fs.rmSync(temp, { force: true }); }
 }
 function json(file, value) { atomic(file, JSON.stringify(value, null, 2) + '\n'); }
+function activate(root, release) {
+  const temp = path.join(root, `.pi-web-${randomUUID()}`);
+  try { fs.symlinkSync(path.relative(root, release), temp, 'dir'); fs.renameSync(temp, path.join(root, 'pi-web')); }
+  finally { fs.rmSync(temp, { force: true }); }
+}
 
 // npm/git can echo credentials from configuration or lifecycle scripts. Scan
 // output for fixed errno literals only; never attach output/arguments to errors.
@@ -276,9 +282,13 @@ export async function installUi(options = {}) {
       if (!paseoPackage || !exists(combinedManifestFile) || !exists(combinedPatchFile)) fail('COMBINED_ADAPTER_MISMATCH');
       const combined = readJson(combinedManifestFile);
       const combinedPatchHash = sha(fs.readFileSync(combinedPatchFile));
+      // Additional versions are explicitly tested with the same pinned patch;
+      // identical adapter bytes alone never authorize an unknown package.
+      const paseoVersionSupported = combined.paseo?.packageVersion === paseoPackage.version ||
+        (Array.isArray(combined.paseo?.compatiblePackageVersions) && combined.paseo.compatiblePackageVersions.includes(paseoPackage.version));
       if (combined.schemaVersion !== 1 || combined.repository?.replace(/\.git$/, '').replace(/\/$/, '') !== PI_WEB_REPOSITORY ||
           combined.baseCommit !== PI_WEB_BASE || combined.piWebVersion !== PI_WEB_VERSION ||
-          combined.paseo?.packageName !== paseoPackage.name || combined.paseo.packageVersion !== paseoPackage.version || combined.paseo.adapterPatchSha256 !== overlayHash ||
+          combined.paseo?.packageName !== paseoPackage.name || !paseoVersionSupported || combined.paseo.adapterPatchSha256 !== overlayHash ||
           combined.omnigent?.packageName !== ownPackage.name || combined.omnigent.packageVersion !== ownPackage.version || combined.omnigent.adapterPatchSha256 !== meta.ownPatchSha256 ||
           combined.patchSha256 !== combinedPatchHash ||
           JSON.stringify(combined.contributors) !== JSON.stringify(['@woowtech/pi-paseo', '@woowtech/pi-omnigent-plugin']) ||
@@ -307,7 +317,9 @@ export async function installUi(options = {}) {
     if (exists(destination)) {
       if (!fs.lstatSync(destination).isSymbolicLink()) fail('UNMANAGED_ADAPTER_PATH');
       active = path.resolve(root, fs.readlinkSync(destination));
-      if (!within(releases, active) || !exists(path.join(active, '.pi-omnigent-web-install.json'))) fail('UNMANAGED_ADAPTER_PATH');
+      if (path.dirname(active) !== releases || !exists(active) || !fs.lstatSync(active).isDirectory() ||
+          !exists(path.join(active, '.pi-omnigent-web-install.json')) ||
+          !fs.lstatSync(path.join(active, '.pi-omnigent-web-install.json')).isFile()) fail('UNMANAGED_ADAPTER_PATH');
       if (!overlayHash && exists(path.join(active, 'app/api/plugin-paseo/route.ts'))) fail('EXISTING_UI_OVERLAY_MISSING');
     }
     let reused = active !== null && cached(active, meta, key);
@@ -351,15 +363,12 @@ export async function installUi(options = {}) {
         if (!fs.lstatSync(path.join(stage, '.next')).isDirectory()) fail('UNSAFE_BUILD_PATH');
         fs.rmSync(path.join(stage, '.next/cache'), { recursive: true, force: true });
         fs.chmodSync(path.join(stage, 'bin/pi-web.js'), 0o755);
-        json(path.join(stage, '.pi-omnigent-web-install.json'), { schemaVersion: 1, key, repository: PI_WEB_REPOSITORY, baseCommit: PI_WEB_BASE, piWebVersion: PI_WEB_VERSION,
+        json(path.join(stage, '.pi-omnigent-web-install.json'), { schemaVersion: 1, activation: 'pending', key, repository: PI_WEB_REPOSITORY, baseCommit: PI_WEB_BASE, piWebVersion: PI_WEB_VERSION,
           patchSha256: meta.patchSha256, composition: meta.composition, contributors: meta.contributors, settingsSections: meta.settingsSections,
           binSha256: sha(fs.readFileSync(path.join(stage, 'bin/pi-web.js'))), lockSha256: sha(fs.readFileSync(path.join(stage, 'package-lock.json'))),
           buildId: fs.readFileSync(path.join(stage, '.next/BUILD_ID'), 'utf8').trim(), prebuilt: !!options.prebuiltRoot, installedAt: new Date().toISOString() });
         release = path.join(releases, `${key}-${randomUUID()}`);
         fs.renameSync(stage, release);
-        const tempLink = path.join(root, `.pi-web-${randomUUID()}`);
-        try { fs.symlinkSync(path.relative(root, release), tempLink, 'dir'); fs.renameSync(tempLink, destination); }
-        finally { fs.rmSync(tempLink, { force: true }); }
       } catch (error) { fs.rmSync(stage, { recursive: true, force: true }); throw error; }
     }
     const nativeBin = path.join(destination, 'bin/pi-web.js');
@@ -369,9 +378,77 @@ export async function installUi(options = {}) {
     const result = { status: reused ? 'already-installed' : 'installed', adapterRoot: destination, releaseRoot: release, baseCommit: PI_WEB_BASE, piWebVersion: PI_WEB_VERSION,
       patchSha256: meta.patchSha256, composition: meta.composition, contributors: meta.contributors, settingsSections: meta.settingsSections, reused, routing, pendingRestart: nativeBin, restartRequired: true, restarted: false,
       launcherDirectory: path.dirname(routing.launcher), pathUpdateRequired: firstLauncher !== routing.launcher };
-    json(path.join(root, 'host-install.json'), result);
+    // Routing must succeed before exposing a new build. The receipt remains
+    // pending if final activation fails, so it can never become a GC candidate.
+    const hostFile = path.join(root, 'host-install.json');
+    if (exists(hostFile) && !fs.lstatSync(hostFile).isFile()) fail('UNSAFE_METADATA_PATH');
+    const previousHost = exists(hostFile) ? { contents: fs.readFileSync(hostFile, 'utf8'), mode: fs.statSync(hostFile).mode & 0o777 } : null;
+    let hostWritten = false;
+    if (!reused) activate(root, release);
+    try {
+      json(hostFile, result); hostWritten = true;
+      if (routing.status !== 'manual-routing-required') {
+        const file = path.join(release, '.pi-omnigent-web-install.json');
+        const receipt = readJson(file);
+        // Reusing a release does not change its position in rollback history.
+        json(file, { ...receipt, activation: 'complete', activatedAt: receipt.activatedAt ?? new Date().toISOString() });
+      }
+    } catch (error) {
+      let rollbackFailed = false;
+      try {
+        if (hostWritten) {
+          if (previousHost) atomic(hostFile, previousHost.contents, previousHost.mode);
+          else fs.unlinkSync(hostFile);
+        }
+      } catch { rollbackFailed = true; }
+      try {
+        if (!reused) {
+          if (active) activate(root, active);
+          else fs.unlinkSync(destination);
+        }
+      } catch { rollbackFailed = true; }
+      if (rollbackFailed) fail('ACTIVATION_ROLLBACK_FAILED');
+      throw error;
+    }
+    if (routing.status !== 'manual-routing-required') {
+      try {
+        result.retention = retainManagedBuilds(root, { dryRun: false });
+        json(path.join(root, 'ui-retention.json'), result.retention);
+      } catch {
+        result.retention = result.retention
+          ? { ...result.retention, status: 'partial', code: 'RETENTION_RECEIPT_FAILED' }
+          : { status: 'skipped', code: 'RETENTION_FAILED' };
+      }
+    }
     return result;
   }, options.lockTimeoutMs ?? 900000);
+}
+
+/** Explicit bounded cleanup defaults to a preview and never creates a root. */
+export async function cleanupUi(options = {}) {
+  const env = { ...process.env, ...options.env };
+  const home = fs.realpathSync(path.resolve(options.home || env.HOME || os.homedir()));
+  const root = path.join(home, '.local/share/pi-omnigent-web');
+  const releases = path.join(root, 'pi-web-releases');
+  const validate = () => {
+    let dir = home;
+    for (const part of path.relative(home, releases).split(path.sep)) {
+      dir = path.join(dir, part);
+      if (!exists(dir)) return false;
+      if (!fs.lstatSync(dir).isDirectory()) fail('UNSAFE_INSTALL_PATH');
+    }
+    return true;
+  };
+  if (!validate()) return { status: 'skipped', code: 'NO_MANAGED_BUILDS', dryRun: options.dryRun !== false, reclaimedBytes: 0 };
+  return locked(root, async () => {
+    if (!validate()) fail('UNSAFE_INSTALL_PATH');
+    const result = retainManagedBuilds(root, { dryRun: options.dryRun !== false });
+    if (!result.dryRun) {
+      try { json(path.join(root, 'ui-retention.json'), result); }
+      catch { return { ...result, status: 'partial', code: 'RETENTION_RECEIPT_FAILED' }; }
+    }
+    return result;
+  }, options.lockTimeoutMs ?? 0);
 }
 
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {

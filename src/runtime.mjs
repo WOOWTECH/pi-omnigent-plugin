@@ -104,6 +104,8 @@ async function verifyInternal(ctx, { engine, model } = {}) {
       ...(ctx.dependencies[name]?.version ? { cliVersion: ctx.dependencies[name].version } : {}),
       ...(proof.sessionId ? { sessionId: proof.sessionId, url: proof.url } : {}),
       ...(proof.model ? { model: proof.model } : {}),
+      ...(typeof proof.resolvedModel === 'string' && /^[A-Za-z0-9][A-Za-z0-9_./:+-]{0,255}$/.test(proof.resolvedModel)
+        ? { resolvedModel: proof.resolvedModel } : {}),
       ...(proof.cleanup ? { cleanup: proof.cleanup } : {}),
       ...(proof.nativeSubmitRecovered === true ? { nativeSubmitRecovered: true } : {}),
       ...(proof.reply === 'OMNIGENT_CONNECTION_OK' ? { reply: proof.reply } : {}),
