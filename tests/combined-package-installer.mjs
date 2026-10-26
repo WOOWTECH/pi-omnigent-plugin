@@ -79,6 +79,9 @@ try {
     await assert.rejects(installUi(options), { code: 'COMBINED_ADAPTER_MISMATCH' });
     rejected.push(version);
   }
+  // Both versions are supported, but each must carry its own exact contributor.
+  writeJson(manifest, { ...paseo, version: paseo.version === '0.1.9' ? '0.1.10' : '0.1.9' });
+  await assert.rejects(installUi(options), { code: 'COMBINED_ADAPTER_MISMATCH' });
   fs.writeFileSync(manifest, savedManifest);
   // Recompute the overlay's own hash: the combined contributor pin must still reject it.
   const patchFile = path.join(overlay, 'host/adapter.patch');
@@ -96,7 +99,7 @@ try {
     adapterSha256: sha(fs.readFileSync(path.join(paseoRoot, 'host/adapter.patch'))),
     baseCommit: PI_WEB_BASE, buildId: receipt.buildId,
     realInstaller: true, prebuiltSourceVerified: true, installAndReuse: true,
-    rejectedVersions: rejected, changedContributorHashRejected: true,
+    rejectedVersions: rejected, crossVersionHashMixRejected: true, changedContributorHashRejected: true,
     activeRoutingPreservedOnRejection: true, inputPackageUnchanged: true,
     daemonOrModelCalls: false,
   };

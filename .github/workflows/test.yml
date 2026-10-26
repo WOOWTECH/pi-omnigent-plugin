@@ -108,7 +108,7 @@ jobs:
           - version: '0.1.9'
             commit: 'eed990fe06899e42bf446cf2d584ed2c26ae6bed'
           - version: '0.1.10'
-            commit: '3585b36d9242931d87769e513e12eca27d4e1cc4'
+            commit: '142290a98d00464e5fa753bde44bd62571dcacb4'
     env:
       PLAYWRIGHT_BROWSERS_PATH: /tmp/paseo-playwright
       PASEO_COMMIT: ${{ matrix.paseo.commit }}
@@ -152,6 +152,12 @@ jobs:
         working-directory: /tmp/pi-web-combined
       - run: node --test lib/omnigent-onboarding.test.mjs lib/omnigent-auto-open.test.mjs app/api/omnigent/onboarding/route.test.mjs lib/settings-navigation.test.mjs app/api/plugin-paseo/route.test.mjs app/api/omnigent/route.test.mjs components/PaseoPluginPanel.behavior.test.mjs components/SettingsPanel.test.mjs
         working-directory: /tmp/pi-web-combined
+      - name: Actual Paseo display-preference host contract
+        if: matrix.paseo.version == '0.1.9' || matrix.paseo.version == '0.1.10'
+        run: node --test lib/paseo-name.test.mjs
+        working-directory: /tmp/pi-web-combined
+        env:
+          PI_PASEO_PLUGIN_ROOT: /tmp/pi-paseo
       - run: npx tsc --noEmit
         working-directory: /tmp/pi-web-combined
       - run: npm run build
