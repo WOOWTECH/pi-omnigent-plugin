@@ -1,3 +1,9 @@
+# v0.3.13 Managed UI build retention (2026-10-26)
+
+Managed UI activation now preserves the active build, two prior rollback builds, running builds and launcher fallbacks, then reclaims at most four verified older builds per operation. Unmanaged, incomplete and unverified directories remain untouched. `pi-omnigent cleanup-ui` previews only; `--apply` explicitly executes the same guarded cleanup under the install lock.
+
+A read-only probe in the actual Pi2 uid1000 container accepted the active build and two rollbacks and identified one older managed build (1,585,382,864 logical bytes). No live files were removed in that probe. This is not a measured disk-space reduction. Installer tests cover legacy receipts, process use, unsafe paths, partial activation rollback and bounded cleanup; release CI results must accompany publication.
+
 # v0.3.11 Pi2／Pi3／Pi4 部署與模型切換（2026-10-25）
 
 三台皆已安裝公開 v0.3.11，先取消本機連結，再透過插件以本次指定的 server 帳密重新登入。本次未主動補裝或升級引擎；Pi4 既有 Claude 自動更新由 2.1.292 到 2.1.310 後，舊回條正確失效，已另行重驗。Pi3 原 host 屬於另一帳號，使用官方 reset-id 後重新登入；舊註冊與歷史對話保留。設定頁可經各容器的 `/omnigent` 直達，公開入口仍保留既有 HTTP Basic 登入保護。
