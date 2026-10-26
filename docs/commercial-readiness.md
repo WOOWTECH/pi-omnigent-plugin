@@ -1,3 +1,11 @@
+# v0.3.20 Paseo 0.1.10 compatibility candidate (2026-10-26)
+
+The combined installer explicitly accepts Paseo 0.1.10 with adapter SHA256 `b542d86c95c9a10f6567048084359f39691f9f6e14c09cc038af51aa3a9132d9`, retaining 0.1.9 and the existing separately pinned 0.1.7/0.1.8 adapters. Unlisted versions, prereleases and changed contributor bytes remain rejected. The installer and native/combined patch bytes are unchanged.
+
+CI pins Paseo 0.1.10 source `3585b36d9242931d87769e513e12eca27d4e1cc4` and runs the production combined UI matrix. For 0.1.9 and 0.1.10 it also packs the actual plugin without hooks and runs the real installer against the compiled UI in a temporary home: source-verified prebuilt activation, reuse, package preservation, unlisted-version and forged-hash rejection. This exercises UI installation; it does not run a daemon or model conversation.
+
+Publication remains held for parent-owned Paseo 0.1.10/r3 actual-daemon acceptance and upstream repair completion. Omnigent 0.3.19 actual fixed-HA full-VM acceptance is still pending; the published HA0.15.6 target contains 0.3.18 and is not proof for 0.3.19. No root/HA/PaaS publication is authorized by these UI tests.
+
 # v0.3.19 Cross-UID stale PID recovery follow-up (2026-10-26)
 
 Container restarts can reuse a saved host PID for a process owned by another UID. A matching UID is not required to prove a process is stale: a complete saved boot ID/start tick and readable, different current kernel identity provide that proof. Authorized resume may then launch the original host without signaling the unrelated process. If the kernel identity cannot be read, recovery still fails closed. The managed-process fixture now removes ambient runner binding variables exactly as the production launcher does. Local validation: 174 Node tests, 90 Python tests and syntax checks passed; public CI and official HA restart acceptance remain release gates.
