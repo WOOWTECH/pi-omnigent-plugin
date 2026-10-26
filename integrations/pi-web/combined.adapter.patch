@@ -1,3 +1,35 @@
+diff --git a/app/api/omnigent/onboarding/route.test.mjs b/app/api/omnigent/onboarding/route.test.mjs
+new file mode 100644
+index 0000000..fe33556
+--- /dev/null
++++ b/app/api/omnigent/onboarding/route.test.mjs
+@@ -0,0 +1,9 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import { createJiti } from 'jiti';
++const { GET }=await createJiti(import.meta.url,{alias:{'@/':new URL('../../../../',import.meta.url).pathname}}).import('./route.ts');
++test('onboarding endpoint refuses cross-origin reads and never caches a private installation decision',async()=>{
++  const response=await GET(new Request('http://localhost/api/omnigent/onboarding',{headers:{host:'localhost',origin:'https://evil.example'}}));
++  assert.equal(response.status,403);assert.equal(response.headers.get('cache-control'),'no-store');
++  assert.deepEqual(await response.json(),{error:{code:'UNTRUSTED_REQUEST'}});
++});
+diff --git a/app/api/omnigent/onboarding/route.ts b/app/api/omnigent/onboarding/route.ts
+new file mode 100644
+index 0000000..1afe080
+--- /dev/null
++++ b/app/api/omnigent/onboarding/route.ts
+@@ -0,0 +1,11 @@
++import { NextResponse } from "next/server";
++import { readPendingOmnigentOnboarding } from "@/lib/omnigent-onboarding";
++import { isApiRequestAllowed } from "@/lib/request-security";
++
++export const dynamic = "force-dynamic";
++export const runtime = "nodejs";
++export async function GET(request: Request) {
++  const headers = { "Cache-Control": "no-store" };
++  if (!isApiRequestAllowed(request)) return NextResponse.json({ error: { code: "UNTRUSTED_REQUEST" } }, { status: 403, headers });
++  return NextResponse.json(await readPendingOmnigentOnboarding(), { headers });
++}
 diff --git a/app/api/omnigent/route.test.mjs b/app/api/omnigent/route.test.mjs
 new file mode 100644
 index 0000000..f744d49
@@ -895,6 +927,26 @@ index 1c0670c..851a3b9 100644
 +    return response({ error: "Plugin operation could not be completed; check installation and settings" }, { status: 500 });
    }
  }
+diff --git a/app/layout.tsx b/app/layout.tsx
+index 87786fc..5e4a915 100644
+--- a/app/layout.tsx
++++ b/app/layout.tsx
+@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
+ import { Noto_Sans_Mono } from "next/font/google";
+ import { PwaRegistration } from "@/components/PwaRegistration";
+ import { THEME_INIT_SCRIPT } from "@/lib/theme";
++import { OMNIGENT_INTERACTION_GUARD } from "@/lib/omnigent-interaction-guard";
+ import "katex/dist/katex.min.css";
+ import "./globals.css";
+ import "./settings.css";
+@@ -62,6 +63,7 @@ export default function RootLayout({
+   return (
+     <html lang="en" translate="no" className={`${notoSansMono.variable} notranslate`} suppressHydrationWarning>
+       <head>
++        <script dangerouslySetInnerHTML={{ __html: OMNIGENT_INTERACTION_GUARD }} />
+         <meta name="google" content="notranslate" />
+         <script
+           dangerouslySetInnerHTML={{
 diff --git a/app/omnigent/page.tsx b/app/omnigent/page.tsx
 new file mode 100644
 index 0000000..a04d263
@@ -1018,10 +1070,20 @@ index 66e0880..7637e6c 100644
 +  color: var(--text);
 +}
 diff --git a/components/AppShell.tsx b/components/AppShell.tsx
-index c50b18f..8ce6ae4 100644
+index c50b18f..a553022 100644
 --- a/components/AppShell.tsx
 +++ b/components/AppShell.tsx
-@@ -77,7 +77,7 @@ function parkedNewSessionDraftKey(cwd: string): string {
+@@ -36,7 +36,8 @@ import { setupPushSubscription } from "@/lib/push-client";
+ import { getInitialNavigation, withTabOpen } from "@/lib/initial-navigation";
+ import { clearTabOpenSession, getTabOpen, setTabOpenNewSession, setTabOpenSession } from "@/lib/tab-session";
+ import { mergeCatalogRow } from "./session-catalog-helpers";
+-import { rekeyDraft } from "@/lib/draft-store";
++import { getDraft, rekeyDraft } from "@/lib/draft-store";
++import { startOmnigentAutoOpen } from "@/lib/omnigent-auto-open";
+ import {
+   clearLastOpen,
+   getLastOpenSession,
+@@ -77,7 +78,7 @@ function parkedNewSessionDraftKey(cwd: string): string {
    return `parked-new:${cwd}`;
  }
  
@@ -1030,7 +1092,7 @@ index c50b18f..8ce6ae4 100644
    const router = useRouter();
    const searchParams = useSearchParams();
    const [initialNavigation, setInitialNavigation] = useState(() => getInitialNavigation(searchParams));
-@@ -171,7 +171,7 @@ export function AppShell() {
+@@ -171,7 +172,7 @@ export function AppShell() {
      setSearchTarget((current) => current === target ? null : current);
    }, []);
    const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
@@ -1039,6 +1101,26 @@ index c50b18f..8ce6ae4 100644
    const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
    const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
    const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
+@@ -1119,6 +1120,19 @@ export function AppShell() {
+   useLayoutEffect(() => {
+     activeNewSessionDraftKeyRef.current = newSessionDraftKey;
+   }, [newSessionDraftKey]);
++  // Read current work after every await without restarting the boot window on rerenders.
++  const omnigentHomeRef = useRef({ selectedSession, newSessionCwd, initialNavigation, initialSettingsSection, newSessionDraftKey, activeCwd, handleSelectSession });
++  omnigentHomeRef.current = { selectedSession, newSessionCwd, initialNavigation, initialSettingsSection, newSessionDraftKey, activeCwd, handleSelectSession };
++  useLayoutEffect(() => startOmnigentAutoOpen({
++    eligible: () => {
++      const current = omnigentHomeRef.current;
++      if (current.selectedSession || current.newSessionCwd || current.initialSettingsSection
++        || current.initialNavigation.sessionId || current.initialNavigation.requestedCwd) return false;
++      const keys = [current.newSessionDraftKey, current.activeCwd ? parkedNewSessionDraftKey(current.activeCwd) : null];
++      return keys.every(key => { const draft = key ? getDraft(key) : null; return !draft?.value && !draft?.images.length; });
++    },
++    select: session => omnigentHomeRef.current.handleSelectSession(session),
++  }), []);
+   const showChat = selectedSession !== null || effectiveNewSessionCwd !== null;
+   const projectTrustCwd = selectedSession?.cwd ?? effectiveNewSessionCwd;
+   // While restoring initial session from URL, don't show the placeholder
 diff --git a/components/OmnigentConfig.tsx b/components/OmnigentConfig.tsx
 new file mode 100644
 index 0000000..7c40d0e
@@ -1728,6 +1810,209 @@ index 274b438..38d3238 100644
 +- Plugin/Paseo mutations parse bounded UTF-8 JSON objects before settings or runtime discovery (64 KiB plugins, 16 KiB Paseo). Reject malformed scopes/sources/cwds without SDK work; success and refusal responses use no-store. The Paseo panel pauses polls during mutations, ignores obsolete workspace/action responses, and expires readiness after 15 seconds without a confirmed status. Slow polls share one pending read. `restart_required` instructs Stop then Start and disables pairing/model reads until recovery. Runtime status cache invalidation remains the installed plugin’s responsibility.
 +
 +- Paseo owns scrolling inside the bounded `.settings-section-host`; keep its `paseo-plugin-panel` class and height/min-height/overflow rules together. The standalone `/paseo/setup` route scrolls its viewport-sized main element because the app body hides overflow. Verify physical touch/wheel access to bottom controls, expanded catalogs and back to the heading with `PI_WEB_E2E_URL=... node e2e/paseo-mobile-scroll.mjs`.
+diff --git a/e2e/omnigent-onboarding.mjs b/e2e/omnigent-onboarding.mjs
+new file mode 100644
+index 0000000..c9aa2ee
+--- /dev/null
++++ b/e2e/omnigent-onboarding.mjs
+@@ -0,0 +1,197 @@
++import assert from 'node:assert/strict';
++import { createHash } from 'node:crypto';
++import { spawn } from 'node:child_process';
++import { once } from 'node:events';
++import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
++import { createServer } from 'node:net';
++import { tmpdir } from 'node:os';
++import { dirname, join, resolve } from 'node:path';
++import { fileURLToPath, pathToFileURL } from 'node:url';
++import { setTimeout as delay } from 'node:timers/promises';
++import { chromium } from 'playwright';
++import { SessionManager } from '@earendil-works/pi-coding-agent';
++
++const root = dirname(dirname(fileURLToPath(import.meta.url)));
++const source = resolve(process.env.PI_OMNIGENT_TEST_PLUGIN_ROOT || '');
++assert.equal(JSON.parse(readFileSync(join(source, 'package.json'))).name, '@woowtech/pi-omnigent-plugin');
++const home = mkdtempSync(join(tmpdir(), 'omnigent-first-home-e2e-'));
++const agentDir = join(home, 'agent'), pluginRoot = join(home, 'plugin'), stateDir = join(agentDir, 'omnigent-plugin');
++mkdirSync(agentDir); mkdirSync(pluginRoot);
++for (const item of ['package.json', 'src', 'extensions']) cpSync(join(source, item), join(pluginRoot, item), { recursive:true });
++symlinkSync(join(root, 'node_modules'), join(pluginRoot, 'node_modules'), 'dir');
++writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({packages:[pluginRoot]}), {mode:0o600});
++const { ensureOnboarding } = await import(pathToFileURL(join(pluginRoot, 'src/web.mjs')).href);
++const onboarding = await ensureOnboarding({home, agentDir, stateDir, root:pluginRoot, cwd:home, sdk:{SessionManager}});
++// A newer coexisting session must never determine the selected onboarding ID.
++const other = SessionManager.create(home, join(agentDir, 'sessions', '--coexisting--'));
++other.appendSessionInfo('Paseo setup fixture');
++other.appendMessage({role:'user',content:'Coexisting setup fixture',timestamp:Date.now()+1000});
++const otherId = other.getSessionId();
++const probe = createServer(); probe.listen(0, '127.0.0.1'); await once(probe, 'listening');
++const port = probe.address().port; await new Promise(resolve => probe.close(resolve));
++const base = `http://127.0.0.1:${port}`, mode = process.env.E2E_SERVER_MODE || 'start';
++assert.ok(['start','dev'].includes(mode));
++const env = {
++  PATH:process.env.PATH, HOME:home, LANG:'C.UTF-8', NODE_ENV:mode==='dev'?'development':'production',
++  PI_CODING_AGENT_DIR:agentDir, PI_AGENT_DATA_DIR:agentDir, PI_OMNIGENT_STATE_DIR:stateDir,
++  PI_OMNIGENT_PLUGIN_ROOT:pluginRoot, PI_OMNIGENT_SDK_ROOT:root,
++  OMNIGENT_CONFIG_HOME:join(home,'.omnigent'), OMNIGENT_DATA_DIR:join(home,'.omnigent'),
++  PI_WEB_PASSWORD:'', PI_TELEMETRY:'0', PI_SKIP_VERSION_CHECK:'1', OMNIGENT_ANALYTICS:'0', DO_NOT_TRACK:'1',
++  PI_PASEO_PLUGIN_ROOT:process.env.PI_PASEO_PLUGIN_ROOT || '', PI_PASEO_DISCOVERY_ONLY:'1',
++  PI_PASEO_SKIP_POSTINSTALL:'1', NEXT_TELEMETRY_DISABLED:'1',
++};
++const server = spawn(process.execPath, ['node_modules/next/dist/bin/next', mode, '-H','127.0.0.1','-p',String(port)], {cwd:root,env,stdio:['ignore','ignore','pipe']});
++let serverError='';server.stderr.on('data', chunk => {serverError=(serverError+chunk.toString()).slice(-4000);});
++const stopped=once(server,'exit'); let browser;
++const results=[];
++const savedRecord=readFileSync(join(stateDir,'onboarding.json'));
++const originalHistory=readFileSync(onboarding.sessionFile,'utf8');
++const originalHistoryHash=createHash('sha256').update(readFileSync(onboarding.sessionFile)).digest('hex');
++const writeState=value=>writeFileSync(join(stateDir,'state.json'),JSON.stringify(value));
++const reset=()=>{rmSync(join(stateDir,'state.json'),{force:true});writeFileSync(join(stateDir,'onboarding.json'),savedRecord);writeFileSync(join(agentDir,'settings.json'),JSON.stringify({packages:[pluginRoot]}));};
++const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
++async function fresh(name,run,init) {
++  reset();
++  const context=await browser.newContext({viewport:{width:1440,height:900},locale:'en-US'});
++  if(init)await context.addInitScript(init.code,init.arg);
++  const page=await context.newPage();let modelRequests=0;
++  page.on('request',request=>{if(request.method()==='POST'){try{if(['prompt','steer','follow_up'].includes(request.postDataJSON()?.type))modelRequests++;}catch{}}});
++  try {const receipt=await run(page);assert.equal(modelRequests,0);results.push({case:name,...receipt,modelRequests});}
++  finally {await context.close();reset();}
++}
++try {
++  let ready=false;
++  for(let i=0;i<160 && server.exitCode===null;i++) {
++    if(await fetch(base).then(r=>r.ok,()=>false)){ready=true;break;}
++    await delay(250);
++  }
++  assert.ok(ready,'isolated Pi Web did not start');
++  browser=await chromium.launch({headless:true,args:['--no-sandbox','--disable-dev-shm-usage'],...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE}:{})});
++  for(const mobile of [false,true]) {
++    const context=await browser.newContext({viewport:{width:mobile?390:1440,height:mobile?844:900},locale:'en-US'});
++    const page=await context.newPage();let modelRequests=0;
++    page.on('request',request=>{
++      if(request.method()!=='POST')return;
++      try {if(['prompt','steer','follow_up'].includes(request.postDataJSON()?.type))modelRequests++;}catch{}
++    });
++    await page.goto(base+'/',{waitUntil:'domcontentloaded'});
++    await page.waitForURL(url=>url.searchParams.get('session')===onboarding.sessionId,{timeout:15000});
++    assert.notEqual(new URL(page.url()).searchParams.get('session'),otherId);
++    const initialMessage=page.getByText('啟動 Omnigent 連線設定精靈。伺服器與帳號資訊請在設定面板填寫，密碼不要貼在對話裡。',{exact:true});
++    await initialMessage.waitFor({state:'visible',timeout:15000});
++    const urlInput=page.getByPlaceholder('https://omnigent.example.com',{exact:true});
++    await urlInput.waitFor({state:'visible',timeout:20000});
++    assert.equal(await urlInput.inputValue(),'');
++    assert.equal(modelRequests,0);
++    results.push({case:mobile?'fresh-mobile':'fresh-desktop',autoSelected:true,conversationVisible:true,initialUrlPromptVisible:true,initialUrlInputEmpty:true,clicks:0,modelRequests});
++    await context.close();
++  }
++  await fresh('late-onboarding-real-first-missing-record',async page=>{
++    rmSync(join(stateDir,'onboarding.json'));let reads=0;
++    await page.route('**/api/omnigent/onboarding',async route=>{
++      const response=await route.fetch();const body=await response.json();reads++;
++      if(reads===1){assert.deepEqual(body,{pending:true,sessionId:null});writeFileSync(join(stateDir,'onboarding.json'),savedRecord);}
++      await route.fulfill({response});
++    });
++    await page.goto(base+'/');await page.waitForURL(url=>url.searchParams.get('session')===onboarding.sessionId,{timeout:15000});
++    await page.getByPlaceholder('https://omnigent.example.com',{exact:true}).waitFor({state:'visible'});
++    await delay(1500);assert.equal(reads,3);return {firstResponseMissingId:true,autoSelected:true,opens:1,onboardingReads:reads};
++  });
++  for(const kind of ['typing','selection','image','wheel','touch']){
++    await fresh('delayed-api-'+kind,async page=>{
++      const arrived=deferred(),release=deferred();let reads=0;
++      await page.route('**/api/omnigent/onboarding',async route=>{
++        reads++;const response=await route.fetch();arrived.resolve();await release.promise;await route.fulfill({response}).catch(()=>{});
++      });
++      await page.goto(base+'/');await arrived.promise;
++      if(kind==='typing')await page.locator('textarea.chat-input-textarea').fill('unsent fixture draft');
++      if(kind==='selection')await page.getByText('Paseo setup fixture',{exact:true}).first().click();
++      if(kind==='image')await page.locator('input[type="file"][accept="image/*"]').setInputFiles({name:'draft.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j7pQAAAAASUVORK5CYII=','base64')});
++      if(kind==='wheel')await page.mouse.wheel(0,120);
++      if(kind==='touch')await page.dispatchEvent('body','touchstart');
++      release.resolve();await delay(1800);
++      assert.notEqual(new URL(page.url()).searchParams.get('session'),onboarding.sessionId);assert.equal(reads,1);
++      if(kind==='typing')assert.equal(await page.locator('textarea.chat-input-textarea').inputValue(),'unsent fixture draft');
++      if(kind==='selection')assert.equal(new URL(page.url()).searchParams.get('session'),otherId);
++      if(kind==='image')assert.equal(await page.locator('fieldset img[src^="data:image"],fieldset img[src^="blob:"]').count(),1);
++      return {autoSelected:false,interactionPreserved:true,onboardingReads:reads};
++    });
++  }
++  for(const kind of ['typing','selection']){
++    await fresh('late-onboarding-cancel-'+kind,async page=>{
++      rmSync(join(stateDir,'onboarding.json'));const missing=deferred();let reads=0;
++      await page.route('**/api/omnigent/onboarding',async route=>{
++        reads++;const response=await route.fetch();await route.fulfill({response}).catch(()=>{});missing.resolve();
++      });
++      await page.goto(base+'/');await missing.promise;
++      if(kind==='typing')await page.locator('textarea.chat-input-textarea').fill('late unsent fixture');
++      else await page.getByText('Paseo setup fixture',{exact:true}).first().click();
++      writeFileSync(join(stateDir,'onboarding.json'),savedRecord);const readsAtInteraction=reads;await delay(1800);
++      assert.equal(reads,readsAtInteraction);assert.notEqual(new URL(page.url()).searchParams.get('session'),onboarding.sessionId);
++      if(kind==='typing')assert.equal(await page.locator('textarea.chat-input-textarea').inputValue(),'late unsent fixture');
++      else assert.equal(new URL(page.url()).searchParams.get('session'),otherId);
++      return {autoSelected:false,lateSetupDidNotOverrideInteraction:true,onboardingReads:reads};
++    });
++  }
++  const sessionCatalog=await fetch(base+'/api/sessions?summary=1').then(r=>r.json());
++  const otherInfo=sessionCatalog.sessions.find(item=>item.id===otherId);
++  for(const kind of ['session','cwd','query','tab','workspace','terminal']){
++    const init={code:({kind,otherId,home,projectKey})=>{
++      if(kind==='tab')sessionStorage.setItem('pi-web:tab-open-session',JSON.stringify({kind:'session',sessionId:otherId}));
++      if(kind==='workspace')localStorage.setItem('pi-web:last-open-by-workspace',JSON.stringify({[projectKey]:otherId}));
++      if(kind==='terminal')sessionStorage.setItem('pi-web:terminal-tabs',JSON.stringify({tabs:[{id:'a'.repeat(32),cwd:home}],activeId:'a'.repeat(32),open:true}));
++    },arg:{kind,otherId,home,projectKey:otherInfo.projectKey||otherInfo.projectRoot||otherInfo.cwd}};
++    await fresh('preserve-'+kind,async page=>{
++      let reads=0;page.on('request',r=>{if(r.url().endsWith('/api/omnigent/onboarding'))reads++;});
++      const query=kind==='session'?'?session='+otherId:kind==='cwd'?'?cwd='+encodeURIComponent(home):kind==='query'?'?sidebar=collapsed':'';
++      await page.goto(base+'/'+query);await delay(2200);
++      assert.equal(reads,0);assert.notEqual(new URL(page.url()).searchParams.get('session'),onboarding.sessionId);
++      if(['session','tab'].includes(kind))assert.equal(new URL(page.url()).searchParams.get('session'),otherId);
++      if(kind==='workspace')assert.equal(await page.evaluate(key=>JSON.parse(localStorage.getItem('pi-web:last-open-by-workspace'))[key],otherInfo.projectKey||otherInfo.projectRoot||otherInfo.cwd),otherId);
++      return {autoSelected:false,existingChoicePreserved:true,onboardingReads:reads};
++    },init);
++  }
++  for(const kind of ['ready','disabled','removed']){
++    await fresh('stop-'+kind,async page=>{
++      if(kind==='removed')writeFileSync(join(agentDir,'settings.json'),JSON.stringify({packages:[]}));
++      else writeState({phase:kind==='ready'?'ready':'needs-login',enabled:kind!=='disabled'});
++      let reads=0;page.on('request',r=>{if(r.url().endsWith('/api/omnigent/onboarding'))reads++;});
++      await page.goto(base+'/');await delay(2200);
++      assert.equal(reads,1);assert.notEqual(new URL(page.url()).searchParams.get('session'),onboarding.sessionId);
++      return {autoSelected:false,onboardingReads:reads};
++    });
++  }
++  for(const kind of ['click','typing']){
++    await fresh('prehydration-'+kind,async page=>{
++      const release=deferred();let reads=0;
++      await page.route('**/_next/static/**/*.js',async route=>{await release.promise;await route.continue().catch(()=>{});});
++      page.on('request',r=>{if(r.url().endsWith('/api/omnigent/onboarding'))reads++;});
++      await page.goto(base+'/',{waitUntil:'commit'});
++      await page.waitForFunction(()=>!!window.__piOmnigentBoot);
++      if(kind==='click')await page.mouse.click(20,20);
++      else {
++        // SSR home has no composer until hydration. Exercise real input in a temporary SSR field.
++        await page.evaluate(()=>{const input=document.createElement('textarea');input.id='early-fixture';document.body.append(input);input.focus();});
++        await page.keyboard.type('early unsent fixture');
++      }
++      assert.equal(await page.evaluate(()=>window.__piOmnigentBoot.touched),true);release.resolve();
++      await page.waitForLoadState('domcontentloaded');await delay(2200);
++      assert.equal(reads,0);assert.notEqual(new URL(page.url()).searchParams.get('session'),onboarding.sessionId);
++      return {autoSelected:false,interactionBeforeHydration:true,onboardingReads:reads};
++    });
++  }
++  const finalHistory=readFileSync(onboarding.sessionFile,'utf8');
++  assert.ok(finalHistory.startsWith(originalHistory),'existing session bytes were rewritten');
++  const added=finalHistory.slice(originalHistory.length).trim().split('\n').filter(Boolean).map(line=>JSON.parse(line));
++  // Opening the real SDK/wizard appends its existing settings/notice. The adapter never rewrites history.
++  for(const entry of added)assert.ok(entry.type==='thinking_level_change'||entry.type==='custom_message'&&entry.customType==='omnigent-plugin');
++  console.log(JSON.stringify({passed:true,mode,cases:results,originalHistoryBytesUnchanged:true,originalHistorySha256:originalHistoryHash,appendedEntryTypes:added.map(entry=>entry.type)}));
++} catch(error) {
++  console.error(JSON.stringify({passed:false,completedCases:results,error:error instanceof Error?error.message:String(error)}));
++  if(server.exitCode!==null)console.error(serverError);
++  process.exitCode=1;
++} finally {
++  await browser?.close();server.kill('SIGTERM');
++  const timer=setTimeout(()=>server.kill('SIGKILL'),5000);await stopped;clearTimeout(timer);
++  rmSync(home,{recursive:true,force:true});
++}
 diff --git a/e2e/paseo-mobile-scroll-runner.mjs b/e2e/paseo-mobile-scroll-runner.mjs
 new file mode 100644
 index 0000000..5f5aa46
@@ -2154,6 +2439,284 @@ index 0000000..5fba2c0
 +  }
 +  if (!body || typeof body !== "object" || Array.isArray(body)) throw new RequestBodyError(400, "Invalid request");
 +  return body as Record<string, unknown>;
++}
+diff --git a/lib/omnigent-auto-open.test.mjs b/lib/omnigent-auto-open.test.mjs
+new file mode 100644
+index 0000000..283d129
+--- /dev/null
++++ b/lib/omnigent-auto-open.test.mjs
+@@ -0,0 +1,68 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { setImmediate } from 'node:timers/promises';
++import { createJiti } from 'jiti';
++const { startOmnigentAutoOpen, isUntouchedOmnigentHome } = await createJiti(import.meta.url).import('./omnigent-auto-open.ts');
++const flush = async () => { for(let i=0;i<8;i++) await setImmediate(); };
++const deferred = () => { let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve}; };
++function fixture(t, responses=[]) {
++  t.mock.timers.enable({apis:['setTimeout']});
++  const browser=new EventTarget(),calls=[],selected=[],store=new Map();
++  Object.assign(browser,{
++    location:{pathname:'/',search:'',hash:''},
++    sessionStorage:{getItem:key=>store.get(key)},localStorage:{getItem:key=>store.get(key)},
++    document:{querySelectorAll:()=>[]},setTimeout,clearTimeout,
++    fetch:async(url,options)=>{ calls.push({url,signal:options.signal});return {ok:true,json:async()=>responses.shift()?.(url) ?? {pending:true,sessionId:null}}; },
++  });
++  const start=()=>startOmnigentAutoOpen({eligible:()=>true,select:session=>selected.push(session.id)},browser);
++  return {browser,calls,selected,store,start};
++}
++const pending=()=>({pending:true,sessionId:'omni'}),catalog=()=>({sessions:[{id:'paseo'},{id:'omni'}]});
++test('late saved ID retries once and selects exact Omnigent once, even if Paseo is first',async t=>{
++  const f=fixture(t,[()=>({pending:true,sessionId:null}),pending,catalog,pending]);f.start();await flush();
++  assert.equal(f.calls.length,1);t.mock.timers.tick(1000);await flush();
++  assert.deepEqual(f.selected,['omni']);t.mock.timers.tick(40000);await flush();assert.equal(f.calls.length,4);
++});
++test('missing saved ID stops after thirty attempts and thirty seconds',async t=>{
++  const f=fixture(t);f.start();await flush();
++  for(let i=0;i<40;i++){t.mock.timers.tick(1000);await flush();}
++  assert.equal(f.calls.length,30);assert.deepEqual(f.selected,[]);assert.equal(f.calls[0].signal.aborted,true);
++});
++test('hung initial response is aborted at the thirty second deadline',async t=>{
++  const wait=deferred(),f=fixture(t,[()=>wait.promise]);f.start();await flush();
++  t.mock.timers.tick(30000);await flush();assert.equal(f.calls[0].signal.aborted,true);
++  wait.resolve(pending());await flush();assert.equal(f.calls.length,1);assert.deepEqual(f.selected,[]);
++});
++for(const event of ['pointerdown','click','keydown','beforeinput','input','paste','compositionstart','drop','wheel','touchstart','popstate','hashchange']){
++  test(`${event} during a delayed response permanently cancels auto-open`,async t=>{
++    const wait=deferred(),f=fixture(t,[()=>wait.promise,catalog,pending]);f.start();await flush();
++    f.browser.dispatchEvent(new Event(event));wait.resolve(pending());await flush();t.mock.timers.tick(40000);await flush();
++    assert.deepEqual(f.selected,[]);assert.equal(f.calls.length,1);assert.equal(f.calls[0].signal.aborted,true);
++  });
++}
++for(const blocked of ['session','cwd','query','hash','path','tab','workspace','terminal','early','draft']){
++  test(`initial ${blocked} prevents any onboarding request`,async t=>{
++    const f=fixture(t,[pending,catalog,pending]);
++    if(['session','cwd','query'].includes(blocked)) f.browser.location.search=`?${blocked}=chosen`;
++    if(blocked==='hash')f.browser.location.hash='#chosen';if(blocked==='path')f.browser.location.pathname='/omnigent';
++    if(blocked==='tab')f.store.set('pi-web:tab-open-session','chosen');
++    if(blocked==='workspace')f.store.set('pi-web:last-open-by-workspace',JSON.stringify({cwd:'chosen'}));
++    if(blocked==='terminal')f.store.set('pi-web:terminal-tabs',JSON.stringify({tabs:[{id:'a'.repeat(32),cwd:'/tmp'}],open:true}));
++    if(blocked==='early')f.browser.__piOmnigentBoot={touched:true,expiresAt:Date.now()+30000,stop:()=>{}};
++    if(blocked==='draft')f.browser.document.querySelectorAll=()=>[{value:'unsent draft'}];
++    assert.equal(isUntouchedOmnigentHome(f.browser),false);f.start();await flush();assert.equal(f.calls.length,0);
++  });
++}
++test('ready/disabled/removed response stops the boot window',async t=>{
++  const f=fixture(t,[()=>({pending:false,sessionId:null})]);f.start();await flush();t.mock.timers.tick(40000);await flush();
++  assert.equal(f.calls.length,1);assert.deepEqual(f.selected,[]);
++});
++test('lifecycle is rechecked after the catalog; ready cannot open a stale saved setup',async t=>{
++  const f=fixture(t,[pending,catalog,()=>({pending:false,sessionId:null})]);f.start();await flush();
++  assert.equal(f.calls.length,3);assert.deepEqual(f.selected,[]);
++});
++test('navigation during catalog fetch cancels adoption even without an input event',async t=>{
++  const wait=deferred(),f=fixture(t,[pending,()=>wait.promise,pending]);f.start();await flush();
++  f.browser.location.search='?session=current';wait.resolve(catalog());await flush();
++  assert.deepEqual(f.selected,[]);assert.equal(f.calls.length,2);
++});
+diff --git a/lib/omnigent-auto-open.ts b/lib/omnigent-auto-open.ts
+new file mode 100644
+index 0000000..5e58d25
+--- /dev/null
++++ b/lib/omnigent-auto-open.ts
+@@ -0,0 +1,74 @@
++import type { SessionInfo } from "./types";
++import type {} from "./omnigent-interaction-guard";
++
++const interactionEvents = ["pointerdown", "click", "keydown", "beforeinput", "input", "paste", "compositionstart", "drop", "wheel", "touchstart", "popstate", "hashchange"];
++
++/** Conservative first-home check; default sidebar project discovery is not a user choice. */
++export function isUntouchedOmnigentHome(browser: Window = window): boolean {
++  if (browser.__piOmnigentBoot?.touched || (browser.__piOmnigentBoot && Date.now() >= browser.__piOmnigentBoot.expiresAt)) return false;
++  if (browser.location.pathname !== "/" || browser.location.search || browser.location.hash) return false;
++  try {
++    if (browser.sessionStorage.getItem("pi-web:tab-open-session")) return false;
++    const terminals = JSON.parse(browser.sessionStorage.getItem("pi-web:terminal-tabs") || "null");
++    if (terminals?.open || terminals?.activeId || terminals?.tabs?.length) return false;
++    const memory = JSON.parse(browser.localStorage.getItem("pi-web:last-open-by-workspace") || "{}");
++    if (!memory || typeof memory !== "object" || Object.keys(memory).length) return false;
++    for (const element of browser.document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea")) {
++      if (element.value) return false;
++    }
++    for (const element of browser.document.querySelectorAll<HTMLElement>('[contenteditable="true"]')) {
++      if (element.textContent) return false;
++    }
++    return true;
++  } catch { return false; }
++}
++
++/** A single cancellable boot window: <=30 seconds, <=30 attempts, no overlapping requests. */
++export function startOmnigentAutoOpen(
++  { eligible, select }: { eligible: () => boolean; select: (session: SessionInfo) => void },
++  browser: Window = window,
++): () => void {
++  let stopped = false, attempts = 0;
++  let retry: number | undefined, deadline: number | undefined;
++  const controller = new AbortController();
++  const cancel = () => {
++    if (stopped) return;
++    stopped = true;
++    controller.abort();
++    browser.clearTimeout(retry);
++    browser.clearTimeout(deadline);
++    browser.__piOmnigentBoot?.stop();
++    for (const event of interactionEvents) browser.removeEventListener(event, cancel, true);
++  };
++  const idle = () => !stopped && isUntouchedOmnigentHome(browser) && eligible();
++  for (const event of interactionEvents) browser.addEventListener(event, cancel, true);
++  if (!idle()) { cancel(); return cancel; }
++  deadline = browser.setTimeout(cancel, browser.__piOmnigentBoot ? Math.max(0, browser.__piOmnigentBoot.expiresAt - Date.now()) : 30_000);
++  const get = async (url: string) => {
++    const response = await browser.fetch(url, { signal: controller.signal, cache: "no-store" });
++    if (!response.ok) throw new Error("Onboarding unavailable");
++    return response.json();
++  };
++  const attempt = async () => {
++    if (!idle() || ++attempts > 30) { cancel(); return; }
++    try {
++      const pending = await get("/api/omnigent/onboarding");
++      if (!idle() || pending.pending !== true) { cancel(); return; }
++      if (typeof pending.sessionId === "string" && /^[a-zA-Z0-9-]{1,80}$/.test(pending.sessionId)) {
++        const catalog = await get("/api/sessions?summary=1");
++        if (!idle()) { cancel(); return; }
++        const session = Array.isArray(catalog.sessions) && catalog.sessions.find((item: SessionInfo) => item.id === pending.sessionId);
++        if (session) {
++          // Recheck lifecycle after the catalog await; disable/remove/ready can race it.
++          const current = await get("/api/omnigent/onboarding");
++          if (!idle() || current.pending !== true) { cancel(); return; }
++          if (current.sessionId === session.id) { cancel(); select(session); return; }
++        }
++      }
++    } catch { /* A transient boot response can recover within this one bounded window. */ }
++    if (idle() && attempts < 30) retry = browser.setTimeout(() => { void attempt(); }, 1_000);
++    else cancel();
++  };
++  void attempt();
++  return cancel;
++}
+diff --git a/lib/omnigent-interaction-guard.ts b/lib/omnigent-interaction-guard.ts
+new file mode 100644
+index 0000000..2924d0b
+--- /dev/null
++++ b/lib/omnigent-interaction-guard.ts
+@@ -0,0 +1,18 @@
++/** Runs in the document head, before hydration can replay clicks or replace typed text. */
++export const OMNIGENT_INTERACTION_GUARD = `(()=>{
++  if(window.__piOmnigentBoot)return;
++  const events=['pointerdown','click','keydown','beforeinput','input','paste','compositionstart','drop','wheel','touchstart','popstate','hashchange'];
++  const state=window.__piOmnigentBoot={touched:false,expiresAt:Date.now()+30000,stop:null};
++  let timer;
++  const stop=()=>{clearTimeout(timer);for(const event of events)window.removeEventListener(event,touch,true)};
++  const touch=()=>{state.touched=true;stop()};
++  state.stop=stop;
++  for(const event of events)window.addEventListener(event,touch,{capture:true,passive:true});
++  timer=setTimeout(stop,30000);
++})();`;
++
++declare global {
++  interface Window {
++    __piOmnigentBoot?: { touched: boolean; expiresAt: number; stop: () => void };
++  }
++}
+diff --git a/lib/omnigent-onboarding.test.mjs b/lib/omnigent-onboarding.test.mjs
+new file mode 100644
+index 0000000..fb64245
+--- /dev/null
++++ b/lib/omnigent-onboarding.test.mjs
+@@ -0,0 +1,50 @@
++import assert from 'node:assert/strict';
++import { createHash } from 'node:crypto';
++import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import test from 'node:test';
++import { createJiti } from 'jiti';
++const { readPendingOmnigentOnboarding } = await createJiti(import.meta.url).import('./omnigent-onboarding.ts');
++
++function fixture(t) {
++  const root=mkdtempSync(join(tmpdir(),'onboarding-api-'));
++  t.after(()=>rmSync(root,{recursive:true,force:true}));
++  const stateDir=join(root,'state'),sessionFile=join(root,'saved.jsonl');
++  mkdirSync(join(root,'src'));mkdirSync(stateDir);
++  writeFileSync(join(root,'package.json'),JSON.stringify({name:'@woowtech/pi-omnigent-plugin',type:'module'}));
++  writeFileSync(join(root,'src/web.mjs'), `import fs from 'node:fs';import path from 'node:path';
++    export function webLocations({env}){return {stateDir:env.PI_OMNIGENT_STATE_DIR};}
++    export async function packageLifecycle({env}){return JSON.parse(fs.readFileSync(path.join(env.PI_OMNIGENT_STATE_DIR,'lifecycle.json')));}
++    export function readOnboarding({env}){try{return JSON.parse(fs.readFileSync(path.join(env.PI_OMNIGENT_STATE_DIR,'onboarding.json')));}catch(e){if(e.code==='ENOENT')return {};throw e;}}
++  `);
++  writeFileSync(join(root,'src/runtime.mjs'),'throw new Error("A homepage read must never import the host runtime");');
++  writeFileSync(sessionFile,'existing setup conversation must remain byte-identical\n');
++  const write=(name,value)=>writeFileSync(join(stateDir,name+'.json'),JSON.stringify(value));
++  write('lifecycle',{active:true,registered:true});write('state',{enabled:true,phase:'needs-login',server:'private-server',password:'private-password'});
++  write('onboarding',{sessionId:'saved-omni-session',sessionFile,cwd:root});
++  return {root,stateDir,sessionFile,write,read:()=>readPendingOmnigentOnboarding({env:{PI_OMNIGENT_PLUGIN_ROOT:root,PI_OMNIGENT_STATE_DIR:stateDir}})};
++}
++
++test('the read-only API projects the saved pending Omnigent ID without probing a host or writing history',async t=>{
++  const f=fixture(t),before=createHash('sha256').update(readFileSync(f.sessionFile)).digest('hex');
++  assert.deepEqual(await f.read(),{pending:true,sessionId:'saved-omni-session'});
++  assert.equal(createHash('sha256').update(readFileSync(f.sessionFile)).digest('hex'),before);
++});
++
++for (const mode of ['disabled','ready','removed','unregistered','missing-record','missing-session','invalid-id','wrong-package','corrupt-state']) {
++  test(`onboarding projection handles ${mode} without creating or modifying sessions`,async t=>{
++    const f=fixture(t),before=readFileSync(f.sessionFile,'utf8');
++    if(mode==='disabled')f.write('state',{enabled:false,phase:'needs-login'});
++    if(mode==='ready')f.write('state',{enabled:true,phase:'ready'});
++    if(mode==='removed')f.write('lifecycle',{active:false,registered:false});
++    if(mode==='unregistered')f.write('lifecycle',{active:true,registered:false});
++    if(mode==='missing-record')rmSync(join(f.stateDir,'onboarding.json'));
++    if(mode==='missing-session')f.write('onboarding',{sessionId:'omni',sessionFile:join(f.root,'absent')});
++    if(mode==='invalid-id')f.write('onboarding',{sessionId:'../secret?x=1',sessionFile:f.sessionFile});
++    if(mode==='wrong-package')writeFileSync(join(f.root,'package.json'),JSON.stringify({name:'other'}));
++    if(mode==='corrupt-state')writeFileSync(join(f.stateDir,'state.json'),'broken');
++    assert.deepEqual(await f.read(),{pending:['missing-record','missing-session','invalid-id'].includes(mode),sessionId:null});
++    assert.equal(readFileSync(f.sessionFile,'utf8'),before);
++  });
++}
+diff --git a/lib/omnigent-onboarding.ts b/lib/omnigent-onboarding.ts
+new file mode 100644
+index 0000000..b63f8fe
+--- /dev/null
++++ b/lib/omnigent-onboarding.ts
+@@ -0,0 +1,38 @@
++import { readFile, stat } from "node:fs/promises";
++import { join, resolve } from "node:path";
++import { pathToFileURL } from "node:url";
++import { getAgentDir } from "@earendil-works/pi-coding-agent";
++
++export interface PendingOmnigentOnboarding { pending: boolean; sessionId: string | null }
++const inactive = (): PendingOmnigentOnboarding => ({ pending: false, sessionId: null });
++
++/** Local read only: never discover engines, probe a host, or create/reload a chat. */
++export async function readPendingOmnigentOnboarding(
++  { env = process.env }: { env?: NodeJS.ProcessEnv } = {},
++): Promise<PendingOmnigentOnboarding> {
++  try {
++    const root = resolve(env.PI_OMNIGENT_PLUGIN_ROOT || join(getAgentDir(), "git/github.com/WOOWTECH/pi-omnigent-plugin"));
++    const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
++    if (pkg.name !== "@woowtech/pi-omnigent-plugin") return inactive();
++    // The installation path is operator-controlled, never supplied by an HTTP client.
++    const web = await import(/* webpackIgnore: true */ pathToFileURL(join(root, "src/web.mjs")).href);
++    const lifecycle = await web.packageLifecycle({ env });
++    if (lifecycle.active !== true || lifecycle.registered !== true) return inactive();
++    const { stateDir } = web.webLocations({ env });
++    let state;
++    try { state = JSON.parse(await readFile(join(stateDir, "state.json"), "utf8")); }
++    catch (error) {
++      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
++      state = { enabled: true, phase: "new" };
++    }
++    if (state.enabled === false || !["new", "needs-login", "installing", "connecting", "verifying", "needs-verification", "error"].includes(state.phase)) return inactive();
++    const saved = web.readOnboarding({ env });
++    const sessionId = typeof saved.sessionId === "string" && /^[a-zA-Z0-9-]{1,80}$/.test(saved.sessionId) ? saved.sessionId : null;
++    const exists = sessionId && typeof saved.sessionFile === "string" && await stat(saved.sessionFile).then(file => file.isFile(), () => false);
++    // Boot may register the plugin before it persists the setup session.
++    return { pending: true, sessionId: exists ? sessionId : null };
++  } catch {
++    // Never expose installation paths, credentials or private state in a homepage response.
++    return inactive();
++  }
 +}
 diff --git a/lib/omnigent-reload.test.mjs b/lib/omnigent-reload.test.mjs
 new file mode 100644

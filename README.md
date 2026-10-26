@@ -15,8 +15,12 @@ Repository 為公開，可直接安裝，不需要 GitHub token。安裝會自�
 商業部署請固定版本，避免不同容器在更新時取得不同程式：
 
 ```text
-git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.16
+git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.17
 ```
+
+v0.3.17 在原生及 Omnigent＋Paseo Pi Web 首次空白首頁，自動開啟已保存且待完成的 Omnigent 設定對話。只在沒有明確網址選擇、既有工作記憶或使用者操作時觸發；最多等待 30 秒。既有設定精靈會顯示空白的 Server URL 輸入欄位。
+
+既有 Pi Web 升級後須執行官方 `pi-omnigent install-ui` 並重啟 Pi Web，或改用已內建新版 UI 的部署映像；`pi install` 只更新插件，boot 不會重新建置已編譯的 UI。
 
 v0.3.16 在同一安裝重啟時恢復先前明確授權的 host。必須保留插件的
 `loginConfirmed`、啟用狀態及同 server／host／工作區的成功連線回條；只有
