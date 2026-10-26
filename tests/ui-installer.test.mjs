@@ -193,6 +193,66 @@ test('an older still-running build is retained beyond the two rollback slots unt
   assert.equal(fs.existsSync(builds[0]), false);
 });
 
+// Inject only the kernel readlink error at Node's filesystem boundary. All
+// installer files, ownership checks and other process reads remain real. This
+// is deterministic even when the CI container can observe every process.
+for (const code of ['EACCES', 'EPERM']) {
+  test(`cleanup fails closed when a process cwd is unobservable (${code})`, async t => {
+    const f = fixture(t), active = await installUi(f.options), builds = legacyBuilds(f, active, 5);
+    const hostFile = path.join(f.managed, 'host-install.json'), hostBefore = fs.readFileSync(hostFile);
+    const preview = await cleanupUi(f.options);
+    assert.equal(preview.status, 'complete', 'positive retention tests require an observable PID namespace');
+    assert.equal(preview.candidates.length, 3, 'the fixture must have genuinely removable builds');
+    const readlink = fs.readlinkSync;
+    let denied = 0;
+    const mock = t.mock.method(fs, 'readlinkSync', function (file, ...args) {
+      if (file === `/proc/${process.pid}/cwd`) {
+        denied++;
+        throw Object.assign(new Error('fixture cwd is unobservable'), { code });
+      }
+      return readlink.call(this, file, ...args);
+    });
+    for (const dryRun of [true, false]) {
+      const result = await cleanupUi({ ...f.options, dryRun });
+      assert.equal(result.status, 'skipped');
+      assert.equal(result.code, 'RUNTIME_VISIBILITY_UNAVAILABLE');
+      assert.deepEqual(result.candidates, []);
+      assert.deepEqual(result.removed, []);
+      assert.equal(result.reclaimableBytes, 0);
+      assert.equal(result.reclaimedBytes, 0);
+      assert.equal(fs.realpathSync(active.adapterRoot), active.releaseRoot);
+      assert.deepEqual(fs.readFileSync(hostFile), hostBefore);
+      for (const dir of builds) assert.ok(fs.existsSync(dir));
+    }
+    assert.equal(denied, 2, 'both dry-run and apply must reach the denied process');
+    mock.mock.restore();
+    assert.equal((await cleanupUi({ ...f.options, dryRun: false })).removed.length, 3);
+  });
+}
+
+test('cleanup preserves every build if process visibility is lost before the first removal', async t => {
+  const f = fixture(t), active = await installUi(f.options), builds = legacyBuilds(f, active, 5);
+  const readlink = fs.readlinkSync;
+  let scans = 0;
+  const mock = t.mock.method(fs, 'readlinkSync', function (file, ...args) {
+    if (file === `/proc/${process.pid}/cwd` && ++scans === 2) {
+      throw Object.assign(new Error('fixture cwd became unobservable'), { code: 'EACCES' });
+    }
+    return readlink.call(this, file, ...args);
+  });
+  const result = await cleanupUi({ ...f.options, dryRun: false });
+  assert.equal(scans, 2, 'visibility must be rechecked immediately before removal');
+  assert.equal(result.status, 'partial');
+  assert.equal(result.code, 'RETENTION_CHANGED_OR_FAILED');
+  assert.equal(result.candidates.length, 1);
+  assert.deepEqual(result.removed, []);
+  assert.equal(result.reclaimedBytes, 0);
+  assert.equal(fs.realpathSync(active.adapterRoot), active.releaseRoot);
+  for (const dir of builds) assert.ok(fs.existsSync(dir));
+  mock.mock.restore();
+  assert.equal((await cleanupUi({ ...f.options, dryRun: false })).removed.length, 3);
+});
+
 test('cleanup and an in-progress installer share one lock and preserve the staging directory', async t => {
   const f = fixture(t); await installUi(f.options); nextPatch(f);
   let started, resume;

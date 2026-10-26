@@ -25,7 +25,26 @@ jobs:
           python-version: '3.12'
       - run: npm ci --ignore-scripts
       - run: python -m pip install omnigent==0.16.0
-      - run: npm test
+      - name: Node and Python tests on the runner
+        shell: bash
+        run: |
+          tests=()
+          for file in tests/*.test.mjs; do
+            if [[ "$file" != tests/ui-installer.test.mjs ]]; then tests+=("$file"); fi
+          done
+          node --test "${tests[@]}"
+          node bin/test-python.mjs
+      - name: UI installer tests in an observable PID namespace
+        # Retention deliberately refuses cleanup if any /proc/*/cwd is denied.
+        # The runner has unrelated root processes; use a private PID namespace
+        # with all test processes under one UID, without weakening that check.
+        run: |
+          docker run --rm --network none --user "$(id -u):$(id -g)" \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace,readonly" \
+            --workdir /workspace \
+            "node:${{ matrix.node }}-bookworm" \
+            node --test tests/ui-installer.test.mjs
       - run: npm run check
       - run: npm audit --audit-level=high
       - run: npm pack --ignore-scripts
