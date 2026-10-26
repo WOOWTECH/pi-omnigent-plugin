@@ -15,8 +15,10 @@ Repository 為公開，可直接安裝，不需要 GitHub token。安裝會自�
 商業部署請固定版本，避免不同容器在更新時取得不同程式：
 
 ```text
-git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.17
+git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.18
 ```
+
+v0.3.18 修正容器／VM 重啟後，其他程序重用舊 host PID 導致無法恢復連線的問題。只有已授權、身分相符的原 installation，且程序啟動時間或 boot ID 可證明回條已過期時，才會在既有鎖內沿用原 host 或重新啟動；不終止無關程序，也不改寫供應商設定。新安裝及停用後仍須重新輸入網址、帳號及密碼。
 
 v0.3.17 在原生及 Omnigent＋Paseo Pi Web 首次空白首頁，自動開啟已保存且待完成的 Omnigent 設定對話。只在沒有明確網址選擇、既有工作記憶或使用者操作時觸發；最多等待 30 秒。既有設定精靈會顯示空白的 Server URL 輸入欄位。
 

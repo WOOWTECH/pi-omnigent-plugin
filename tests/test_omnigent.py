@@ -155,11 +155,11 @@ class AdapterTests(unittest.TestCase):
         self.assertFalse(self.auth.saved)
         self.assertFalse(any(method != 'GET' for method, *_ in self.client.calls))
 
-    def managed_process(self, plugin, **changes):
+    def managed_process(self, plugin, *, server="https://server.example", cwd=None, extra_args=(), **changes):
         env = {**os.environ, 'OMNIGENT_CONFIG_HOME': str(plugin.config_home),
                'OMNIGENT_DATA_DIR': str(plugin.data_dir), **changes}
         child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)',
-                                  'omnigent', 'host', '--server', 'https://server.example'], env=env)
+                                  'omnigent', 'host', '--server', server, *extra_args], env=env, cwd=cwd or self.home)
         def cleanup():
             if child.poll() is None:
                 child.terminate()
@@ -240,6 +240,184 @@ class AdapterTests(unittest.TestCase):
         self.assert_code('HOST_PROCESS_MISMATCH', lambda: plugin.ensure_host('https://server.example'))
         self.assert_code('HOST_PROCESS_MISMATCH', plugin.disconnect)
         self.assertFalse(self.auth.cleared)
+
+    def test_resume_after_vm_restart_ignores_proven_stale_pid_without_signaling_current_process(self):
+        # Real HA 0.15.5 VM evidence: unrelated libuv-worker reused the saved PID;
+        # both boot ID and start tick differed, while original consent/host matched.
+        binary = self.home / 'omnigent'
+        binary.write_text(f'#!{sys.executable}\nimport time\ntime.sleep(60)\n'); binary.chmod(0o700)
+        plugin = self.plugin(server='https://server.example', resumeHostId='this-machine',
+                             allowManagedHost=True, omnigentBin=str(binary))
+        plugin.state_dir.mkdir(parents=True, exist_ok=True)
+        current = plugin.process_identity(os.getpid())
+        self.assertTrue(current)
+        old_boot = '00000000-0000-4000-8000-000000000001'
+        self.assertNotEqual(current['bootId'], old_boot)
+        adapter.atomic_json(plugin.state_dir / 'host-process.json', {
+            'pid': os.getpid(), 'server': 'https://server.example',
+            'bootId': old_boot, 'processStart': str(int(current['processStart']) + 1)})
+        original_config = (self.config_home / 'config.yaml').read_bytes()
+        children = []
+        real_popen = adapter.subprocess.Popen
+        def launch(*a, **kw):
+            child = real_popen(*a, **kw); children.append(child); return child
+        def cleanup():
+            for child in children:
+                if child.poll() is None: child.terminate()
+                child.wait(timeout=5)
+        self.addCleanup(cleanup)
+        with patch.object(adapter.os, 'kill', side_effect=AssertionError('foreign process must never be signaled')), \
+                patch.object(adapter.subprocess, 'Popen', side_effect=launch):
+            self.assert_code('HOST_PROCESS_MISMATCH', plugin.disconnect)
+            first = plugin.resume()
+            second = plugin.resume()
+        self.assertTrue(first['host']['connected']); self.assertTrue(second['host']['connected'])
+        self.assertEqual(first['host']['id'], 'this-machine')
+        self.assertEqual(len(children), 1)
+        self.assertEqual(adapter.read_json(plugin.state_dir / 'host-process.json')['pid'], children[0].pid)
+        self.assertEqual((self.config_home / 'config.yaml').read_bytes(), original_config)
+        self.assertFalse(self.auth.saved); self.assertFalse(self.auth.cleared)
+        self.assertFalse(any(method != 'GET' for method, *_ in self.client.calls))
+
+    def stale_resume_plugin(self, **changes):
+        binary = self.home / 'omnigent'
+        binary.write_text(f'#!{sys.executable}\nimport time\ntime.sleep(60)\n'); binary.chmod(0o700)
+        plugin = self.plugin(server='https://server.example', resumeHostId='this-machine',
+                             allowManagedHost=True, omnigentBin=str(binary))
+        plugin.state_dir.mkdir(parents=True, exist_ok=True)
+        current = plugin.process_identity(os.getpid())
+        record = {'pid': os.getpid(), 'server': 'https://server.example', **current,
+                  'processStart': str(int(current['processStart']) + 1), **changes}
+        adapter.atomic_json(plugin.state_dir / 'host-process.json', record)
+        return plugin
+
+    def test_stale_marker_adopts_one_existing_exact_host_without_duplicate_or_signal(self):
+        plugin = self.stale_resume_plugin()
+        marker = (plugin.state_dir / 'host-process.json').read_bytes()
+        child = self.managed_process(plugin)
+        (plugin.state_dir / 'host-process.json').write_bytes(marker)
+        with patch.object(adapter.os, 'kill', side_effect=AssertionError('must not signal')), \
+                patch.object(adapter.subprocess, 'Popen', side_effect=AssertionError('must adopt existing host')):
+            self.assertTrue(plugin.resume()['host']['connected'])
+            self.assertTrue(plugin.resume()['host']['connected'])
+        self.assertEqual(adapter.read_json(plugin.state_dir / 'host-process.json')['pid'], child.pid)
+        self.assertIsNone(child.poll())
+
+    def assert_recovery_rejected(self, plugin, expected='HOST_PROCESS_MISMATCH'):
+        marker = plugin.state_dir / 'host-process.json'
+        before = marker.read_bytes()
+        config = (self.config_home / 'config.yaml').read_bytes()
+        with patch.object(adapter.os, 'kill', side_effect=AssertionError('must not signal')), \
+                patch.object(adapter.subprocess, 'Popen', side_effect=AssertionError('must not launch')):
+            self.assert_code(expected, plugin.resume)
+        self.assertEqual(marker.read_bytes(), before)
+        self.assertEqual((self.config_home / 'config.yaml').read_bytes(), config)
+        self.assertFalse(self.auth.saved); self.assertFalse(self.auth.cleared)
+
+    def test_stale_recovery_requires_valid_complete_proof(self):
+        current = adapter.Plugin.process_identity(os.getpid())
+        for changes in [{'bootId': None}, {'bootId': 'invalid'}, {'processStart': None},
+                        {'processStart': 'invalid'}, {'processStart': '-1'},
+                        {'processStart': current['processStart']},
+                        {'server': 'https://another.example'}, {'pid': None}, {'pid': True}, {'pid': 0}]:
+            with self.subTest(changes=changes):
+                self.assert_recovery_rejected(self.stale_resume_plugin(**changes))
+
+    def test_stale_recovery_requires_private_regular_owned_receipt(self):
+        for kind in ['mode', 'uid', 'symlink', 'json', 'missing-pid']:
+            with self.subTest(kind=kind):
+                plugin = self.stale_resume_plugin()
+                marker = plugin.state_dir / 'host-process.json'
+                if kind == 'mode': marker.chmod(0o644)
+                if kind == 'json': marker.write_text('{')
+                if kind == 'missing-pid': marker.write_text('{}')
+                if kind == 'symlink':
+                    target = self.home / 'other-record.json'; marker.rename(target); marker.symlink_to(target)
+                with patch.object(adapter.os, 'getuid', return_value=os.getuid() + (1 if kind == 'uid' else 0)):
+                    self.assert_recovery_rejected(plugin)
+                marker.unlink()
+
+    def test_stale_recovery_cannot_bypass_resume_host_or_account_guards(self):
+        plugin = self.stale_resume_plugin()
+        plugin.request['resumeHostId'] = 'different-host'
+        self.assert_recovery_rejected(plugin, 'CONNECTION_IDENTITY_MISMATCH')
+        plugin.request['resumeHostId'] = 'this-machine'
+        original = self.client.request
+        self.client.request = lambda method, path, *a, **kw: {'user_id': 'different-account'} if path == '/v1/me' else original(method, path, *a, **kw)
+        self.assert_recovery_rejected(plugin, 'CONNECTION_IDENTITY_MISMATCH')
+
+    def test_fresh_connect_cannot_use_stale_resume_exception(self):
+        plugin = self.stale_resume_plugin()
+        plugin.request.pop('resumeHostId')
+        with patch.object(adapter.subprocess, 'Popen', side_effect=AssertionError('must not launch')):
+            self.assert_code('HOST_PROCESS_MISMATCH', lambda: plugin.ensure_host('https://server.example'))
+
+    def test_stale_recovery_fails_closed_for_conflicting_installation_hosts(self):
+        for change in [{'OMNIGENT_CONFIG_HOME': str(self.home / 'foreign')},
+                       {'OMNIGENT_DATA_DIR': str(self.home / 'foreign')},
+                       {'RUNNER_SERVER_URL': 'https://foreign.example'},
+                       {'OMNIGENT_HOST_ID': 'different-host'}]:
+            with self.subTest(change=change):
+                plugin = self.stale_resume_plugin()
+                marker = plugin.state_dir / 'host-process.json'; before = marker.read_bytes()
+                child = self.managed_process(plugin, **change); marker.write_bytes(before)
+                self.assert_recovery_rejected(plugin)
+                self.assertIsNone(child.poll())
+                child.terminate(); child.wait(timeout=5)
+
+    def test_stale_recovery_rejects_wrong_server_cwd_or_ambiguous_host_arguments(self):
+        for options in [{'server': 'https://foreign.example'}, {'cwd': self.config_home},
+                        {'extra_args': ('--server', 'https://foreign.example')},
+                        {'extra_args': ('--config', '/other/config.yaml')}]:
+            with self.subTest(options=options):
+                plugin = self.stale_resume_plugin()
+                marker = plugin.state_dir / 'host-process.json'; before = marker.read_bytes()
+                child = self.managed_process(plugin, **options); marker.write_bytes(before)
+                self.assert_recovery_rejected(plugin)
+                self.assertIsNone(child.poll())
+                child.terminate(); child.wait(timeout=5)
+
+    def test_stale_recovery_refuses_unreadable_possible_host(self):
+        plugin = self.stale_resume_plugin()
+        marker = plugin.state_dir / 'host-process.json'; before = marker.read_bytes()
+        child = self.managed_process(plugin); marker.write_bytes(before)
+        read_bytes = Path.read_bytes
+        def guarded(path):
+            if path == Path(f'/proc/{child.pid}/environ'): raise PermissionError('fixture process hidden')
+            return read_bytes(path)
+        with patch.object(Path, 'read_bytes', guarded):
+            self.assert_recovery_rejected(plugin)
+        self.assertIsNone(child.poll())
+
+    def test_stale_recovery_fails_closed_for_duplicate_exact_hosts(self):
+        plugin = self.stale_resume_plugin()
+        marker = plugin.state_dir / 'host-process.json'; before = marker.read_bytes()
+        children = [self.managed_process(plugin) for _ in range(2)]; marker.write_bytes(before)
+        self.assert_recovery_rejected(plugin)
+        self.assertTrue(all(child.poll() is None for child in children))
+
+    def test_stale_recovery_ignores_foreign_installation_and_serializes_parallel_boots(self):
+        plugin = self.stale_resume_plugin()
+        marker = plugin.state_dir / 'host-process.json'; before = marker.read_bytes()
+        foreign = self.managed_process(plugin, OMNIGENT_CONFIG_HOME=str(self.home / 'foreign'),
+                                       OMNIGENT_DATA_DIR=str(self.home / 'foreign'))
+        marker.write_bytes(before)
+        children = []; real_popen = adapter.subprocess.Popen
+        def launch(*a, **kw):
+            child = real_popen(*a, **kw); children.append(child); return child
+        def cleanup():
+            for child in children:
+                if child.poll() is None: child.terminate()
+                child.wait(timeout=5)
+        self.addCleanup(cleanup)
+        with patch.object(adapter.os, 'kill', side_effect=AssertionError('must not signal foreign process')), \
+                patch.object(adapter.subprocess, 'Popen', side_effect=launch):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                results = list(executor.map(lambda _: plugin.resume(), range(2)))
+        self.assertTrue(all(result['host']['connected'] for result in results))
+        self.assertEqual(len(children), 1)
+        self.assertIsNone(foreign.poll())
+        self.assertEqual(adapter.read_json(marker)['pid'], children[0].pid)
 
     def test_two_launchers_share_lock_and_dead_host_can_restart_with_same_config(self):
         binary = self.home / 'omnigent'
