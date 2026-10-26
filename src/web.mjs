@@ -67,10 +67,7 @@ export function readOnboarding(options = {}) {
   return readJson(path.join(webLocations(options).stateDir, 'onboarding.json'));
 }
 
-/** Read native Pi package state; no extension is loaded or dependency installed. */
-export async function packageLifecycle(options = {}) {
-  if (options.lifecycle) return typeof options.lifecycle === 'function' ? options.lifecycle() : options.lifecycle;
-  const loc = webLocations(options);
+async function readNativePackageLifecycle(options, loc) {
   try {
     const sdk = await loadPiSdk(options);
     const settings = sdk.SettingsManager.create(options.cwd || loc.home, loc.agentDir, { projectTrusted: false });
@@ -92,6 +89,22 @@ export async function packageLifecycle(options = {}) {
     const disabled = typeof entry === 'object' && Array.isArray(entry.extensions) && entry.extensions.length === 0;
     return { active: !disabled, registered: true, source: candidate.source, scope: candidate.scope, reason: disabled ? 'native-plugin-disabled' : 'native-plugin-enabled' };
   } catch { return { active: false, registered: false, reason: 'package-lifecycle-unavailable' }; }
+}
+
+/** Read native Pi package state; no extension is loaded or dependency installed. */
+export async function packageLifecycle(options = {}) {
+  if (options.lifecycle) return typeof options.lifecycle === 'function' ? options.lifecycle() : options.lifecycle;
+  const loc = webLocations(options);
+  let state = await readNativePackageLifecycle(options, loc);
+  // A single failed SDK/settings read must not strand the live UI in disabled.
+  // Explicit native disable is authoritative; other inactive results are
+  // rechecked briefly and still fail closed if they persist.
+  for (const delay of [50, 150, 300, 500]) {
+    if (state.active || state.reason === 'native-plugin-disabled') break;
+    await new Promise(resolve => setTimeout(resolve, delay));
+    state = await readNativePackageLifecycle(options, loc);
+  }
+  return state;
 }
 
 /** Observe atomic settings replacement, including native disable/re-enable. */
