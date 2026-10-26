@@ -298,6 +298,72 @@ test('native package disable and removal stop lifecycle activation without loadi
   assert.equal((await packageLifecycle({ ...options, sdk, lifecycle: undefined, allowUnregistered: true })).reason, 'explicit-activation-window');
 });
 
+test('native lifecycle rechecks a transient SDK read failure before reporting the plugin disabled', async t => {
+  const options = fixture(t);
+  let calls = 0;
+  const sdk = {
+    SettingsManager: { create() {
+      calls++;
+      if (calls === 1) throw new Error('transient settings read');
+      return { drainErrors: () => [], getGlobalSettings: () => ({ packages: [options.root] }) };
+    } },
+    DefaultPackageManager: class {
+      listConfiguredPackages() { return [{ source: options.root, scope: 'global', installedPath: options.root }]; }
+    },
+  };
+  const state = await packageLifecycle({ ...options, sdk, lifecycle: undefined });
+  assert.equal(state.active, true);
+  assert.equal(state.reason, 'native-plugin-enabled');
+  assert.equal(calls, 2);
+});
+
+test('an explicitly disabled native package remains disabled without a retry', async t => {
+  const options = fixture(t);
+  let calls = 0;
+  const sdk = {
+    SettingsManager: { create() {
+      calls++;
+      return { drainErrors: () => [], getGlobalSettings: () => ({ packages: [{ source: options.root, extensions: [] }] }) };
+    } },
+    DefaultPackageManager: class {
+      listConfiguredPackages() { return [{ source: options.root, scope: 'global', installedPath: options.root }]; }
+    },
+  };
+  const state = await packageLifecycle({ ...options, sdk, lifecycle: undefined });
+  assert.equal(state.active, false);
+  assert.equal(state.reason, 'native-plugin-disabled');
+  assert.equal(calls, 1);
+});
+
+test('native lifecycle tolerates repeated transient absence but still fails closed after the bound', async t => {
+  const options = fixture(t);
+  let present = false;
+  let calls = 0;
+  const sdk = {
+    SettingsManager: { create() {
+      calls++;
+      return { drainErrors: () => [], getGlobalSettings: () => ({ packages: present ? [options.root] : [] }) };
+    } },
+    DefaultPackageManager: class {
+      listConfiguredPackages() {
+        if (calls === 3) present = true;
+        return present ? [{ source: options.root, scope: 'global', installedPath: options.root }] : [];
+      }
+    },
+  };
+  assert.equal((await packageLifecycle({ ...options, sdk, lifecycle: undefined })).active, true);
+  assert.equal(calls, 3);
+  let removalReads = 0;
+  const removedSdk = {
+    SettingsManager: { create() { removalReads++; return { drainErrors: () => [] }; } },
+    DefaultPackageManager: class { listConfiguredPackages() { return []; } },
+  };
+  const removed = await packageLifecycle({ ...options, sdk: removedSdk, lifecycle: undefined });
+  assert.equal(removed.active, false);
+  assert.equal(removed.reason, 'package-removed-or-unregistered');
+  assert.equal(removalReads, 5);
+});
+
 test('inactive native package never calls runtime status, installs dependencies, or creates a chat', async t => {
   const options = fixture(t);
   const result = await boot({ ...options, lifecycle: { active: false, reason: 'native-plugin-disabled' }, runtime: {

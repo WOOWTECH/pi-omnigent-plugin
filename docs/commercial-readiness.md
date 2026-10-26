@@ -1,3 +1,7 @@
+# v0.3.21 native lifecycle read recovery (2026-10-26)
+
+Pi3 的 0.3.20 現場瀏覽器驗證曾收到一次 `active=false, phase=disabled`，同一個 Pod 稍後直接讀取狀態則為 `active=true, phase=ready`。設定頁因此保持按鈕停用，未發出模型請求。本版對非明確停用的原生套件狀態有限重查，持續移除仍回傳停用，明確停用不重試。Node 測試涵蓋瞬斷、重複暫時缺口、持續移除與明確停用；上線判定仍需現場瀏覽器及供應商對話複測。
+
 # v0.3.20 Paseo 0.1.10 compatibility (2026-10-26)
 
 The combined installer explicitly accepts Paseo 0.1.10 with adapter SHA256 `b303204227080acd6ca0a2326cb9594caa4769d32052ce0269b96fcde9cb11c2`, retaining 0.1.9 under its original `b542d86c95c9a10f6567048084359f39691f9f6e14c09cc038af51aa3a9132d9` hash and the existing separately pinned 0.1.7/0.1.8 adapters. Unlisted versions, prereleases and changed contributor bytes remain rejected. The installer and native patch are unchanged. The combined patch mirrors only the upstream `lib/paseo-name.test.mjs` fixture correction: its non-Linux display-preferences VM stubs readiness/marking, while real plugin runtime/security tests retain their checks. Production UI bytes are unchanged.
