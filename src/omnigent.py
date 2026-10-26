@@ -840,11 +840,10 @@ class Plugin:
         pid = record.get('pid')
         if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 1 or not self.complete_process_identity(record):
             return False
-        try:
-            if Path(f'/proc/{pid}').stat().st_uid != os.getuid():
-                return False
-        except OSError:
-            return False
+        # A container restart can reuse the PID for a process under another
+        # UID. The kernel start tick and boot ID prove whether it is the same
+        # process; owner equality is neither necessary nor sufficient here.
+        # Recovery never sends a signal to the process occupying that PID.
         current = self.process_identity(pid)
         return self.complete_process_identity(current) and any(record[key] != current[key] for key in ('bootId', 'processStart'))
 

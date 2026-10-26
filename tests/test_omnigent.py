@@ -157,7 +157,13 @@ class AdapterTests(unittest.TestCase):
 
     def managed_process(self, plugin, *, server="https://server.example", cwd=None, extra_args=(), **changes):
         env = {**os.environ, 'OMNIGENT_CONFIG_HOME': str(plugin.config_home),
-               'OMNIGENT_DATA_DIR': str(plugin.data_dir), **changes}
+               'OMNIGENT_DATA_DIR': str(plugin.data_dir)}
+        # Match ensure_host: an ambient runner binding must not make the fake
+        # managed process look foreign in CI or inside an Omnigent turn.
+        for key in ('OMNIGENT_HOST_ID', 'OMNIGENT_HOST_NAME', 'RUNNER_SERVER_URL',
+                    'RUNNER_AUTH_TOKEN', 'OMNIGENT_RUNNER_AUTH_TOKEN', 'OMNIGENT_HOST_BINDING_TOKEN'):
+            env.pop(key, None)
+        env.update(changes)
         child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)',
                                   'omnigent', 'host', '--server', server, *extra_args], env=env, cwd=cwd or self.home)
         def cleanup():
@@ -302,6 +308,40 @@ class AdapterTests(unittest.TestCase):
             self.assertTrue(plugin.resume()['host']['connected'])
         self.assertEqual(adapter.read_json(plugin.state_dir / 'host-process.json')['pid'], child.pid)
         self.assertIsNone(child.poll())
+
+    def test_resume_recovers_reused_pid_even_if_new_process_has_another_uid(self):
+        plugin = self.stale_resume_plugin()
+        old_pid = os.getpid()
+        actual_stat = Path.stat
+        children = []
+        actual_popen = adapter.subprocess.Popen
+
+        def foreign_uid_stat(path, *args, **kwargs):
+            result = actual_stat(path, *args, **kwargs)
+            if path == Path(f'/proc/{old_pid}'):
+                return types.SimpleNamespace(st_uid=os.getuid() + 1)
+            return result
+
+        def launch(*args, **kwargs):
+            child = actual_popen(*args, **kwargs)
+            children.append(child)
+            return child
+
+        def cleanup():
+            for child in children:
+                if child.poll() is None:
+                    child.terminate()
+                child.wait(timeout=5)
+        self.addCleanup(cleanup)
+
+        with patch.object(adapter.Path, 'stat', foreign_uid_stat), \
+                patch.object(adapter.os, 'kill', side_effect=AssertionError('foreign PID must never be signaled')), \
+                patch.object(adapter.subprocess, 'Popen', side_effect=launch):
+            self.assertTrue(plugin.resume()['host']['connected'])
+        self.assertEqual(len(children), 1)
+        self.assertEqual(adapter.read_json(plugin.state_dir / 'host-process.json')['pid'], children[0].pid)
+        self.assertFalse(self.auth.saved)
+        self.assertFalse(self.auth.cleared)
 
     def assert_recovery_rejected(self, plugin, expected='HOST_PROCESS_MISMATCH'):
         marker = plugin.state_dir / 'host-process.json'
