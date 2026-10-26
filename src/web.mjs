@@ -314,18 +314,28 @@ export async function boot(options = {}) {
   if (!lifecycle.active) return { initialization: { phase: 'inactive' }, onboarding: { status: 'inactive' }, startup: { status: 'inactive', reason: lifecycle.reason } };
   let current = await runtime.status(runtimeOptions);
   if (current.phase === 'disabled') return { initialization: { phase: 'disabled' }, onboarding: { status: 'disabled' }, startup: { status: 'disabled' } };
-  if (current.phase === 'ready') return { initialization: { phase: 'ready', checked: true }, onboarding: { status: 'ready' }, startup: { status: 'ready' } };
   let initialization;
-  try { initialization = typeof runtime.prepare === 'function'
+  try { initialization = current.phase === 'ready' ? { phase: 'ready', checked: true }
+    : typeof runtime.prepare === 'function'
     ? await runtime.prepare(runtimeOptions)
     : { phase: 'needs-login', prepared: false }; }
   catch { initialization = { phase: 'error', reason: 'Omnigent initialization needs attention in its setup conversation.' }; }
+  let resumption;
+  if (initialization.ok !== false && initialization.phase !== 'error' && typeof runtime.resumeAuthorizedHost === 'function') {
+    try { resumption = await runtime.resumeAuthorizedHost({ ...runtimeOptions, lifecycle: () => packageLifecycle(options) }); }
+    catch { resumption = { ok: false, resumed: false, error: { code: 'RESUME_FAILED' } }; }
+  }
   current = await runtime.status(runtimeOptions);
-  const onboarding = await ensureOnboarding({ ...options, ready: current.phase === 'ready' });
-  const startup = current.phase !== 'ready' && onboarding.sessionId
+  // A retained server heartbeat and prior model receipt cannot prove that the
+  // local host process survived container replacement. Resume verifies it first.
+  const ready = current.phase === 'ready' && (!resumption || resumption.resumed === true);
+  if (ready) return {
+    initialization, ...(resumption ? { resumption } : {}), onboarding: { status: 'ready' }, startup: { status: 'ready' } };
+  const onboarding = await ensureOnboarding({ ...options, ready });
+  const startup = !ready && onboarding.sessionId
     ? await startOnboardingSession(onboarding.sessionId, options)
     : { status: 'ready' };
-  return { initialization, onboarding, startup };
+  return { initialization, ...(resumption ? { resumption } : {}), onboarding, startup };
 }
 
 /** Compose with any captured executable, including another plugin's Pi Web shim. */

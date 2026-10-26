@@ -6,6 +6,8 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
+import concurrent.futures
 from pathlib import Path
 import sys
 import tempfile
@@ -66,11 +68,13 @@ class FakeClient:
         if path == "/auth/login":
             return {"token": "server-test-token", "refresh_token": "server-test-refresh", "user": {"id": "test-user"}, "expires_in": 3600}
         if path == "/v1/me":
-            return {"id": "test-user"}
+            return {"user_id": "test-user", "is_admin": False}
         if path == "/v1/hosts":
             return {"hosts": [{"host_id": "another-machine", "status": "online"},
-                              {"host_id": "this-machine", "name": "test host", "status": "offline" if self.offline else "online",
+                              {"host_id": "this-machine", "name": "test host", "owner": "test-user", "status": "offline" if self.offline else "online",
                                "configured_harnesses": {data["harness"]: self.readiness for data in adapter.ENGINES.values()}}]}
+        if path == '/v1/hosts/this-machine':
+            return {'host_id': 'this-machine', 'owner': 'test-user', 'status': 'offline' if self.offline else 'online'}
         if path == "/v1/harnesses":
             return {"data": [{"id": "claude-native", "label": "Claude Code", "unknownSecret": "do-not-output-this"}]}
         if path.startswith("/v1/agents?"):
@@ -137,6 +141,127 @@ class AdapterTests(unittest.TestCase):
         with self.assertRaises(adapter.PluginError) as context:
             function()
         self.assertEqual(context.exception.code, expected)
+
+    def test_resume_existing_host_preserves_config_and_never_performs_fresh_login(self):
+        plugin = self.plugin(server='https://server.example', resumeHostId='this-machine', allowManagedHost=True)
+        before = (self.config_home / 'config.yaml').read_bytes()
+        # Existing deployment manager owns the process; resumption must reuse it.
+        with patch.object(plugin, 'local_host', return_value={**plugin.local_host(), 'managerRunning': True}), \
+                patch.object(adapter.subprocess, 'Popen', side_effect=AssertionError('duplicate host')):
+            result = plugin.resume()
+        self.assertTrue(result['host']['connected'])
+        self.assertEqual(result['host']['id'], 'this-machine')
+        self.assertEqual((self.config_home / 'config.yaml').read_bytes(), before)
+        self.assertFalse(self.auth.saved)
+        self.assertFalse(any(method != 'GET' for method, *_ in self.client.calls))
+
+    def managed_process(self, plugin, **changes):
+        env = {**os.environ, 'OMNIGENT_CONFIG_HOME': str(plugin.config_home),
+               'OMNIGENT_DATA_DIR': str(plugin.data_dir), **changes}
+        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)',
+                                  'omnigent', 'host', '--server', 'https://server.example'], env=env)
+        def cleanup():
+            if child.poll() is None:
+                child.terminate()
+            child.wait(timeout=5)
+        self.addCleanup(cleanup)
+        plugin.state_dir.mkdir(parents=True, exist_ok=True)
+        adapter.atomic_json(plugin.state_dir / 'host-process.json', {'pid': child.pid, 'server': 'https://server.example'})
+        return child
+
+    def test_host_reuse_rejects_matching_pid_marker_with_wrong_installation(self):
+        plugin = self.plugin(allowManagedHost=True, omnigentBin=sys.executable)
+        child = self.managed_process(plugin, OMNIGENT_CONFIG_HOME=str(self.home / 'other-installation'))
+        with patch.object(adapter.subprocess, 'Popen', side_effect=AssertionError('must not spawn over mismatch')):
+            self.assert_code('HOST_PROCESS_MISMATCH', lambda: plugin.ensure_host('https://server.example'))
+        self.assertIsNone(child.poll())
+
+    def test_resume_refuses_config_server_or_host_changes_without_writing(self):
+        import yaml
+        for field in ['server', 'host']:
+            config = dict(self.initial_config)
+            config[field] = 'https://different.example' if field == 'server' else {'host_id': 'different-host'}
+            file = self.config_home / 'config.yaml'; file.write_text(yaml.safe_dump(config)); before = file.read_bytes()
+            plugin = self.plugin(server='https://server.example', resumeHostId='this-machine', allowManagedHost=True)
+            with patch.object(adapter.subprocess, 'Popen', side_effect=AssertionError('must not launch')):
+                self.assert_code('CONNECTION_IDENTITY_MISMATCH', plugin.resume)
+            self.assertEqual(file.read_bytes(), before)
+            self.assertFalse(self.auth.saved); self.assertFalse(self.client.calls)
+
+    def test_resume_requires_exact_existing_login_without_header_auth_fallback(self):
+        self.auth.value = None; self.client.auth_mode = 'header'
+        plugin = self.plugin(server='https://server.example', resumeHostId='this-machine', allowManagedHost=True)
+        self.assert_code('NEEDS_LOGIN', plugin.resume)
+        self.assertFalse(self.client.calls); self.assertFalse(self.auth.saved)
+
+    def test_resume_rejects_unregistered_remote_host_and_does_not_create_a_replacement(self):
+        original = self.client.request
+        self.client.request = lambda method, path, *a, **kw: {'host_id': 'different-host', 'owner': 'test-user'} if path == '/v1/hosts/this-machine' else original(method, path, *a, **kw)
+        plugin = self.plugin(server='https://server.example', resumeHostId='this-machine', allowManagedHost=True)
+        with patch.object(adapter.subprocess, 'Popen', side_effect=AssertionError('must not create host')):
+            self.assert_code('CONNECTION_IDENTITY_MISMATCH', plugin.resume)
+
+    def test_resume_fails_closed_without_valid_matching_owner_and_account(self):
+        original = self.client.request
+        for owner, account in [(None, 'test-user'), ('', 'test-user'), ('test-user', None),
+                               ('test-user', ''), ({'id': 'test-user'}, 'test-user'), ('test-user', []),
+                               ('different-user', 'test-user')]:
+            def response(method, path, *a, **kw):
+                if path == '/v1/me': return {} if account is None else {'user_id': account}
+                result = original(method, path, *a, **kw)
+                if path == '/v1/hosts/this-machine':
+                    if owner is None: result.pop('owner', None)
+                    else: result['owner'] = owner
+                return result
+            self.client.request = response
+            plugin = self.plugin(server='https://server.example', resumeHostId='this-machine', allowManagedHost=True)
+            with self.subTest(owner=owner, account=account), patch.object(plugin, 'ensure_host', return_value='kit'):
+                self.assert_code('CONNECTION_IDENTITY_MISMATCH', plugin.resume)
+
+    def test_managed_process_reuse_validates_server_data_uid_and_start_identity(self):
+        plugin = self.plugin(allowManagedHost=True, omnigentBin=sys.executable)
+        child = self.managed_process(plugin)
+        self.assertEqual(plugin.ensure_host('https://server.example'), 'plugin')
+        self.assert_code('HOST_PROCESS_MISMATCH', lambda: plugin.ensure_host('https://other.example'))
+        with patch.object(adapter.os, 'getuid', return_value=os.getuid()+1):
+            self.assert_code('HOST_PROCESS_MISMATCH', lambda: plugin.ensure_host('https://server.example'))
+        original = adapter.read_json(plugin.state_dir / 'host-process.json')
+        adapter.atomic_json(plugin.state_dir / 'host-process.json', {**original, 'processStart': 'different-incarnation'})
+        self.assert_code('HOST_PROCESS_MISMATCH', lambda: plugin.ensure_host('https://server.example'))
+        adapter.atomic_json(plugin.state_dir / 'host-process.json', original)
+        with patch.object(plugin, 'data_dir', self.home / 'different-data'):
+            self.assert_code('HOST_PROCESS_MISMATCH', lambda: plugin.ensure_host('https://server.example'))
+        self.assertIsNone(child.poll())
+
+    def test_live_unrelated_pid_is_not_reused_or_killed(self):
+        plugin = self.plugin(allowManagedHost=True, omnigentBin=sys.executable)
+        plugin.state_dir.mkdir(parents=True)
+        adapter.atomic_json(plugin.state_dir / 'host-process.json', {'pid': os.getpid(), 'server': 'https://server.example'})
+        self.assert_code('HOST_PROCESS_MISMATCH', lambda: plugin.ensure_host('https://server.example'))
+        self.assert_code('HOST_PROCESS_MISMATCH', plugin.disconnect)
+        self.assertFalse(self.auth.cleared)
+
+    def test_two_launchers_share_lock_and_dead_host_can_restart_with_same_config(self):
+        binary = self.home / 'omnigent'
+        binary.write_text(f'#!{sys.executable}\nimport time\ntime.sleep(60)\n'); binary.chmod(0o700)
+        plugin = self.plugin(allowManagedHost=True, omnigentBin=str(binary), resumeHostId='this-machine')
+        children = []
+        real_popen = adapter.subprocess.Popen
+        def launch(*a, **kw):
+            child = real_popen(*a, **kw); children.append(child); return child
+        def cleanup():
+            for child in children:
+                if child.poll() is None: child.terminate()
+                child.wait(timeout=5)
+        self.addCleanup(cleanup)
+        before = (self.config_home / 'config.yaml').read_bytes()
+        with patch.object(adapter.subprocess, 'Popen', side_effect=launch):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                results = list(executor.map(lambda _: plugin.ensure_host('https://server.example'), range(2)))
+            self.assertEqual(results, ['plugin', 'plugin']); self.assertEqual(len(children), 1)
+            children[0].terminate(); children[0].wait(timeout=5)
+            self.assertEqual(plugin.ensure_host('https://server.example'), 'plugin'); self.assertEqual(len(children), 2)
+        self.assertEqual((self.config_home / 'config.yaml').read_bytes(), before)
 
     def test_normalization_rejects_credentials_and_query_tokens(self):
         self.assertEqual(adapter.normalize_server("HTTPS://SERVER.EXAMPLE/base/"), "https://server.example/base")
