@@ -1,0 +1,52 @@
+{
+  "version": "0.3.14",
+  "date": "2026-10-26",
+  "scope": "Offline plugin verification lifecycle regression; no live model request or fleet deployment",
+  "reviewedFixCommit": "2821db887d77cd183b4796ea2372ee01ff4841f5",
+  "baselineCommit": "035fdf998690e31377e61e3618923288a26148c6",
+  "diagnostic": {
+    "code": "NATIVE_TERMINAL_REMOVED",
+    "meaning": "The main native terminal resource was removed before the verification reply",
+    "phase": "before_cleanup",
+    "exitCode": null,
+    "exitCodeMeaning": "Unknown unless the lifecycle event explicitly supplies an integer exit_status; SDK 0.16.0 does not include it"
+  },
+  "replay": {
+    "transport": "Fake client; no network model transport",
+    "clock": "Simulated monotonic clock",
+    "terminalCreatedAtSeconds": 0,
+    "terminalDeletedAtSeconds": 4,
+    "baseline": { "reason": "REPLY_TIMEOUT", "waitingSeconds": 120, "itemPolls": 61 },
+    "fixed": { "reason": "NATIVE_TERMINAL_REMOVED", "waitingSeconds": 6, "itemPolls": 4 },
+    "cleanup": "Both versions stop only their own synthetic verification session",
+    "limit": "Not a production latency measurement; HTTP and cleanup latency are not modeled"
+  },
+  "lifecycleCoverage": [
+    "Exact Pi/Claude main terminal identity; unrelated sessions and auxiliary resources ignored",
+    "Descending lifecycle order; newer create cancels stale delete",
+    "New terminal generation receives a separate deletion grace period",
+    "Late assistant success and structured provider error take precedence",
+    "Codex auxiliary terminal deletion does not fail its app-server verification",
+    "Deletion present on the first poll remains distinct from own stop_session cleanup",
+    "Cleanup failure preserves the earlier terminal diagnostic",
+    "Unavailable session status lookup does not discard observed removal",
+    "Only explicit numeric exit status is retained; bool, text and invalid numbers rejected",
+    "Receipt persistence allowlists diagnostic fields and excludes raw output"
+  ],
+  "localValidation": {
+    "nodeVersion": "22.23.3",
+    "nodeTestsPassed": 154,
+    "pythonTestsPassed": 69,
+    "syntaxChecksPassed": true,
+    "dependencyAuditVulnerabilities": 0,
+    "commands": ["npm ci --ignore-scripts --no-fund", "npm test", "npm run check", "npm audit --audit-level=high"]
+  },
+  "limitations": {
+    "pi3NativeExitRootCauseFixed": false,
+    "allInstalledEnginesReadyEstablished": false,
+    "omnigentSdkOrGeneralChatStatusChanged": false,
+    "newLiveProviderRequests": 0,
+    "fleetDeployments": 0,
+    "rawTracesIncluded": false
+  }
+}
