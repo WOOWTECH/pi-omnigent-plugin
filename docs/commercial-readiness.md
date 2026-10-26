@@ -1,8 +1,10 @@
 # v0.3.13 Managed UI build retention (2026-10-26)
 
+Native provider failures now distinguish `PROVIDER_PAYMENT_REQUIRED`, `PROVIDER_USAGE_LIMIT_REACHED`, and `PROVIDER_RATE_LIMITED`. Six errors from the task-owned fleet probes replayed correctly without new model requests. Verification receipts retain requested aliases and sanitized actual model IDs separately. These diagnostics do not restore provider credits or account allowance. Pi3 native startup remains under investigation: the active SDK resolves the correct home wrapper, so the earlier shell-PATH explanation is not established as causal.
+
 Managed UI activation now preserves the active build, two prior rollback builds, running builds and launcher fallbacks, then reclaims at most four verified older builds per operation. Unmanaged, incomplete and unverified directories remain untouched. `pi-omnigent cleanup-ui` previews only; `--apply` explicitly executes the same guarded cleanup under the install lock.
 
-A read-only probe in the actual Pi2 uid1000 container accepted the active build and two rollbacks and identified one older managed build (1,585,382,864 logical bytes). No live files were removed in that probe. This is not a measured disk-space reduction. Installer tests cover legacy receipts, process use, unsafe paths, partial activation rollback and bounded cleanup; release CI results must accompany publication.
+A uid1000 probe in Pi2 identified one inactive managed build (1,585,382,864 logical bytes). The fixed candidate was then applied under the installer lock and removed only that build, preserving the active release and two rollbacks. Free space measured before/after increased from 4,381,216,768 to 6,143,037,440 bytes; this is a host snapshot delta and can include concurrent filesystem activity. A second preview found no remaining candidate. Installer tests cover legacy receipts, process use, unsafe paths, partial activation rollback and bounded cleanup; release CI results must accompany publication.
 
 # v0.3.11 Pi2／Pi3／Pi4 部署與模型切換（2026-10-25）
 

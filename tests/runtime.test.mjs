@@ -34,6 +34,27 @@ test('missing response never becomes ready', async t => {
   const ctx = fixture(t, 'codex'); const result = await initialize(ctx);
   assert.equal(result.ok, false); assert.equal(result.phase, 'needs-verification');
 });
+test('verification persists the requested alias and sanitized resolved model separately', async t => {
+  const ctx = fixture(t); const base = ctx.callAdapter;
+  ctx.callAdapter = async input => {
+    const result = await base(input);
+    if (input.action === 'verify') Object.assign(result.data, { model: 'sonnet', resolvedModel: 'provider/actual-model' });
+    return result;
+  };
+  await initialize(ctx);
+  const proof = JSON.parse(fs.readFileSync(path.join(ctx.loc.stateDir, 'verification.json'))).claude;
+  assert.equal(proof.model, 'sonnet');
+  assert.equal(proof.resolvedModel, 'provider/actual-model');
+  ctx.callAdapter = async input => {
+    const result = await base(input);
+    if (input.action === 'verify') result.data.resolvedModel = 'https://private.example/?token=secret';
+    return result;
+  };
+  await verify(ctx);
+  const saved = fs.readFileSync(path.join(ctx.loc.stateDir, 'verification.json'), 'utf8');
+  assert.equal(JSON.parse(saved).claude.resolvedModel, undefined);
+  assert.ok(!saved.includes('token=secret'));
+});
 test('a pre-session engine failure retains its cause rather than inventing a cleanup failure', async t => {
   const ctx = fixture(t); const base = ctx.callAdapter;
   ctx.callAdapter = input => input.action === 'verify'
