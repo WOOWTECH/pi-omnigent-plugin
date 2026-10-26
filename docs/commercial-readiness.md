@@ -1,3 +1,7 @@
+# v0.3.19 Cross-UID stale PID recovery follow-up (2026-10-26)
+
+Container restarts can reuse a saved host PID for a process owned by another UID. A matching UID is not required to prove a process is stale: a complete saved boot ID/start tick and readable, different current kernel identity provide that proof. Authorized resume may then launch the original host without signaling the unrelated process. If the kernel identity cannot be read, recovery still fails closed. The managed-process fixture now removes ambient runner binding variables exactly as the production launcher does. Local validation: 174 Node tests, 90 Python tests and syntax checks passed; public CI and official HA restart acceptance remain release gates.
+
 # v0.3.18 Stale PID recovery candidate (2026-10-26)
 
 The isolated HA QA VM exposed a real restart failure in the public v0.3.16 host core (also present unchanged in v0.3.17). The saved PID was alive as an unrelated `libuv-worker`; both the boot ID and process start tick differed. Consent, installation paths, server, registered host and account ownership still matched. Strict process matching stopped recovery with `HOST_PROCESS_MISMATCH`.
