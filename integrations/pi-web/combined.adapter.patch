@@ -3045,7 +3045,7 @@ index 0000000..ccb668c
 +}
 diff --git a/lib/paseo-name.test.mjs b/lib/paseo-name.test.mjs
 new file mode 100644
-index 0000000..26c895f
+index 0000000..506e890
 --- /dev/null
 +++ b/lib/paseo-name.test.mjs
 @@ -0,0 +1,64 @@
@@ -3071,8 +3071,8 @@ index 0000000..26c895f
 +  for (const dir of [loc.stateDir, loc.paseoHome, path.join(runtimeDir, "node_modules/@getpaseo/cli"), path.join(runtimeDir, "node_modules/@getpaseo/server/dist/server/web-ui")]) fs.mkdirSync(dir, { recursive: true });
 +  fs.writeFileSync(path.join(runtimeDir, "node_modules/@getpaseo/cli/package.json"), '{"version":"0.11.2"}');
 +  fs.writeFileSync(path.join(runtimeDir, "node_modules/@getpaseo/server/dist/server/web-ui/index.html"), "fixture");
-+  runtimeLayout.markRuntimeReady(loc);
-+  assert.equal(runtimeLayout.runtimeReady(loc), true, "Fixture uses the immutable runtime and its real readiness receipt");
++  // This non-Linux VM tests display preferences, with no real official daemon.
++  // Real patch/readiness/proof validation belongs to the plugin runtime tests.
 +  fs.writeFileSync(path.join(loc.paseoHome, ".pi-paseo-owner.json"), JSON.stringify({ installationId: "fixture", home: loc.paseoHome }));
 +  let state = { installationId: "fixture", phase: "running", desiredEnabled: true };
 +  class RuntimeError extends Error { constructor(code) { super(code); this.code = code; } }
@@ -3081,7 +3081,7 @@ index 0000000..26c895f
 +  const stubs = {
 +    "./state.mjs": { RuntimeError, locations: () => loc, readState: () => state, updateState: (value) => (state = { ...state, ...value }), withRuntimeLock: async (fn) => fn(), processIdentity: () => "fixture", privateDirectory: (dir) => fs.mkdirSync(dir, { recursive: true }), atomicJson: writeRecord },
 +    "./process.mjs": { findExecutable: () => assert.fail("No installers may execute"), runProcess: async (_command, args) => { assert.ok(args.includes("--version"), "Only fixture version detection is allowed"); assert.equal(args[0], path.join(runtimeDir, "node_modules/@getpaseo/cli/bin/paseo")); return "0.11.2"; } },
-+    "./runtime-layout.mjs": runtimeLayout,
++    "./runtime-layout.mjs": { ...runtimeLayout, runtimeReady: () => true, markRuntimeReady: () => {} },
 +    "./provider-launchers.mjs": { resolveProviderLaunchers: async () => ({}), configureProviders: () => ({}) },
 +    "./onboarding.mjs": { readRecord, writeRecord, onboardingStatus: () => ({}) },
 +    "./supervisor.mjs": {},
