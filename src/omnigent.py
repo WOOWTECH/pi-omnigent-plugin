@@ -20,6 +20,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import stat
 import shutil
 import subprocess
 import sys
@@ -693,10 +694,26 @@ class Plugin:
         descriptor = os.open(self.state_dir / "host-launch.lock", os.O_CREAT | os.O_RDWR, 0o600)
         with os.fdopen(descriptor, "r+") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            if self.request.get('action') == 'resume' or 'resumeHostId' in self.request:
+            resuming = self.request.get('action') == 'resume' or 'resumeHostId' in self.request
+            if resuming:
                 self.require_resume_identity(server)
-            if self.managed_host_pid(server) is not None:
-                return "plugin"
+            try:
+                if self.managed_host_pid(server) is not None:
+                    return "plugin"
+            except PluginError as error:
+                # Only authorized recovery may replace its own stale receipt.
+                # Disconnect must keep strict PID matching before any signal.
+                record = self.host_process_record()
+                if (not resuming or error.code != 'HOST_PROCESS_MISMATCH'
+                        or record.get('server') != server or not self.proven_stale_process(record)):
+                    raise
+                existing = self.current_owned_host(server)
+                if existing:
+                    atomic_json(self.state_dir / 'host-process.json', existing)
+                    return "plugin"
+                self.require_resume_identity(server)
+                # Keep the old receipt until successful spawn writes a new one.
+                # Never signal the unrelated process now occupying the old PID.
             descriptor = os.open(self.state_dir / "host.log", os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
             with os.fdopen(descriptor, "ab") as log:
                 environment = dict(os.environ)
@@ -789,8 +806,99 @@ class Plugin:
         except (OSError, IndexError):
             return {}
 
-    def managed_host_pid(self, server: str) -> int | None:
-        record = read_json(self.state_dir / "host-process.json")
+    def host_process_record(self) -> dict:
+        descriptor = None
+        try:
+            descriptor = os.open(self.state_dir / 'host-process.json', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            info = os.fstat(descriptor)
+            if (not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600
+                    or info.st_uid != os.getuid() or info.st_size > 65536):
+                raise ValueError('Unsafe process receipt')
+            with os.fdopen(descriptor, 'r', encoding='utf-8') as handle:
+                descriptor = None
+                record = json.load(handle)
+            if (not isinstance(record, dict) or isinstance(record.get('pid'), bool)
+                    or not isinstance(record.get('pid'), int) or record['pid'] <= 1):
+                raise ValueError('Invalid process receipt')
+            return record
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError):
+            raise PluginError('host_process_mismatch', '無法確認插件管理的程序回條。') from None
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+
+    @staticmethod
+    def complete_process_identity(value: dict) -> bool:
+        return (isinstance(value.get('processStart'), str)
+                and re.fullmatch(r'(0|[1-9][0-9]{0,19})', value['processStart']) is not None
+                and isinstance(value.get('bootId'), str)
+                and re.fullmatch(r'[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}', value['bootId']) is not None)
+
+    def proven_stale_process(self, record: dict) -> bool:
+        pid = record.get('pid')
+        if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 1 or not self.complete_process_identity(record):
+            return False
+        try:
+            if Path(f'/proc/{pid}').stat().st_uid != os.getuid():
+                return False
+        except OSError:
+            return False
+        current = self.process_identity(pid)
+        return self.complete_process_identity(current) and any(record[key] != current[key] for key in ('bootId', 'processStart'))
+
+    def current_owned_host(self, server: str) -> dict | None:
+        """Find an existing exact installation host before replacing a stale marker.
+
+        Called only under host-launch.lock after same-host/account authorization.
+        Ambiguous or unreadable possible hosts fail closed; no process is signaled.
+        """
+        matches = []
+        try:
+            for process in Path('/proc').iterdir():
+                if not process.name.isdigit() or int(process.name) <= 1:
+                    continue
+                try:
+                    if process.stat().st_uid != os.getuid():
+                        continue
+                    argv = (process / 'cmdline').read_bytes().decode().split('\0')
+                    if 'host' not in argv:
+                        continue
+                    start = argv.index('host')
+                    if not any('omnigent' in part for part in argv[:start]):
+                        continue
+                    env = dict(entry.split('=', 1) for entry in (process / 'environ').read_bytes().decode().split('\0') if '=' in entry)
+                    config_matches = env.get('OMNIGENT_CONFIG_HOME') == str(self.config_home)
+                    data_matches = env.get('OMNIGENT_DATA_DIR') == str(self.data_dir)
+                    if not config_matches and not data_matches:
+                        continue
+                    if (not config_matches or not data_matches or argv[start + 1:start + 3] != ['--server', server]
+                            or any(arg and arg not in ('--non-interactive', '--no-open') for arg in argv[start + 3:])
+                            or (process / 'cwd').resolve(strict=True) != self.workspace.resolve(strict=True)
+                            or any(env.get(key) for key in ('OMNIGENT_HOST_ID', 'OMNIGENT_HOST_NAME', 'RUNNER_SERVER_URL',
+                                'RUNNER_AUTH_TOKEN', 'OMNIGENT_RUNNER_AUTH_TOKEN', 'OMNIGENT_HOST_BINDING_TOKEN'))):
+                        raise ValueError('Conflicting installation host')
+                    pid = int(process.name)
+                    identity = self.process_identity(pid)
+                    if not self.complete_process_identity(identity):
+                        raise ValueError('Unverifiable host process')
+                    record = {'pid': pid, 'server': server, **identity}
+                    if self.managed_host_pid(server, record=record) != pid:
+                        raise ValueError('Host process changed during discovery')
+                    matches.append(record)
+                except FileNotFoundError:
+                    if process.exists():
+                        raise
+                    continue
+            if len(matches) > 1:
+                raise ValueError('Duplicate installation hosts')
+        except (OSError, ValueError, UnicodeError):
+            raise PluginError('host_process_mismatch', '無法唯一確認目前 installation 的 host 程序。') from None
+        return matches[0] if matches else None
+
+    def managed_host_pid(self, server: str, *, record: dict | None = None) -> int | None:
+        record = self.host_process_record() if record is None else record
         pid = record.get("pid")
         if pid is None:
             return None

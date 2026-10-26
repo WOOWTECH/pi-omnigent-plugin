@@ -1,3 +1,13 @@
+# v0.3.18 Stale PID recovery candidate (2026-10-26)
+
+The isolated HA QA VM exposed a real restart failure in the public v0.3.16 host core (also present unchanged in v0.3.17). The saved PID was alive as an unrelated `libuv-worker`; both the boot ID and process start tick differed. Consent, installation paths, server, registered host and account ownership still matched. Strict process matching stopped recovery with `HOST_PROCESS_MISMATCH`.
+
+This candidate keeps normal disconnect strict. Only the authorized resume path, inside the existing launch lock, can use a private current-UID process receipt with complete boot/start evidence to prove a stale identity. It scans for an exact current installation host before launching: one matching host is adopted, ambiguous/duplicate/unreadable hosts fail closed. Foreign processes are never signaled. Missing or malformed proof cannot authorize recovery. No initialization, provider configuration, login fallback or new registration is performed.
+
+The real-process regression failed before the fix and passes after it. Tests also cover parallel boots, existing-host adoption, foreign installations, conflicting server/path/arguments, unreadable processes, invalid/private receipt guards, account/host guards and strict disconnect. A read-only candidate classification against the actual failed QA record confirmed stale proof, no current owned host, the unrelated PID unchanged and private/installed files unchanged; it made no network/model calls or host launches. This classification is not a live recovery result: the offline QA installation remains unchanged for an official fixed-package upgrade.
+
+Public v0.3.16 and v0.3.17 remain immutable. Parent review, exact-head CI, publication, official HA upgrade and whole-VM restart validation remain release gates. Provider readiness is a separate acceptance item. Native and combined adapter patch contents are unchanged from v0.3.17; only the combined contributor version tracks this package.
+
 # v0.3.17 First-home onboarding auto-open (2026-10-26)
 
 Fresh Pi Web home visits now open the exact saved pending Omnigent setup conversation, including the initial empty Server URL prompt. A local read-only endpoint checks installed identity, native registration/enablement, readiness and saved session existence. It never creates a session or calls a host/model. A head script records interaction before hydration; the controller preserves explicit navigation, tab/workspace/terminal memory and drafts, cancels on input/selection/touch/scroll, and rechecks lifecycle before adoption. Late saved setup metadata can recover within one 30-second window with one-second spacing and at most 30 attempts.
