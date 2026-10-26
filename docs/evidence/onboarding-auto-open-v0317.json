@@ -1,0 +1,684 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-10-26T12:01:38.721651+00:00",
+  "pluginVersion": "0.3.17",
+  "basePluginCommit": "7be342058bd8be5f7e9e079fa05ae59199063a94",
+  "upstreamPiWebCommit": "6fcd7d44981ab51a21d6cd6eb06d361d0e3d3068",
+  "runtime": {
+    "node": "22.23.3",
+    "platform": "linux",
+    "arch": "x64"
+  },
+  "nativePatchSha256": "32ed41c5d5ad2bf181c48821e1f366d8abe976c412bbfc61f75e77dc7503a7e0",
+  "combinedPatchSha256": "b7dbee8041fe422610ac470c9751d8222a8b6e8ad31eaf89e104a7381bac96ad",
+  "tests": {
+    "pluginNode": 120,
+    "pluginPython": 78,
+    "nativeContracts": 78,
+    "combinedContracts": 96,
+    "paseoScrollCases": 5,
+    "auditHigh": 0
+  },
+  "browser": {
+    "native-production": {
+      "passed": true,
+      "mode": "start",
+      "cases": [
+        {
+          "case": "fresh-desktop",
+          "autoSelected": true,
+          "conversationVisible": true,
+          "initialUrlPromptVisible": true,
+          "initialUrlInputEmpty": true,
+          "clicks": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "fresh-mobile",
+          "autoSelected": true,
+          "conversationVisible": true,
+          "initialUrlPromptVisible": true,
+          "initialUrlInputEmpty": true,
+          "clicks": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "late-onboarding-real-first-missing-record",
+          "firstResponseMissingId": true,
+          "autoSelected": true,
+          "opens": 1,
+          "onboardingReads": 3,
+          "modelRequests": 0
+        },
+        {
+          "case": "delayed-api-typing",
+          "autoSelected": false,
+          "interactionPreserved": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "delayed-api-selection",
+          "autoSelected": false,
+          "interactionPreserved": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "delayed-api-image",
+          "autoSelected": false,
+          "interactionPreserved": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "delayed-api-wheel",
+          "autoSelected": false,
+          "interactionPreserved": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "delayed-api-touch",
+          "autoSelected": false,
+          "interactionPreserved": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "late-onboarding-cancel-typing",
+          "autoSelected": false,
+          "lateSetupDidNotOverrideInteraction": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "late-onboarding-cancel-selection",
+          "autoSelected": false,
+          "lateSetupDidNotOverrideInteraction": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-session",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-cwd",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-query",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-tab",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-workspace",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-terminal",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "stop-ready",
+          "autoSelected": false,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "stop-disabled",
+          "autoSelected": false,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "stop-removed",
+          "autoSelected": false,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "prehydration-click",
+          "autoSelected": false,
+          "interactionBeforeHydration": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "prehydration-typing",
+          "autoSelected": false,
+          "interactionBeforeHydration": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        }
+      ],
+      "originalHistoryBytesUnchanged": true,
+      "originalHistorySha256": "8eaacf932bdd81e94928041b1c5b61e43225b0401b670283c5b28db7486b50e2",
+      "appendedEntryTypes": [
+        "thinking_level_change",
+        "custom_message"
+      ]
+    },
+    "combined-017": {
+      "passed": true,
+      "mode": "start",
+      "cases": [
+        {
+          "case": "fresh-desktop",
+          "autoSelected": true,
+          "conversationVisible": true,
+          "initialUrlPromptVisible": true,
+          "initialUrlInputEmpty": true,
+          "clicks": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "fresh-mobile",
+          "autoSelected": true,
+          "conversationVisible": true,
+          "initialUrlPromptVisible": true,
+          "initialUrlInputEmpty": true,
+          "clicks": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "late-onboarding-real-first-missing-record",
+          "firstResponseMissingId": true,
+          "autoSelected": true,
+          "opens": 1,
+          "onboardingReads": 3,
+          "modelRequests": 0
+        },
+        {
+          "case": "delayed-api-typing",
+          "autoSelected": false,
+          "interactionPreserved": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "delayed-api-selection",
+          "autoSelected": false,
+          "interactionPreserved": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "delayed-api-image",
+          "autoSelected": false,
+          "interactionPreserved": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "delayed-api-wheel",
+          "autoSelected": false,
+          "interactionPreserved": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "delayed-api-touch",
+          "autoSelected": false,
+          "interactionPreserved": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "late-onboarding-cancel-typing",
+          "autoSelected": false,
+          "lateSetupDidNotOverrideInteraction": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "late-onboarding-cancel-selection",
+          "autoSelected": false,
+          "lateSetupDidNotOverrideInteraction": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-session",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-cwd",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-query",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-tab",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-workspace",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-terminal",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "stop-ready",
+          "autoSelected": false,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "stop-disabled",
+          "autoSelected": false,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "stop-removed",
+          "autoSelected": false,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "prehydration-click",
+          "autoSelected": false,
+          "interactionBeforeHydration": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "prehydration-typing",
+          "autoSelected": false,
+          "interactionBeforeHydration": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        }
+      ],
+      "originalHistoryBytesUnchanged": true,
+      "originalHistorySha256": "938d87dfcc1dae6272c676a68f038f8d6a82ff0b3985d6e209100effdd5a3b95",
+      "appendedEntryTypes": [
+        "thinking_level_change",
+        "custom_message"
+      ]
+    },
+    "combined-018": {
+      "passed": true,
+      "mode": "start",
+      "cases": [
+        {
+          "case": "fresh-desktop",
+          "autoSelected": true,
+          "conversationVisible": true,
+          "initialUrlPromptVisible": true,
+          "initialUrlInputEmpty": true,
+          "clicks": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "fresh-mobile",
+          "autoSelected": true,
+          "conversationVisible": true,
+          "initialUrlPromptVisible": true,
+          "initialUrlInputEmpty": true,
+          "clicks": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "late-onboarding-real-first-missing-record",
+          "firstResponseMissingId": true,
+          "autoSelected": true,
+          "opens": 1,
+          "onboardingReads": 3,
+          "modelRequests": 0
+        },
+        {
+          "case": "delayed-api-typing",
+          "autoSelected": false,
+          "interactionPreserved": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "delayed-api-selection",
+          "autoSelected": false,
+          "interactionPreserved": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "delayed-api-image",
+          "autoSelected": false,
+          "interactionPreserved": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "delayed-api-wheel",
+          "autoSelected": false,
+          "interactionPreserved": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "delayed-api-touch",
+          "autoSelected": false,
+          "interactionPreserved": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "late-onboarding-cancel-typing",
+          "autoSelected": false,
+          "lateSetupDidNotOverrideInteraction": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "late-onboarding-cancel-selection",
+          "autoSelected": false,
+          "lateSetupDidNotOverrideInteraction": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-session",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-cwd",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-query",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-tab",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-workspace",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-terminal",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "stop-ready",
+          "autoSelected": false,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "stop-disabled",
+          "autoSelected": false,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "stop-removed",
+          "autoSelected": false,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "prehydration-click",
+          "autoSelected": false,
+          "interactionBeforeHydration": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "prehydration-typing",
+          "autoSelected": false,
+          "interactionBeforeHydration": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        }
+      ],
+      "originalHistoryBytesUnchanged": true,
+      "originalHistorySha256": "5d97a1d23866e6eba6ba0d4000eb4b25566ea1d4d63d3d95f580088f8451290f",
+      "appendedEntryTypes": [
+        "thinking_level_change",
+        "custom_message"
+      ]
+    },
+    "combined-019": {
+      "passed": true,
+      "mode": "start",
+      "cases": [
+        {
+          "case": "fresh-desktop",
+          "autoSelected": true,
+          "conversationVisible": true,
+          "initialUrlPromptVisible": true,
+          "initialUrlInputEmpty": true,
+          "clicks": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "fresh-mobile",
+          "autoSelected": true,
+          "conversationVisible": true,
+          "initialUrlPromptVisible": true,
+          "initialUrlInputEmpty": true,
+          "clicks": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "late-onboarding-real-first-missing-record",
+          "firstResponseMissingId": true,
+          "autoSelected": true,
+          "opens": 1,
+          "onboardingReads": 3,
+          "modelRequests": 0
+        },
+        {
+          "case": "delayed-api-typing",
+          "autoSelected": false,
+          "interactionPreserved": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "delayed-api-selection",
+          "autoSelected": false,
+          "interactionPreserved": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "delayed-api-image",
+          "autoSelected": false,
+          "interactionPreserved": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "delayed-api-wheel",
+          "autoSelected": false,
+          "interactionPreserved": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "delayed-api-touch",
+          "autoSelected": false,
+          "interactionPreserved": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "late-onboarding-cancel-typing",
+          "autoSelected": false,
+          "lateSetupDidNotOverrideInteraction": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "late-onboarding-cancel-selection",
+          "autoSelected": false,
+          "lateSetupDidNotOverrideInteraction": true,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-session",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-cwd",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-query",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-tab",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-workspace",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "preserve-terminal",
+          "autoSelected": false,
+          "existingChoicePreserved": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "stop-ready",
+          "autoSelected": false,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "stop-disabled",
+          "autoSelected": false,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "stop-removed",
+          "autoSelected": false,
+          "onboardingReads": 1,
+          "modelRequests": 0
+        },
+        {
+          "case": "prehydration-click",
+          "autoSelected": false,
+          "interactionBeforeHydration": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        },
+        {
+          "case": "prehydration-typing",
+          "autoSelected": false,
+          "interactionBeforeHydration": true,
+          "onboardingReads": 0,
+          "modelRequests": 0
+        }
+      ],
+      "originalHistoryBytesUnchanged": true,
+      "originalHistorySha256": "13db25c103791c80a89801db6de7629c22b4b45d61247d03205dcadcef8297bd",
+      "appendedEntryTypes": [
+        "thinking_level_change",
+        "custom_message"
+      ]
+    }
+  },
+  "prebuilt": {
+    "officialInstallerPassed": true,
+    "paseoVersions": [
+      "0.1.7",
+      "0.1.8",
+      "0.1.9"
+    ],
+    "buildId": "-NCsn-riVEOO3qeiypB9K",
+    "lockSha256": "c7aca64ee238fd0b97ecb245fdced17db5b8c25c58b823773140bccb48e95f27"
+  },
+  "limitations": [
+    "Synthetic isolated HOME and saved SDK sessions, no provider credentials or model requests.",
+    "No HA or fleet deployment performed.",
+    "Public v0.3.16 is preserved; v0.3.17 awaits parent review, CI and normal publication.",
+    "Root/PaaS final pins await actual public v0.3.17 archive."
+  ]
+}

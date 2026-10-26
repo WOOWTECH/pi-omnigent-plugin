@@ -25,3 +25,10 @@ v0.3.5 將原生設定列的 Paseo 名稱固定顯示為「Paseo」，並在共�
 v0.3.6 的原生 API 對單一引擎驗證回報該次測試的結果；其它已安裝引擎未驗證時仍維持 `needs-verification`。失敗模型的代碼取自清理後的安全驗證回條，不回傳原始對話或供應商錯誤內容。
 
 v0.3.9 增加 `/omnigent` 直達原生設定頁；獨立及 Omnigent＋Paseo 合併介面均支援。
+
+
+v0.3.17 增加首次首頁的 onboarding 自動選取。`GET /api/omnigent/onboarding` 只讀已安裝且原生啟用的插件狀態與保存的 session ID，不呼叫 host／模型或建立對話。首頁只選取該精確 ID，Paseo 共存不影響選擇。ready、disabled、removed、明確 query/cwd/session、tab/workspace/terminal 記憶及草稿都會阻止自動選取。
+
+head script 在 hydration 前記錄輸入、點選、觸控及捲動。等待中的 API 與 catalog 每次完成後重查導航與操作，並在採用前再讀一次生命周期。冷啟動尚未保存 ID 時，最多等待自首次頁面載入起 30 秒、每次完成後隔 1 秒、最多 30 次嘗試；請求不重疊，使用者操作會中止且本次頁面不重試。超過上限後可手動開啟設定對話，或重新造訪未選工作的新首頁。
+
+隔離的 production browser 測試直接載入實際插件／SDK：desktop/mobile 零點擊開啟，既有初始設定提示與空白 URL 欄位可見，且不輸入憑證或發起模型回合。API 測試核對 session 檔案無寫入；瀏覽器核對原始紀錄位元組不變，允許既有 SDK／精靈在正常開啟時追加設定及提示紀錄。Paseo 0.1.7、0.1.8、0.1.9 共用同一份 combined 來源，仍逐版驗證 contributor digest；舊版 prebuilt 若來源不同，`--prebuilt-root` 會拒絕。

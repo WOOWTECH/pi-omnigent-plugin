@@ -1,3 +1,11 @@
+# v0.3.17 First-home onboarding auto-open (2026-10-26)
+
+Fresh Pi Web home visits now open the exact saved pending Omnigent setup conversation, including the initial empty Server URL prompt. A local read-only endpoint checks installed identity, native registration/enablement, readiness and saved session existence. It never creates a session or calls a host/model. A head script records interaction before hydration; the controller preserves explicit navigation, tab/workspace/terminal memory and drafts, cancels on input/selection/touch/scroll, and rechecks lifecycle before adoption. Late saved setup metadata can recover within one 30-second window with one-second spacing and at most 30 attempts.
+
+Local production builds passed on Node 22.23.3/linux-x64. Native and combined Paseo 0.1.7/0.1.8/0.1.9 each passed 21 browser cases, including zero-click desktop/mobile URL prompts, late onboarding and cancellation, prehydration input/click, disabled/removed/ready, memory and image-draft preservation. Existing session bytes remain intact; the real SDK/wizard appends its normal thinking setting and setup notice on opening. No provider credentials or model turns were used. Native 78 and combined 96 contract tests, five Paseo scroll cases, 120 plugin Node and 78 Python tests passed; dependency audit reported zero vulnerabilities. The official installer accepted one exact combined prebuilt and reused it across all three supported Paseo versions. [Sanitized local evidence](evidence/onboarding-auto-open-v0317.json).
+
+v0.3.16 was already published at 2026-10-26T11:22:33Z from 7be3420 and remains unchanged. This follow-up is v0.3.17; parent review, public CI/release, root/PaaS image QA and fleet rollout are separate gates. This adapter work does not certify provider readiness or change common host recovery / HA rootfs.
+
 # v0.3.16 Authorized host recovery candidate (2026-10-26)
 
 An isolated HA 0.15.1 -> 0.15.2 upgrade retained the plugin's confirmed login and original host identity but lost the host process. The common `boot()` prepared dependencies and onboarding without restoring the authorized process. The candidate adds one shared runtime/adapter resume path; HA's entrypoint and UI patches remain unchanged.
