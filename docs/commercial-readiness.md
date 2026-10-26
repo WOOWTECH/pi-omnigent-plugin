@@ -1,5 +1,7 @@
 # v0.3.13 Managed UI build retention (2026-10-26)
 
+Pi4 already had Paseo 0.1.8 while the combined installer accepted only 0.1.7. The released tags have identical adapter hashes, but installation still failed with `COMBINED_ADAPTER_MISMATCH`. An explicit compatibility list now accepts these two versions while retaining contributor and combined patch verification. Unknown versions and changed patches remain rejected; CI builds and browser-tests each pinned contributor commit separately.
+
 Native provider failures now distinguish `PROVIDER_PAYMENT_REQUIRED`, `PROVIDER_USAGE_LIMIT_REACHED`, and `PROVIDER_RATE_LIMITED`. Six errors from the task-owned fleet probes replayed correctly without new model requests. Verification receipts retain requested aliases and sanitized actual model IDs separately. These diagnostics do not restore provider credits or account allowance. Pi3 native startup remains under investigation: the active SDK resolves the correct home wrapper, so the earlier shell-PATH explanation is not established as causal.
 
 Managed UI activation now preserves the active build, two prior rollback builds, running builds and launcher fallbacks, then reclaims at most four verified older builds per operation. Unmanaged, incomplete and unverified directories remain untouched. `pi-omnigent cleanup-ui` previews only; `--apply` explicitly executes the same guarded cleanup under the install lock.

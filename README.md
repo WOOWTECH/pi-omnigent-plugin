@@ -18,7 +18,7 @@ Repository 為公開，可直接安裝，不需要 GitHub token。安裝會自�
 git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.13
 ```
 
-同一 Pi Web 安裝 `git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.7` 後，執行 `pi-omnigent install-ui`，由 `v0.3.13` 驗證兩個固定補丁並產生一份共用 Pi Web 建置。重新啟動後，設定列順序為 **MCP → Omnigent → Paseo**；兩個服務各自維持原本的登入、連線與停用狀態。
+同一 Pi Web 安裝 `git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.7` 或 `@v0.1.8` 後，執行 `pi-omnigent install-ui`，由 `v0.3.13` 驗證兩個固定補丁並產生一份共用 Pi Web 建置。只接受已驗證的版本與補丁雜湊，不會降版既有 Paseo。重新啟動後，設定列順序為 **MCP → Omnigent → Paseo**；兩個服務各自維持原本的登入、連線與停用狀態。
 
 ```bash
 pi install /path/to/pi-omnigent-plugin

@@ -419,7 +419,7 @@ test('existing Paseo UI overlay is preserved alongside the Omnigent patch and pa
   assert.equal((await installUi({ ...f.options, overlayPackageRoot: overlay })).reused, true);
 });
 
-test('pinned combined adapter installs the Omnigent and Paseo settings tabs as one reproducible build', async t => {
+function combinedFixture(t, version = '0.1.7') {
   const f = fixture(t), overlay = path.join(f.root, 'paseo');
   const paseoPatch = 'paseo contribution';
   const combinedPatch = [
@@ -431,18 +431,22 @@ test('pinned combined adapter installs the Omnigent and Paseo settings tabs as o
     '+Omnigent + Paseo',
     '',
   ].join('\n');
-  write(path.join(overlay, 'package.json'), JSON.stringify({ name: '@woowtech/pi-paseo', version: '0.1.3' }));
+  write(path.join(overlay, 'package.json'), JSON.stringify({ name: '@woowtech/pi-paseo', version }));
   write(path.join(overlay, 'host/adapter.patch'), paseoPatch);
   write(path.join(overlay, 'host/adapter-meta.json'), JSON.stringify({ ...f.meta, patchSha256: sha(paseoPatch) }));
   write(path.join(f.pkg, 'integrations/pi-web/combined.adapter.patch'), combinedPatch);
   write(path.join(f.pkg, 'integrations/pi-web/combined.adapter-meta.json'), JSON.stringify({
     schemaVersion: 1, repository: PI_WEB_REPOSITORY, baseCommit: PI_WEB_BASE, piWebVersion: PI_WEB_VERSION,
-    paseo: { packageName: '@woowtech/pi-paseo', packageVersion: '0.1.3', adapterPatchSha256: sha(paseoPatch) },
+    paseo: { packageName: '@woowtech/pi-paseo', packageVersion: '0.1.7', compatiblePackageVersions: ['0.1.8'], adapterPatchSha256: sha(paseoPatch) },
     omnigent: { packageName: '@woowtech/pi-omnigent-plugin', packageVersion: '0.3.1', adapterPatchSha256: f.meta.patchSha256 },
     patchSha256: sha(combinedPatch), settingsSections: ['mcp', 'omnigent', 'paseo'],
     contributors: ['@woowtech/pi-paseo', '@woowtech/pi-omnigent-plugin'],
   }));
+  return { ...f, overlay };
+}
 
+for (const version of ['0.1.7', '0.1.8']) test(`pinned combined adapter installs and reuses Paseo ${version} without replacing its package`, async t => {
+  const f = combinedFixture(t, version), { overlay } = f;
   const result = await installUi({ ...f.options, overlayPackageRoot: overlay });
   assert.equal(result.composition, 'omnigent+paseo');
   assert.deepEqual(result.contributors, ['@woowtech/pi-paseo', '@woowtech/pi-omnigent-plugin']);
@@ -453,6 +457,22 @@ test('pinned combined adapter installs the Omnigent and Paseo settings tabs as o
   assert.equal(receipt.composition, 'omnigent+paseo');
   assert.deepEqual(receipt.settingsSections, ['mcp', 'omnigent', 'paseo']);
   assert.equal((await installUi({ ...f.options, overlayPackageRoot: overlay })).reused, true);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(overlay, 'package.json'))).version, version);
+});
+
+test('combined adapter rejects an untested package version even when its patch is identical', async t => {
+  const f = combinedFixture(t, '0.1.9');
+  await assert.rejects(installUi({ ...f.options, overlayPackageRoot: f.overlay }), { code: 'COMBINED_ADAPTER_MISMATCH' });
+  assert.equal(f.calls.length, 0);
+});
+
+test('compatible package version cannot bypass combined contributor patch verification', async t => {
+  const f = combinedFixture(t, '0.1.8');
+  const file = path.join(f.overlay, 'host/adapter.patch'), changed = 'changed adapter';
+  write(file, changed);
+  write(path.join(f.overlay, 'host/adapter-meta.json'), JSON.stringify({ ...f.meta, patchSha256: sha(changed) }));
+  await assert.rejects(installUi({ ...f.options, overlayPackageRoot: f.overlay }), { code: 'COMBINED_ADAPTER_MISMATCH' });
+  assert.equal(f.calls.length, 0);
 });
 
 test('combined adapter metadata rejects stale contributor patches before any command', async t => {

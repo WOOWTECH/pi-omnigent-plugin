@@ -282,9 +282,13 @@ export async function installUi(options = {}) {
       if (!paseoPackage || !exists(combinedManifestFile) || !exists(combinedPatchFile)) fail('COMBINED_ADAPTER_MISMATCH');
       const combined = readJson(combinedManifestFile);
       const combinedPatchHash = sha(fs.readFileSync(combinedPatchFile));
+      // Additional versions are explicitly tested with the same pinned patch;
+      // identical adapter bytes alone never authorize an unknown package.
+      const paseoVersionSupported = combined.paseo?.packageVersion === paseoPackage.version ||
+        (Array.isArray(combined.paseo?.compatiblePackageVersions) && combined.paseo.compatiblePackageVersions.includes(paseoPackage.version));
       if (combined.schemaVersion !== 1 || combined.repository?.replace(/\.git$/, '').replace(/\/$/, '') !== PI_WEB_REPOSITORY ||
           combined.baseCommit !== PI_WEB_BASE || combined.piWebVersion !== PI_WEB_VERSION ||
-          combined.paseo?.packageName !== paseoPackage.name || combined.paseo.packageVersion !== paseoPackage.version || combined.paseo.adapterPatchSha256 !== overlayHash ||
+          combined.paseo?.packageName !== paseoPackage.name || !paseoVersionSupported || combined.paseo.adapterPatchSha256 !== overlayHash ||
           combined.omnigent?.packageName !== ownPackage.name || combined.omnigent.packageVersion !== ownPackage.version || combined.omnigent.adapterPatchSha256 !== meta.ownPatchSha256 ||
           combined.patchSha256 !== combinedPatchHash ||
           JSON.stringify(combined.contributors) !== JSON.stringify(['@woowtech/pi-paseo', '@woowtech/pi-omnigent-plugin']) ||
