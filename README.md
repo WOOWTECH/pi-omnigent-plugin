@@ -15,10 +15,10 @@ Repository 為公開，可直接安裝，不需要 GitHub token。安裝會自�
 商業部署請固定版本，避免不同容器在更新時取得不同程式：
 
 ```text
-git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.12
+git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.13
 ```
 
-同一 Pi Web 安裝 `git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.7` 後，執行 `pi-omnigent install-ui`，由 `v0.3.12` 驗證兩個固定補丁並產生一份共用 Pi Web 建置。重新啟動後，設定列順序為 **MCP → Omnigent → Paseo**；兩個服務各自維持原本的登入、連線與停用狀態。
+同一 Pi Web 安裝 `git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.7` 後，執行 `pi-omnigent install-ui`，由 `v0.3.13` 驗證兩個固定補丁並產生一份共用 Pi Web 建置。重新啟動後，設定列順序為 **MCP → Omnigent → Paseo**；兩個服務各自維持原本的登入、連線與停用狀態。
 
 ```bash
 pi install /path/to/pi-omnigent-plugin
@@ -55,6 +55,8 @@ v0.3.9 在登入／修復及 Codex 驗證時，將明確設定的 gateway／key�
 主機在線不代表引擎可以對話。插件針對當下已安裝的引擎，透過 Omnigent 建立短驗證對話，要求各引擎回覆 `OMNIGENT_CONNECTION_OK`；這些引擎都收到實際回覆才標記 `ready`。驗證對話會留在 Omnigent，方便打開檢查，驗證完成後停止執行。Claude 驗證專用對話使用 Default 權限模式及短暫啟動緩衝，並檢查固定驗證提示是否仍在本次對話的跨行草稿中；只有精確匹配且沒有待回答視窗，才補一次 Enter。一般對話保留既有設定，原生對話限制見驗收紀錄。
 
 Omnigent 介面仍提供原有模型、Skills、MCP、Agent 模板與政策選擇；插件沿用容器既有的模型登入／API 配置。缺少訂閱登入或模型時，狀態會指出該引擎尚未通過驗證。
+
+v0.3.13 將供應商錯誤分成 `PROVIDER_PAYMENT_REQUIRED`（付款或餘額不足）、`PROVIDER_USAGE_LIMIT_REACHED`（帳號額度耗盡）與 `PROVIDER_RATE_LIMITED`（暫時限流）。前兩者需先處理供應商帳號額度；重新輸入 Omnigent 帳密不會恢復額度。驗證回條分別保留所選模型別名與實際模型，原始錯誤內容不寫入公開回條。
 
 ## 執行環境
 
@@ -131,7 +133,7 @@ pi-omnigent cleanup-ui --apply
 
 結果中的 `reclaimableBytes` 是本次最多四個候選建置的一般檔案邏輯大小；`reclaimedBytes` 只計入已成功移除的建置，預覽時為零。這不是磁碟實際可用空間差額，硬連結、快照與檔案系統配置可能使兩者不同。`deferred` 表示因每次四個上限而留待後續執行的數量。執行回條寫至同一受管根目錄的 `ui-retention.json`，只記錄建置識別碼、大小與固定狀態碼，不記錄程序參數、環境變數或對話內容。保護條件可能讓保留數量超過三個；不會為達到數量上限而強制刪除。
 
-v0.3.1 使用安裝器自己的私有 npm 快取，修正非 root 容器繼承 `/tmp/npm-cache` 時的 EACCES。服務啟動的 PATH 必須包含 `$HOME/.local/bin`，並優先於原生 `pi-web`；`install-ui` 回傳 `pathUpdateRequired: true` 時，請更新服務的啟動環境後重啟。命令列可使用 `PATH="$HOME/.local/bin:$PATH" pi-web`。全新容器若尚無任何對話，Web Plugins API 的工作目錄檢查會拒絕安裝；可先新增對話，或用 `pi install git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.12`。
+v0.3.1 使用安裝器自己的私有 npm 快取，修正非 root 容器繼承 `/tmp/npm-cache` 時的 EACCES。服務啟動的 PATH 必須包含 `$HOME/.local/bin`，並優先於原生 `pi-web`；`install-ui` 回傳 `pathUpdateRequired: true` 時，請更新服務的啟動環境後重啟。命令列可使用 `PATH="$HOME/.local/bin:$PATH" pi-web`。全新容器若尚無任何對話，Web Plugins API 的工作目錄檢查會拒絕安裝；可先新增對話，或用 `pi install git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.13`。
 
 v0.3.2 在原生分頁登入／取消成功後，同步刷新插件專用的設定對話，避免已連線卻仍顯示舊網址視窗。專用對話若正在執行模型回合則跳過；其他對話不受影響。刷新不送出模型訊息，失敗也不撤回已成功的 server 登入。
 
@@ -166,7 +168,7 @@ v0.3.8 在驗證時定期查詢插件建立的測試 session 狀態；上游 HTT
 已有舊版 Omnigent／Paseo 的環境，先升級 Omnigent，再安裝對應的 Paseo。固定版本組合不可交叉混用：
 
 ```sh
-pi install git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.12
+pi install git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.13
 pi install git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.7
 ```
 
