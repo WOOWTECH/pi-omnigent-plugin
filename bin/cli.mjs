@@ -7,7 +7,7 @@ import { initialize, status, catalog, verify, repair, disconnect, setEnabled, en
 import { ensureOnboarding, installHost, uninstallHost, packageLifecycle, boot, launchWeb } from '../src/web.mjs';
 import { installDependencies } from '../src/installer.mjs';
 import { acceptance } from '../src/acceptance.mjs';
-import { installUi } from './install-ui.mjs';
+import { installUi, cleanupUi, UiInstallError } from './install-ui.mjs';
 
 const [command = 'status', ...args] = process.argv.slice(2);
 const loc = locations();
@@ -32,6 +32,12 @@ try {
     print(await installDependencies({ home: loc.home, stateDir: loc.stateDir, update: args.includes('--update') }));
   } else if (command === 'install-host') print(await installHost({ loc }));
   else if (command === 'install-ui') print(await installUi({ ...(option('--prebuilt-root') ? { prebuiltRoot: option('--prebuilt-root') } : {}) }));
+  else if (command === 'cleanup-ui') {
+    if (args.length > 1 || args.some(arg => !['--dry-run', '--apply'].includes(arg))) throw new UiInstallError('INVALID_ARGUMENTS');
+    const result = await cleanupUi({ dryRun: !args.includes('--apply') });
+    print(result);
+    if (result.status !== 'complete' && result.code !== 'NO_MANAGED_BUILDS') process.exitCode = 1;
+  }
   else if (command === 'uninstall-host') print(await uninstallHost({ loc }));
   else if (command === 'onboarding') print(await ensureOnboarding({ loc }));
   else if (command === 'boot') {
@@ -60,7 +66,7 @@ try {
       print({ phase: 'activated', host, onboarding });
     }
   } else {
-    print({ usage: 'pi-omnigent activate | acceptance [--chat] [--engine ENGINE --model MODEL] | status | catalog | verify [--engine claude|codex|pi] | initialize [--server URL] | disconnect | repair | install-dependencies | install-host | onboarding | launch-web | enable | disable' });
+    print({ usage: 'pi-omnigent activate | acceptance [--chat] [--engine ENGINE --model MODEL] | status | catalog | verify [--engine claude|codex|pi] | initialize [--server URL] | disconnect | repair | install-dependencies | install-host | install-ui [--prebuilt-root PATH] | cleanup-ui [--dry-run|--apply] | onboarding | launch-web | enable | disable' });
     process.exitCode = 2;
   }
 } catch (error) {

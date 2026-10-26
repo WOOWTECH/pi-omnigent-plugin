@@ -118,6 +118,19 @@ pi-omnigent install-ui
 
 這個明確安裝動作會下載固定官方 commit、驗證整合 patch，在使用者資料目錄建置並串接下次啟動。若既有 pi-paseo-plugin，驗證並保留其 native UI patch。建置完成後需重啟 Pi Web；安裝器不自動中斷運行中的對話。只實測 Linux x64、Pi Web 0.10.0。見 [整合說明](integrations/pi-web/README.md)。
 
+開發中的建置保留機制：只有 `install-ui` 完成啟動路由、啟用連結與回條後，才會清理 `$HOME/.local/share/pi-omnigent-web/pi-web-releases`。保留啟用中的建置與前兩個可辨識的回復版本；仍有程序使用的建置及啟動器的備援版本另外保留。每次最多移除四個更舊的受管建置，不會移除未完成安裝、失敗升級、無效或未知回條、自訂目錄、目錄捷徑，也不掃描使用者專案。
+
+可先預覽，再明確執行同一套有上限的清理：
+
+```sh
+pi-omnigent cleanup-ui --dry-run
+pi-omnigent cleanup-ui --apply
+```
+
+省略參數也是預覽，不更動建置與回條。清理與安裝共用鎖；正在安裝時回報 `HOST_INSTALL_BUSY`。啟用回條不一致、需要手動接線，或無法檢查 Linux 程序工作目錄時，會停止清理。符號連結不會被跟隨；舊受管建置內的符號連結只隨該建置移除，其目標保留。掛載於不同裝置的子目錄、特殊檔案及檢查失敗的目錄保留。待重新啟動的 Pi Web 可持續使用舊建置。
+
+結果中的 `reclaimableBytes` 是本次最多四個候選建置的一般檔案邏輯大小；`reclaimedBytes` 只計入已成功移除的建置，預覽時為零。這不是磁碟實際可用空間差額，硬連結、快照與檔案系統配置可能使兩者不同。`deferred` 表示因每次四個上限而留待後續執行的數量。執行回條寫至同一受管根目錄的 `ui-retention.json`，只記錄建置識別碼、大小與固定狀態碼，不記錄程序參數、環境變數或對話內容。保護條件可能讓保留數量超過三個；不會為達到數量上限而強制刪除。
+
 v0.3.1 使用安裝器自己的私有 npm 快取，修正非 root 容器繼承 `/tmp/npm-cache` 時的 EACCES。服務啟動的 PATH 必須包含 `$HOME/.local/bin`，並優先於原生 `pi-web`；`install-ui` 回傳 `pathUpdateRequired: true` 時，請更新服務的啟動環境後重啟。命令列可使用 `PATH="$HOME/.local/bin:$PATH" pi-web`。全新容器若尚無任何對話，Web Plugins API 的工作目錄檢查會拒絕安裝；可先新增對話，或用 `pi install git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.12`。
 
 v0.3.2 在原生分頁登入／取消成功後，同步刷新插件專用的設定對話，避免已連線卻仍顯示舊網址視窗。專用對話若正在執行模型回合則跳過；其他對話不受影響。刷新不送出模型訊息，失敗也不撤回已成功的 server 登入。
