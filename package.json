@@ -1,7 +1,7 @@
 {
   "name": "@woowtech/pi-omnigent-plugin",
-  "version": "0.3.23",
-  "description": "Install Omnigent and connect the engines already present in Pi Web, with fresh-login onboarding and actual conversation verification.",
+  "version": "0.3.24",
+  "description": "Install Omnigent and connect existing Pi Web engines through Settings, with actual conversation verification.",
   "type": "module",
   "license": "MIT",
   "engines": {

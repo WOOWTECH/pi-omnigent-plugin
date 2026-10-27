@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as runtime from '../src/runtime.mjs';
-import { boot, readOnboarding } from '../src/web.mjs';
+import { boot } from '../src/web.mjs';
 import { saveJSON, readJSON, locked } from '../src/common.mjs';
 
 function fixture(t) {
@@ -38,24 +38,24 @@ function fixture(t) {
   return { ctx, state, options, login };
 }
 
-test('two boots and a later restart restore the original host with one onboarding and no model calls', async t => {
+test('two boots and a later restart restore the original host without a setup conversation or model calls', async t => {
   const f = fixture(t); await f.login();
   await boot(f.options);
   assert.equal(f.state.online, true, 'the real boot must restore the prior connection');
-  const first = readOnboarding(f.options).sessionId;
+  assert.equal(fs.existsSync(path.join(f.ctx.loc.stateDir, 'onboarding.json')), false);
   await boot(f.options); f.state.online = false; await boot(f.options);
   assert.equal(f.state.online, true); assert.equal(f.state.hostId, 'original-host');
-  assert.equal(readOnboarding(f.options).sessionId, first);
+  assert.equal(fs.existsSync(path.join(f.ctx.loc.stateDir, 'onboarding.json')), false);
   assert.equal(f.state.calls.some(c => ['connect', 'verify'].includes(c.action)), false);
   assert.equal((await runtime.status(f.ctx)).phase, 'needs-verification');
 });
 
-test('ambient SDK login cannot resume a fresh install or bypass its single onboarding', async t => {
+test('ambient SDK login cannot resume a fresh install or trigger setup conversation', async t => {
   const f = fixture(t); f.state.online = true;
   // External status advertises an existing SDK host; no plugin consent exists.
-  await boot(f.options); const first = readOnboarding(f.options).sessionId;
   await boot(f.options);
-  assert.ok(first); assert.equal(readOnboarding(f.options).sessionId, first);
+  await boot(f.options);
+  assert.equal(fs.existsSync(path.join(f.ctx.loc.stateDir, 'onboarding.json')), false);
   assert.equal(f.state.calls.some(c => ['connect', 'resume', 'verify'].includes(c.action)), false);
   const state = await runtime.status(f.ctx); assert.equal(state.loginConfirmed, false);
   assert.equal(state.phase, 'needs-login');

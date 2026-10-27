@@ -7,7 +7,7 @@ import { EventEmitter } from 'node:events';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { ensureOnboarding, installHost, uninstallHost, loadPiSdk, boot, startOnboardingSession, refreshOnboardingSession, launchWeb, packageLifecycle, watchPackageLifecycle } from '../src/web.mjs';
+import { installHost, uninstallHost, loadPiSdk, boot, launchWeb, packageLifecycle, watchPackageLifecycle } from '../src/web.mjs';
 
 function fixture(t) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-omnigent-web-'));
@@ -17,126 +17,39 @@ function fixture(t) {
   return { home, agentDir, stateDir, root: fileURLToPath(new URL('../', import.meta.url)), cwd: home, env: { HOME: home, PATH: '' }, lifecycle: { active: true } };
 }
 
-test('SDK onboarding persists a discoverable conversation once under the requested data root', async t => {
+test('ready boot preserves status without creating a conversation or calling Pi Web', async t => {
   const options = fixture(t);
-  const sdk = await loadPiSdk();
-  const created = await ensureOnboarding({ ...options, sdk });
-  assert.equal(created.status, 'created');
-  assert.ok(created.sessionFile.startsWith(path.join(options.agentDir, 'sessions')));
-  const reopened = sdk.SessionManager.open(created.sessionFile);
-  assert.equal(reopened.getSessionName(), 'Omnigent 連線設定');
-  assert.equal(reopened.getSessionId(), created.sessionId);
-  assert.equal(reopened.getEntries().filter(entry => entry.type === 'message').length, 1);
-  const repeated = await ensureOnboarding({ ...options, sdk });
-  assert.equal(repeated.status, 'reused');
-  assert.equal(repeated.sessionId, created.sessionId);
-  assert.match(created.url, /^\/\?session=/);
-});
-
-test('parallel initialization shares one persisted onboarding session', async t => {
-  const options = fixture(t);
-  const sdk = await loadPiSdk();
-  const sessions = await Promise.all(Array.from({ length: 5 }, () => ensureOnboarding({ ...options, sdk })));
-  assert.equal(new Set(sessions.map(session => session.sessionId)).size, 1);
-  assert.equal(sessions.filter(session => session.status === 'created').length, 1);
-});
-
-test('ready boot checks status without reinstalling, reconnecting, creating chat, or calling Pi Web', async t => {
-  const options = fixture(t);
-  let statusOptions;
   const result = await boot({ ...options, runtime: {
-    status: async input => { statusOptions = input; return { phase: 'ready' }; },
-    initialize: () => assert.fail('ready startup must not initialize'),
+    status: async () => ({ phase: 'ready' }),
     prepare: () => assert.fail('ready startup must not prepare dependencies'),
-  }, fetch: () => assert.fail('ready startup must not call web') });
+  }, fetch: () => assert.fail('boot must not call Pi Web') });
   assert.equal(result.startup.status, 'ready');
-  assert.equal(statusOptions.loc.stateDir, options.stateDir);
-  assert.equal(fs.existsSync(options.stateDir), false);
+  assert.equal(fs.existsSync(path.join(options.stateDir, 'onboarding.json')), false);
 });
 
-test('disabled boot has no onboarding or installation side effects', async t => {
+test('incomplete boot prepares dependencies and leaves binding to Settings', async t => {
   const options = fixture(t);
-  const result = await boot({ ...options, runtime: { status: async () => ({ phase: 'disabled' }), initialize: () => assert.fail('disabled startup must not initialize'), prepare: () => assert.fail('disabled startup must not install') } });
-  assert.equal(result.startup.status, 'disabled');
-  assert.equal(fs.existsSync(options.stateDir), false);
-});
-
-test('incomplete boot creates chat and starts extension runtime without model prompt or secret state', async t => {
-  const options = fixture(t);
-  const sdk = await loadPiSdk();
-  const requests = [];
   let prepared = false;
-  const secret = 'only-in-memory-fixture-password';
-  const result = await boot({ ...options, sdk, env: { ...options.env, PI_WEB_PASSWORD: secret }, runtime: {
+  const result = await boot({ ...options, runtime: {
     status: async () => ({ phase: 'needs-login' }),
-    initialize: () => assert.fail('startup must never initialize using ambient credentials'),
     prepare: async input => { prepared = input.loc.stateDir === options.stateDir; return { phase: 'needs-login' }; },
-  }, fetch: async (url, request) => { requests.push({ url: String(url), request }); return { ok: true, json: async () => ({ data: { commands: [{ name: 'omnigent' }] } }) }; } });
+  }, fetch: () => assert.fail('boot must not create a Pi Web conversation') });
   assert.equal(prepared, true);
-  assert.equal(result.startup.status, 'started');
-  assert.deepEqual(JSON.parse(requests[0].request.body), { type: 'get_commands' });
-  assert.equal(Buffer.from(requests[0].request.headers.Authorization.slice(6), 'base64').toString(), `pi:${secret}`);
-  assert.equal(JSON.stringify(result).includes(secret), false);
-  assert.equal(fs.readFileSync(path.join(options.stateDir, 'onboarding.json'), 'utf8').includes(secret), false);
+  assert.equal(result.startup.status, 'settings-required');
+  assert.equal(fs.existsSync(path.join(options.stateDir, 'onboarding.json')), false);
 });
 
-test('web auth rejection preserves saved conversation and returns safe manual recovery', async () => {
-  const result = await startOnboardingSession('session-id', { attempts: 1, fetch: async () => ({ ok: false, status: 401 }) });
-  assert.equal(result.status, 'manual-open-required');
-});
-
-test('postinstall readiness reloads only the generated onboarding session until the plugin command is loaded', async () => {
-  const commands = [];
-  let loaded = false;
-  const result = await startOnboardingSession('owned-onboarding-id', { attempts: 3, retryDelay: 0, fetch: async (url, request) => {
-    assert.equal(new URL(url).pathname, '/api/agent/owned-onboarding-id');
-    const command = JSON.parse(request.body);
-    commands.push(command.type);
-    if (command.type === 'reload') loaded = true;
-    return { ok: true, json: async () => ({ data: { commands: loaded ? [{ name: 'omnigent' }] : [] } }) };
-  } });
-  assert.equal(result.status, 'started');
-  assert.deepEqual(commands, ['get_commands', 'reload', 'get_commands']);
-});
-
-test('host startup refuses a remote credential destination', async () => {
-  await assert.rejects(startOnboardingSession('id', { webUrl: 'https://remote.example.com', fetch: () => assert.fail('must not send credentials') }), /local HTTP origin/);
-});
-
-test('native settings refresh only the saved onboarding and never submit a model prompt', async t => {
-  const options = fixture(t), requests = [];
-  fs.mkdirSync(options.stateDir, { recursive: true });
-  fs.writeFileSync(path.join(options.stateDir, 'onboarding.json'), JSON.stringify({ sessionId: 'own-onboarding' }));
-  const result = await refreshOnboardingSession({ ...options, env: { ...options.env, PI_WEB_PASSWORD: 'private-fixture' }, fetch: async (url, request) => {
-    requests.push({ url: String(url), request });
-    return { ok: true, json: async () => requests.length === 1 ? { runningSessionIds: ['another-active-session'] } : { success: true } };
-  } });
-  assert.equal(result.status, 'refreshed');
-  assert.equal(new URL(requests[1].url).pathname, '/api/agent/own-onboarding');
-  assert.deepEqual(JSON.parse(requests[1].request.body), { type: 'reload', clearExtensionUi: true });
-  assert.equal(JSON.stringify(result).includes('private-fixture'), false);
-});
-
-test('native settings refresh preserves an active onboarding turn and refuses unknown running state', async t => {
+test('stale setup conversation is ignored by boot', async t => {
   const options = fixture(t);
   fs.mkdirSync(options.stateDir, { recursive: true });
-  fs.writeFileSync(path.join(options.stateDir, 'onboarding.json'), JSON.stringify({ sessionId: 'own-onboarding' }));
-  for (const running of [{ runningSessionIds: ['own-onboarding'] }, {}]) {
-    let calls = 0;
-    const result = await refreshOnboardingSession({ ...options, fetch: async () => {
-      assert.equal(++calls, 1, 'must not reload'); return { ok: true, json: async () => running };
-    } });
-    assert.notEqual(result.status, 'refreshed');
-  }
-});
-
-test('native settings refresh cannot send web auth to a remote origin or return adapter error bodies', async t => {
-  const options = fixture(t);
-  fs.mkdirSync(options.stateDir, { recursive: true });
-  fs.writeFileSync(path.join(options.stateDir, 'onboarding.json'), JSON.stringify({ sessionId: 'own-onboarding' }));
-  await assert.rejects(refreshOnboardingSession({ ...options, webUrl: 'https://remote.invalid', fetch: () => assert.fail('must not send authentication') }), /local HTTP origin/);
-  const result = await refreshOnboardingSession({ ...options, fetch: async () => { throw new Error('private-token'); } });
-  assert.deepEqual(result, { status: 'manual-open-required' });
+  const saved = JSON.stringify({ sessionId: 'legacy-session' });
+  fs.writeFileSync(path.join(options.stateDir, 'onboarding.json'), saved);
+  const result = await boot({ ...options, runtime: {
+    status: async () => ({ phase: 'needs-login' }),
+    prepare: async () => ({ phase: 'needs-login' }),
+  }, fetch: () => assert.fail('stale setup conversation must not be opened') });
+  assert.equal(result.startup.status, 'settings-required');
+  assert.equal(fs.readFileSync(path.join(options.stateDir, 'onboarding.json'), 'utf8'), saved);
 });
 
 test('unknown Pi Web launcher is preserved and a named wrapper composes it', async t => {
@@ -207,17 +120,6 @@ const child=spawn(present?"/usr/bin/node":"pi-web",present?[cli,'launch-web',...
   fs.writeFileSync(shim, original, { mode: 0o755 });
   assert.equal((await installHost(options)).mode, 'named-wrapper');
   assert.equal(fs.readFileSync(shim, 'utf8'), original);
-});
-
-test('incomplete setup restarts a stale loaded extension only once before reporting started', async () => {
-  const commands = [];
-  const result = await startOnboardingSession('owned-onboarding-id', { attempts: 3, retryDelay: 0, fetch: async (url, request) => {
-    assert.equal(new URL(url).pathname, '/api/agent/owned-onboarding-id');
-    const command = JSON.parse(request.body); commands.push(command.type);
-    return { ok: true, json: async () => ({ success: true, data: { commands: [{ name: 'omnigent' }] } }) };
-  } });
-  assert.equal(result.status, 'started');
-  assert.deepEqual(commands, ['get_commands', 'reload', 'get_commands']);
 });
 
 test('sibling marker with relative executable does not authorize wrapping its default path', async t => {

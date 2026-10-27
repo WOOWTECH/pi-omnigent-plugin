@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { locations, saveJSON, safeError } from '../src/common.mjs';
 import path from 'node:path';
 import { initialize, status, catalog, verify, repair, disconnect, setEnabled, enabled } from '../src/runtime.mjs';
-import { ensureOnboarding, installHost, uninstallHost, packageLifecycle, boot, launchWeb } from '../src/web.mjs';
+import { installHost, uninstallHost, packageLifecycle, boot, launchWeb } from '../src/web.mjs';
 import { installDependencies } from '../src/installer.mjs';
 import { acceptance } from '../src/acceptance.mjs';
 import { installUi, cleanupUi, UiInstallError } from './install-ui.mjs';
@@ -39,7 +39,6 @@ try {
     if (result.status !== 'complete' && result.code !== 'NO_MANAGED_BUILDS') process.exitCode = 1;
   }
   else if (command === 'uninstall-host') print(await uninstallHost({ loc }));
-  else if (command === 'onboarding') print(await ensureOnboarding({ loc }));
   else if (command === 'boot') {
     if (enabled()) {
       const result = await boot({ loc, allowUnregistered: args.includes('--activation-worker') });
@@ -57,16 +56,15 @@ try {
       const lifecycle = await packageLifecycle({ loc, allowUnregistered: args.includes('--auto') });
       if (!lifecycle.active) { print({ phase: 'inactive', reason: lifecycle.reason }); process.exit(0); }
       const host = await installHost({ loc });
-      const onboarding = await ensureOnboarding({ loc });
-      saveJSON(path.join(loc.stateDir, 'activation.json'), { activatedAt: new Date().toISOString(), host, onboarding });
+      saveJSON(path.join(loc.stateDir, 'activation.json'), { activatedAt: new Date().toISOString(), host });
       // Pi Web imposes an install timeout. Downloads and server checks run in a
-      // separate worker; creating the visible setup conversation stays bounded.
+      // separate worker; account binding starts only from the Settings page.
       const worker = spawn(process.execPath, [fileURLToPath(import.meta.url), 'boot', ...(args.includes('--auto') ? ['--activation-worker'] : [])], { env: process.env, detached: true, stdio: 'ignore' });
       worker.on('error', () => {}); worker.unref();
-      print({ phase: 'activated', host, onboarding });
+      print({ phase: 'activated', host, setup: 'settings-required' });
     }
   } else {
-    print({ usage: 'pi-omnigent activate | acceptance [--chat] [--engine ENGINE --model MODEL] | status | catalog | verify [--engine claude|codex|pi] | initialize [--server URL] | disconnect | repair | install-dependencies | install-host | install-ui [--prebuilt-root PATH] | cleanup-ui [--dry-run|--apply] | onboarding | launch-web | enable | disable' });
+    print({ usage: 'pi-omnigent activate | acceptance [--chat] [--engine ENGINE --model MODEL] | status | catalog | verify [--engine claude|codex|pi] | initialize [--server URL] | disconnect | repair | install-dependencies | install-host | install-ui [--prebuilt-root PATH] | cleanup-ui [--dry-run|--apply] | launch-web | enable | disable' });
     process.exitCode = 2;
   }
 } catch (error) {

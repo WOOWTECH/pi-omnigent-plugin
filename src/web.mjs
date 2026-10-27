@@ -4,11 +4,9 @@ import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { locked } from './common.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const launcherMarker = 'pi-omnigent-plugin web launcher';
-const onboardingTitle = 'Omnigent 連線設定';
 
 export function webLocations(options = {}) {
   const source = options.loc || options;
@@ -36,16 +34,6 @@ function writeJson(file, value) {
   }
 }
 
-async function withOnboardingLock(stateDir, callback) {
-  const lock = path.join(stateDir, 'onboarding.lock');
-  for (let attempt = 0; attempt < 100; attempt++) {
-    const result = await locked(lock, callback);
-    if (!result?.busy) return result;
-    await new Promise(resolve => setTimeout(resolve, 50));
-  }
-  throw new Error('Another process is preparing the Omnigent onboarding conversation.');
-}
-
 export async function loadPiSdk(options = {}) {
   if (options.sdk) return options.sdk;
   const bases = [webLocations(options).root, options.env?.PI_OMNIGENT_SDK_ROOT || process.env.PI_OMNIGENT_SDK_ROOT, process.cwd(), '/usr/local/lib/node_modules/@agegr/pi-web', '/usr/local/lib/node_modules', '/opt/pi-web'].filter(Boolean);
@@ -61,10 +49,6 @@ export async function loadPiSdk(options = {}) {
     }
   }
   throw new Error('Pi SDK is unavailable. Install this plugin in the Pi Agent / Pi Web container.');
-}
-
-export function readOnboarding(options = {}) {
-  return readJson(path.join(webLocations(options).stateDir, 'onboarding.json'));
 }
 
 async function readNativePackageLifecycle(options, loc) {
@@ -117,31 +101,6 @@ export function watchPackageLifecycle(onChange, options = {}) {
   };
   for (const file of files) fs.watchFile(file, { persistent: false, interval: 500 }, listener);
   return async () => { closed = true; for (const file of files) fs.unwatchFile(file, listener); await pending; };
-}
-
-/** Create a real SDK session without spending model tokens or storing account data. */
-export async function ensureOnboarding(options = {}) {
-  const loc = webLocations(options);
-  return withOnboardingLock(loc.stateDir, async () => {
-    const file = path.join(loc.stateDir, 'onboarding.json');
-    const current = readJson(file);
-    if (current.sessionId && current.sessionFile && fs.existsSync(current.sessionFile)) {
-      return { ...current, status: 'reused', url: `/?session=${encodeURIComponent(current.sessionId)}` };
-    }
-    if (options.ready) return { status: 'ready', sessionId: null };
-    const sdk = await loadPiSdk(options);
-    const cwd = path.resolve(options.cwd || loc.home);
-    const safePath = `--${cwd.replace(/^[/\\]/, '').replace(/[/\\:]/g, '-')}--`;
-    const session = sdk.SessionManager.create(cwd, path.join(loc.agentDir, 'sessions', safePath));
-    session.appendSessionInfo(onboardingTitle);
-    session.appendCustomEntry('omnigent-onboarding', { version: 1 });
-    // Pi does not persist name/custom-only sessions. A harmless initial user message
-    // creates the file; no model turn is submitted by this module.
-    session.appendMessage({ role: 'user', content: '啟動 Omnigent 連線設定精靈。伺服器與帳號資訊請在設定面板填寫，密碼不要貼在對話裡。', timestamp: Date.now() });
-    const record = { version: 1, sessionId: session.getSessionId(), sessionFile: session.getSessionFile(), cwd, createdAt: new Date().toISOString() };
-    writeJson(file, record);
-    return { ...record, status: 'created', url: `/?session=${encodeURIComponent(record.sessionId)}` };
-  });
 }
 
 function findExecutable(command, env, exclude = []) {
@@ -245,94 +204,20 @@ export async function uninstallHost(options = {}) {
   return { status };
 }
 
-function localWebUrl(options) {
-  const env = options.env || process.env;
-  const base = new URL(options.webUrl || env.PI_OMNIGENT_PI_WEB_URL || `http://127.0.0.1:${options.port || env.PORT || env.PI_WEB_PORT || '30141'}`);
-  if (base.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(base.hostname) || base.username || base.password || base.pathname !== '/' || base.search || base.hash) {
-    throw new Error('Pi Web boot endpoint must be a local HTTP origin.');
-  }
-  return base;
-}
-
-/** Start only the saved setup session. The API call does not submit an LLM prompt. */
-export async function startOnboardingSession(sessionId, options = {}) {
-  const base = localWebUrl(options);
-  const env = options.env || process.env;
-  const fetchImpl = options.fetch || fetch;
-  const password = env.PI_WEB_PASSWORD;
-  const headers = { 'Content-Type': 'application/json', ...(password ? { Authorization: `Basic ${Buffer.from(`pi:${password}`).toString('base64')}` } : {}) };
-  const request = command => fetchImpl(new URL(`/api/agent/${encodeURIComponent(sessionId)}`, base), {
-    method: 'POST', headers, body: JSON.stringify(command), signal: AbortSignal.timeout(5000),
-  });
-  const attempts = options.attempts ?? 30;
-  let restarted = false;
-  for (let attempt = 0; attempt < attempts; attempt++) {
-    try {
-      const response = await request({ type: 'get_commands' });
-      if (response.ok) {
-        const body = await response.json();
-        if (body.data?.commands?.some(command => command.name === 'omnigent') && restarted) return { status: 'started', sessionId };
-        // npm postinstall runs before installAndPersist writes the package entry.
-        // A loaded command does not prove the wizard is still waiting for input.
-        // Restart only this saved setup session once when it is already loaded;
-        // the read-only commands check then confirms the restarted binding.
-        const reload = await request({ type: 'reload' });
-        if ([401, 403].includes(reload.status)) return { status: 'manual-open-required', reason: 'Pi Web did not accept local authentication.', sessionId };
-        if (reload.ok) {
-          const result = await reload.json();
-          if (result.success !== false) {
-            restarted = true;
-            const checked = await request({ type: 'get_commands' });
-            if ([401, 403].includes(checked.status)) return { status: 'manual-open-required', reason: 'Pi Web did not accept local authentication.', sessionId };
-            if (checked.ok && (await checked.json()).data?.commands?.some(command => command.name === 'omnigent')) return { status: 'started', sessionId };
-          }
-        }
-      }
-      if ([401, 403].includes(response.status)) return { status: 'manual-open-required', reason: 'Pi Web did not accept local authentication.', sessionId };
-    } catch {}
-    if (attempt + 1 < attempts) await new Promise(resolve => setTimeout(resolve, options.retryDelay ?? 500));
-  }
-  return { status: 'manual-open-required', reason: 'Pi Web or the plugin was not ready. Reload and open the saved onboarding conversation.', sessionId };
-}
-
-/** Sync a native settings change with the saved wizard, preserving active turns. */
-export async function refreshOnboardingSession(options = {}) {
-  const record = readOnboarding(options);
-  const sessionId = record.sessionId;
-  if (typeof sessionId !== 'string' || !/^[a-zA-Z0-9-]{1,80}$/.test(sessionId)) return { status: 'no-onboarding' };
-  const base = localWebUrl(options);
-  const env = options.env || process.env;
-  const fetchImpl = options.fetch || fetch;
-  const headers = { 'Content-Type': 'application/json', ...(env.PI_WEB_PASSWORD
-    ? { Authorization: `Basic ${Buffer.from(`pi:${env.PI_WEB_PASSWORD}`).toString('base64')}` } : {}) };
-  try {
-    const sessions = await fetchImpl(new URL('/api/sessions?summary=1', base), { headers, signal: AbortSignal.timeout(5000) });
-    if (!sessions.ok) return { status: 'manual-open-required' };
-    const body = await sessions.json();
-    if (!Array.isArray(body.runningSessionIds)) return { status: 'manual-open-required' };
-    if (body.runningSessionIds.includes(sessionId)) return { status: 'skipped-running', sessionId };
-    const response = await fetchImpl(new URL(`/api/agent/${encodeURIComponent(sessionId)}`, base), {
-      method: 'POST', headers, body: JSON.stringify({ type: 'reload', clearExtensionUi: true }), signal: AbortSignal.timeout(5000),
-    });
-    if (!response.ok || (await response.json()).success === false) return { status: 'manual-open-required' };
-    return { status: 'refreshed', sessionId };
-  } catch { return { status: 'manual-open-required' }; }
-}
-
 export async function boot(options = {}) {
   const lifecycle = await packageLifecycle(options);
   const runtime = options.runtime || await import('./runtime.mjs');
   const runtimeOptions = { loc: webLocations(options), ...(options.env ? { env: options.env } : {}) };
   await runtime.observeLifecycle?.(lifecycle, runtimeOptions);
-  if (!lifecycle.active) return { initialization: { phase: 'inactive' }, onboarding: { status: 'inactive' }, startup: { status: 'inactive', reason: lifecycle.reason } };
+  if (!lifecycle.active) return { initialization: { phase: 'inactive' }, startup: { status: 'inactive', reason: lifecycle.reason } };
   let current = await runtime.status(runtimeOptions);
-  if (current.phase === 'disabled') return { initialization: { phase: 'disabled' }, onboarding: { status: 'disabled' }, startup: { status: 'disabled' } };
+  if (current.phase === 'disabled') return { initialization: { phase: 'disabled' }, startup: { status: 'disabled' } };
   let initialization;
   try { initialization = current.phase === 'ready' ? { phase: 'ready', checked: true }
     : typeof runtime.prepare === 'function'
     ? await runtime.prepare(runtimeOptions)
     : { phase: 'needs-login', prepared: false }; }
-  catch { initialization = { phase: 'error', reason: 'Omnigent initialization needs attention in its setup conversation.' }; }
+  catch { initialization = { phase: 'error', reason: 'Omnigent initialization needs attention in Settings.' }; }
   let resumption;
   if (initialization.ok !== false && initialization.phase !== 'error' && typeof runtime.resumeAuthorizedHost === 'function') {
     try { resumption = await runtime.resumeAuthorizedHost({ ...runtimeOptions, lifecycle: () => packageLifecycle(options) }); }
@@ -342,13 +227,8 @@ export async function boot(options = {}) {
   // A retained server heartbeat and prior model receipt cannot prove that the
   // local host process survived container replacement. Resume verifies it first.
   const ready = current.phase === 'ready' && (!resumption || resumption.resumed === true);
-  if (ready) return {
-    initialization, ...(resumption ? { resumption } : {}), onboarding: { status: 'ready' }, startup: { status: 'ready' } };
-  const onboarding = await ensureOnboarding({ ...options, ready });
-  const startup = !ready && onboarding.sessionId
-    ? await startOnboardingSession(onboarding.sessionId, options)
-    : { status: 'ready' };
-  return { initialization, ...(resumption ? { resumption } : {}), onboarding, startup };
+  return { initialization, ...(resumption ? { resumption } : {}),
+    startup: { status: ready ? 'ready' : 'settings-required' } };
 }
 
 /** Compose with any captured executable, including another plugin's Pi Web shim. */

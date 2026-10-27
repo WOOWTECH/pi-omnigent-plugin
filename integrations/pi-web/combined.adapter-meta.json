@@ -27,10 +27,10 @@
   },
   "omnigent": {
     "packageName": "@woowtech/pi-omnigent-plugin",
-    "packageVersion": "0.3.23",
-    "adapterPatchSha256": "32ed41c5d5ad2bf181c48821e1f366d8abe976c412bbfc61f75e77dc7503a7e0"
+    "packageVersion": "0.3.24",
+    "adapterPatchSha256": "4036340b867c9f8c54973f4657f8f74ed7923879311973cd18a032d9da5a006b"
   },
-  "patchSha256": "dbc975578efa5069eb77fe0a5a8d5768d62022fc9fe62f84eb9cfca762f3ef10",
+  "patchSha256": "9ea04de7fa0576de10604f017a09dfc08d472d7ce2c03454c6bbb4c7a2d7d3e6",
   "settingsSections": [
     "mcp",
     "omnigent",
