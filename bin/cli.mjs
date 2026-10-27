@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { locations, saveJSON, safeError } from '../src/common.mjs';
 import path from 'node:path';
 import { initialize, status, catalog, verify, repair, disconnect, setEnabled, enabled } from '../src/runtime.mjs';
-import { installHost, uninstallHost, packageLifecycle, boot, launchWeb } from '../src/web.mjs';
+import { installHost, uninstallHost, packageLifecycle, boot, launchWeb, ensureOnboarding } from '../src/web.mjs';
 import { installDependencies } from '../src/installer.mjs';
 import { acceptance } from '../src/acceptance.mjs';
 import { installUi, cleanupUi, UiInstallError } from './install-ui.mjs';
@@ -31,6 +31,7 @@ try {
   } else if (command === 'install-dependencies') {
     print(await installDependencies({ home: loc.home, stateDir: loc.stateDir, update: args.includes('--update') }));
   } else if (command === 'install-host') print(await installHost({ loc }));
+  else if (command === 'onboarding') print(await ensureOnboarding({ loc }));
   else if (command === 'install-ui') print(await installUi({ ...(option('--prebuilt-root') ? { prebuiltRoot: option('--prebuilt-root') } : {}) }));
   else if (command === 'cleanup-ui') {
     if (args.length > 1 || args.some(arg => !['--dry-run', '--apply'].includes(arg))) throw new UiInstallError('INVALID_ARGUMENTS');
@@ -56,15 +57,18 @@ try {
       const lifecycle = await packageLifecycle({ loc, allowUnregistered: args.includes('--auto') });
       if (!lifecycle.active) { print({ phase: 'inactive', reason: lifecycle.reason }); process.exit(0); }
       const host = await installHost({ loc });
-      saveJSON(path.join(loc.stateDir, 'activation.json'), { activatedAt: new Date().toISOString(), host });
-      // Pi Web imposes an install timeout. Downloads and server checks run in a
-      // separate worker; account binding starts only from the Settings page.
+      let onboarding;
+      try { onboarding = await ensureOnboarding({ loc }); }
+      catch { onboarding = { status: 'unavailable' }; }
+      saveJSON(path.join(loc.stateDir, 'activation.json'), { activatedAt: new Date().toISOString(), host, onboarding });
+      // Downloads and server checks run in a separate worker. The new setup
+      // conversation contains no credentials and does not submit a model turn.
       const worker = spawn(process.execPath, [fileURLToPath(import.meta.url), 'boot', ...(args.includes('--auto') ? ['--activation-worker'] : [])], { env: process.env, detached: true, stdio: 'ignore' });
       worker.on('error', () => {}); worker.unref();
-      print({ phase: 'activated', host, setup: 'settings-required' });
+      print({ phase: 'activated', host, onboarding, setup: 'settings-required' });
     }
   } else {
-    print({ usage: 'pi-omnigent activate | acceptance [--chat] [--engine ENGINE --model MODEL] | status | catalog | verify [--engine claude|codex|pi] | initialize [--server URL] | disconnect | repair | install-dependencies | install-host | install-ui [--prebuilt-root PATH] | cleanup-ui [--dry-run|--apply] | launch-web | enable | disable' });
+    print({ usage: 'pi-omnigent activate | onboarding | acceptance [--chat] [--engine ENGINE --model MODEL] | status | catalog | verify [--engine claude|codex|pi] | initialize [--server URL] | disconnect | repair | install-dependencies | install-host | install-ui [--prebuilt-root PATH] | cleanup-ui [--dry-run|--apply] | launch-web | enable | disable' });
     process.exitCode = 2;
   }
 } catch (error) {

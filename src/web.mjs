@@ -4,9 +4,11 @@ import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { locked } from './common.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const launcherMarker = 'pi-omnigent-plugin web launcher';
+const onboardingTitle = 'Omnigent 連線設定';
 
 export function webLocations(options = {}) {
   const source = options.loc || options;
@@ -32,6 +34,38 @@ function writeJson(file, value) {
   } finally {
     try { fs.unlinkSync(temporary); } catch {}
   }
+}
+
+export function readOnboarding(options = {}) {
+  return readJson(path.join(webLocations(options).stateDir, 'onboarding.json'));
+}
+
+/** Persist one discoverable Pi conversation; credentials are entered in Settings. */
+export async function ensureOnboarding(options = {}) {
+  const loc = webLocations(options);
+  const lock = path.join(loc.stateDir, 'onboarding.lock');
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const result = await locked(lock, async () => {
+      const file = path.join(loc.stateDir, 'onboarding.json');
+      const current = readJson(file);
+      if (current.sessionId && current.sessionFile && fs.existsSync(current.sessionFile)) {
+        return { status: 'reused', sessionId: current.sessionId, url: `/?session=${encodeURIComponent(current.sessionId)}` };
+      }
+      const sdk = await loadPiSdk(options);
+      const cwd = path.resolve(options.cwd || loc.home);
+      const safePath = `--${cwd.replace(/^[/\\]/, '').replace(/[/\\:]/g, '-')}--`;
+      const session = sdk.SessionManager.create(cwd, path.join(loc.agentDir, 'sessions', safePath));
+      session.appendSessionInfo(onboardingTitle);
+      session.appendCustomEntry('omnigent-onboarding', { version: 1 });
+      session.appendMessage({ role: 'user', content: '啟動 Omnigent 連線設定。請在設定頁輸入 Server URL、帳號及密碼，密碼不要貼在對話裡。', timestamp: Date.now() });
+      const record = { version: 1, sessionId: session.getSessionId(), sessionFile: session.getSessionFile(), cwd, createdAt: new Date().toISOString() };
+      writeJson(file, record);
+      return { status: 'created', sessionId: record.sessionId, url: `/?session=${encodeURIComponent(record.sessionId)}` };
+    });
+    if (!result?.busy) return result;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  throw new Error('Another process is preparing Omnigent setup.');
 }
 
 export async function loadPiSdk(options = {}) {
@@ -209,9 +243,14 @@ export async function boot(options = {}) {
   const runtime = options.runtime || await import('./runtime.mjs');
   const runtimeOptions = { loc: webLocations(options), ...(options.env ? { env: options.env } : {}) };
   await runtime.observeLifecycle?.(lifecycle, runtimeOptions);
-  if (!lifecycle.active) return { initialization: { phase: 'inactive' }, startup: { status: 'inactive', reason: lifecycle.reason } };
+  if (!lifecycle.active) return { initialization: { phase: 'inactive' }, onboarding: { status: 'inactive' }, startup: { status: 'inactive', reason: lifecycle.reason } };
   let current = await runtime.status(runtimeOptions);
-  if (current.phase === 'disabled') return { initialization: { phase: 'disabled' }, startup: { status: 'disabled' } };
+  if (current.phase === 'disabled') return { initialization: { phase: 'disabled' }, onboarding: { status: 'disabled' }, startup: { status: 'disabled' } };
+  let onboarding;
+  if (current.phase !== 'ready') {
+    try { onboarding = await ensureOnboarding(options); }
+    catch { onboarding = { status: 'unavailable' }; }
+  } else onboarding = { status: readOnboarding(options).sessionId ? 'reused' : 'ready' };
   let initialization;
   try { initialization = current.phase === 'ready' ? { phase: 'ready', checked: true }
     : typeof runtime.prepare === 'function'
@@ -227,7 +266,7 @@ export async function boot(options = {}) {
   // A retained server heartbeat and prior model receipt cannot prove that the
   // local host process survived container replacement. Resume verifies it first.
   const ready = current.phase === 'ready' && (!resumption || resumption.resumed === true);
-  return { initialization, ...(resumption ? { resumption } : {}),
+  return { initialization, onboarding, ...(resumption ? { resumption } : {}),
     startup: { status: ready ? 'ready' : 'settings-required' } };
 }
 
