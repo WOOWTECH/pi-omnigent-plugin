@@ -15,8 +15,10 @@ Repository 為公開，可直接安裝，不需要 GitHub token。安裝後請�
 商業部署請固定版本，避免不同容器在更新時取得不同程式：
 
 ```text
-git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.25
+git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.26
 ```
+
+v0.3.26 修正 Pi 原生登入後 Omnigent 模型選單可能為空：已授權但清單為空時，插件會執行 Pi 的模型目錄更新並重新查詢 host。失敗後 15 分鐘內不重複請求；重新登入可立即重試。這個動作不會建立對話或複製登入憑證。既有 Pi Web 設定介面不需重建，更新插件後重啟 Pi Web 即可載入新程式。
 
 v0.3.25 與 Paseo v0.1.12 共用 Pi Web 時，兩個插件都只在 Settings 分頁處理綁定；首頁不會自動開啟設定對話，也不增加 Paseo 快捷按鈕。共用安裝器只接受 v0.1.12 的精確補丁雜湊，避免舊版 Paseo 再度建立對話。更新兩個插件後執行 `pi-omnigent install-ui` 並重啟 Pi Web；HA add-on 另由新版映像更新。
 

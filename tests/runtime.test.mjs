@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { initialize, verify, status, prepare, disconnect } from '../src/runtime.mjs';
+import { initialize, verify, status, prepare, disconnect, catalog } from '../src/runtime.mjs';
 import { normalizeServer, saveJSON, locked } from '../src/common.mjs';
 import * as runtime from '../src/runtime.mjs';
 
@@ -30,6 +30,45 @@ test('only real sentinel replies from all engines make setup ready; credentials 
     assert.ok(!fs.readFileSync(path.join(ctx.loc.stateDir, file), 'utf8').includes('SECRET_TEST_PASSWORD'));
     assert.equal(fs.statSync(path.join(ctx.loc.stateDir, file)).mode & 0o777, 0o600);
   }
+});
+
+test('catalog refreshes the Pi model picker after a new native login', async t => {
+  const ctx = fixture(t);
+  ctx.dependencies.pi.path = '/fake/pi';
+  saveJSON(path.join(ctx.loc.stateDir, 'state.json'), { server: 'https://omni.test', enabled: true, loginConfirmed: true });
+  saveJSON(path.join(ctx.loc.agentDir, 'auth.json'), { 'openai-codex': { type: 'oauth' } });
+  let refreshed = false;
+  let refreshCount = 0;
+  ctx.runPiModelRefresh = async () => { refreshed = true; refreshCount++; return { code: 0 }; };
+  ctx.callAdapter = async input => input.action === 'catalog' ? { ok: true, data: {
+    host: { id: 'host-1', connected: true },
+    engines: { pi: { installed: true, configured: true, ready: refreshed,
+      models: refreshed ? [{ id: 'openai-codex/gpt-6.1-sol' }] : [] } },
+  } } : { ok: true, data: {} };
+  const first = await catalog(ctx);
+  assert.equal(first.data.engines.pi.models.length, 1);
+  assert.equal(refreshCount, 1);
+  await catalog(ctx);
+  assert.equal(refreshCount, 1);
+});
+
+test('a failed Pi catalog refresh is bounded until native login changes', async t => {
+  const ctx = fixture(t);
+  ctx.dependencies.pi.path = '/fake/pi';
+  saveJSON(path.join(ctx.loc.stateDir, 'state.json'), { server: 'https://omni.test', enabled: true, loginConfirmed: true });
+  const authPath = path.join(ctx.loc.agentDir, 'auth.json');
+  saveJSON(authPath, { 'openai-codex': { type: 'oauth' } });
+  let refreshCount = 0;
+  ctx.runPiModelRefresh = async () => { refreshCount++; return { code: 1 }; };
+  ctx.callAdapter = async input => input.action === 'catalog' ? { ok: true, data: {
+    host: { id: 'host-1', connected: true }, engines: { pi: { installed: true, configured: true, ready: false, models: [] } },
+  } } : { ok: true, data: {} };
+  await catalog(ctx);
+  await catalog(ctx);
+  assert.equal(refreshCount, 1);
+  saveJSON(authPath, { 'openai-codex': { type: 'oauth', account: 'another-login' } });
+  await catalog(ctx);
+  assert.equal(refreshCount, 2);
 });
 test('missing response never becomes ready', async t => {
   const ctx = fixture(t, 'codex'); const result = await initialize(ctx);

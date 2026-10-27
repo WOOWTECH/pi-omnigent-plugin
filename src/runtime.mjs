@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { locations, readJSON, saveJSON, normalizeServer, locked, runJSON } from './common.mjs';
-import { discover, installDependencies, runtimeEnv } from './installer.mjs';
+import { discover, installDependencies, runCommand, runtimeEnv } from './installer.mjs';
 
 const ENGINES = ['claude', 'codex', 'pi'];
 const statePath = loc => path.join(loc.stateDir, 'state.json');
@@ -38,7 +38,7 @@ async function context(options = {}) {
     catch (error) { return { ok: false, error: { code: /^[A-Z_0-9]+$/.test(error?.code || '') ? error.code : 'ADAPTER_FAILED',
       message: 'Omnigent 程序未完成；請查看狀態並重試修復。' } }; }
   };
-  return { loc, env, dependencies, call };
+  return { loc, env, dependencies, call, runPiModelRefresh: options.runPiModelRefresh };
 }
 function successfulReceipt(receipt, state, host, dependency) {
   return receipt?.ok === true && receipt.cleanup === 'stopped' && receipt.server === state.server && receipt.hostId === host?.id
@@ -70,9 +70,51 @@ export async function status(options = {}) {
     engines: Object.fromEntries(ENGINES.map(engine => [engine, { ...dependencies[engine], ...(data.engines?.[engine] || {}) }])),
     verification, ...(response.ok ? {} : { error: response.error }), ...(state.issue ? { issue: state.issue } : {}) };
 }
+function nativePiLoginFingerprint(loc) {
+  try {
+    const file = path.join(loc.agentDir, 'auth.json');
+    const metadata = fs.lstatSync(file);
+    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size > 1024 * 1024) return null;
+    const credentials = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!credentials || typeof credentials !== 'object' || Array.isArray(credentials)
+      || !Object.keys(credentials).length) return null;
+    return `${metadata.mtimeMs}:${metadata.size}`;
+  } catch { return null; }
+}
+
+async function queryCatalog(ctx, state) {
+  const input = { ...(state.server ? { server: state.server } : {}) };
+  const response = await ctx.call('catalog', input);
+  const pi = response.data?.engines?.pi;
+  if (!response.ok || !response.data?.host?.connected || pi?.installed !== true || pi.configured !== true
+    || !Array.isArray(pi.models) || pi.models.length || pi.modelError || !ctx.dependencies.pi?.path
+    || ctx.env.PI_OFFLINE) return response;
+  const login = nativePiLoginFingerprint(ctx.loc);
+  if (!login) return response;
+  const marker = path.join(ctx.loc.stateDir, 'pi-model-refresh.json');
+  const recent = () => {
+    const last = readJSON(marker, {});
+    return last.login === login && Number.isFinite(last.at) && Date.now() - last.at < 15 * 60_000;
+  };
+  if (recent()) return response;
+  let refreshed;
+  try {
+    refreshed = await locked(path.join(ctx.loc.stateDir, 'pi-model-refresh.lock'), async () => {
+      if (recent()) return null;
+      saveJSON(marker, { login, at: Date.now() });
+      const env = { ...ctx.env, HOME: ctx.loc.home, PI_CODING_AGENT_DIR: ctx.loc.agentDir };
+      const result = ctx.runPiModelRefresh
+        ? await ctx.runPiModelRefresh(ctx.dependencies.pi.path, env)
+        : await runCommand(ctx.dependencies.pi.path, ['update', '--models'], { env, timeoutMs: 30_000 });
+      return result?.code === 0 ? await ctx.call('catalog', input) : null;
+    });
+  } catch { return response; }
+  return refreshed?.ok === true ? refreshed : response;
+}
+
 export async function catalog(options = {}) {
-  const { loc, call } = await context(options); const state = stateOf(loc);
-  const response = await call('catalog', { ...(state.server ? { server: state.server } : {}) });
+  const ctx = await context(options); const { loc } = ctx; const state = stateOf(loc);
+  const response = await queryCatalog(ctx, state);
   if (response.ok) saveJSON(path.join(loc.stateDir, 'catalog.json'), response.data);
   return response;
 }
@@ -149,7 +191,7 @@ async function verifyInternal(ctx, { engine, model } = {}) {
     return { ok: false, phase: 'needs-engine', error: stateOf(loc).issue };
   }
   writeState(loc, { phase: 'verifying', issue: null });
-  const summary = await call('catalog', { server: state.server });
+  const summary = await queryCatalog(ctx, state);
   if (!summary.ok) {
     writeState(loc, { phase: summary.error?.code === 'NEEDS_LOGIN' ? 'needs-login' : 'error', issue: summary.error });
     return { ok: false, phase: stateOf(loc).phase, error: summary.error };
