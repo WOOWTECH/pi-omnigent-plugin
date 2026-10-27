@@ -57,7 +57,7 @@ index 0000000..6026304
 +}
 diff --git a/app/api/plugin-paseo/route.test.mjs b/app/api/plugin-paseo/route.test.mjs
 new file mode 100644
-index 0000000..88941e5
+index 0000000..70b9e3c
 --- /dev/null
 +++ b/app/api/plugin-paseo/route.test.mjs
 @@ -0,0 +1,349 @@
@@ -113,7 +113,6 @@ index 0000000..88941e5
 +    "@/lib/paseo-plugin": {
 +      configuredPaseoPackages(directory) { calls.push(`discover:${directory}`); return options.missing ? [] : [pkg]; },
 +      loadPaseoHostApi: async () => api,
-+      createPaseoOnboarding: async (directory, remember, prompt) => { calls.push(`onboarding:${directory}`); await remember?.("fixture-onboarding"); return prompt ? "fixture-onboarding" : "missing-prompt"; },
 +    },
 +    "@/lib/file-access": {
 +      getAllowedFileRoots: async () => new Set([cwd]),
@@ -328,14 +327,15 @@ index 0000000..88941e5
 +  assert.deepEqual(f.calls, []);
 +});
 +
-+test("Paseo route forwards the onboarding prompt and ID checkpoint to the host", async (t) => {
++test("Paseo activation never sends an onboarding hook or conversation ID", async (t) => {
 +  const f = fixture(t);
-+  let remembered;
-+  f.api.lifecycle = async (_input, hooks) => ({ onboardingSessionId: await hooks.createOnboarding("Fixture authorized prompt", (id) => { remembered = id; }) });
++  f.api.lifecycle = async (_input, hooks) => {
++    assert.equal(hooks, undefined);
++    return { phase: "starting", scheduled: true, onboardingSessionId: "legacy-session" };
++  };
 +  const res = await f.dispatch(f.request({ action: "activate" }));
 +  assert.equal(res.status, 200);
-+  assert.equal(remembered, "fixture-onboarding");
-+  assert.equal((await res.json()).onboardingSessionId, "fixture-onboarding");
++  assert.deepEqual(await res.json(), { phase: "starting", scheduled: true });
 +});
 +
 +test("Plugin settings reject malformed requests before SDK discovery or lifecycle", async (t) => {
@@ -412,7 +412,7 @@ index 0000000..88941e5
 +});
 diff --git a/app/api/plugin-paseo/route.ts b/app/api/plugin-paseo/route.ts
 new file mode 100644
-index 0000000..c516efc
+index 0000000..9505447
 --- /dev/null
 +++ b/app/api/plugin-paseo/route.ts
 @@ -0,0 +1,96 @@
@@ -423,7 +423,7 @@ index 0000000..c516efc
 +import { isAbsolute } from "node:path";
 +import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 +import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
-+import { configuredPaseoPackages, createPaseoOnboarding, loadPaseoHostApi } from "@/lib/paseo-plugin";
++import { configuredPaseoPackages, loadPaseoHostApi } from "@/lib/paseo-plugin";
 +import { paseoLifecycleResult } from "@/lib/paseo-plugin-lifecycle";
 +import { serializePluginPackageOperation } from "@/lib/plugin-package-lock";
 +import { paseoDiagnosticChecks, paseoModelCatalog, paseoPublicStatus, readPaseoConfig, safePaseoPairUrl } from "@/lib/paseo-ui";
@@ -500,7 +500,7 @@ index 0000000..c516efc
 +        return response(await publicStatus());
 +      }
 +      if (body.action === "activate" && target.disabled) return response({ error: "請先在插件設定啟用 Paseo。" }, 409);
-+      const result = await api.lifecycle({ action: body.action === "disable" ? "disable" : "enable", cwd, source: target.source, scope: target.scope, packages: body.action === "disable" ? [] : packages }, { createOnboarding: (prompt, remember) => createPaseoOnboarding(cwd, remember, prompt) });
++      const result = await api.lifecycle({ action: body.action === "disable" ? "disable" : "enable", cwd, source: target.source, scope: target.scope, packages: body.action === "disable" ? [] : packages });
 +      return response(paseoLifecycleResult(result));
 +    };
 +    // Runtime reads are independently bounded. A model/provider lookup can
@@ -916,7 +916,7 @@ index 0000000..a04d263
 +}
 diff --git a/app/paseo-web/[[...path]]/route.ts b/app/paseo-web/[[...path]]/route.ts
 new file mode 100644
-index 0000000..e85cb8a
+index 0000000..3087ee9
 --- /dev/null
 +++ b/app/paseo-web/[[...path]]/route.ts
 @@ -0,0 +1,23 @@
@@ -938,38 +938,30 @@ index 0000000..e85cb8a
 +    if (!api.web) return new Response("請更新 Paseo 插件以啟用修正版網頁。", { status: 503, headers });
 +    return await api.web(request);
 +  } catch {
-+    return new Response("Paseo 網頁尚未就緒，請到 /paseo/setup 繼續初始化。", { status: 503, headers });
++    return new Response("Paseo 網頁尚未就緒，請到 Pi Web 設定 > 插件檢查服務。", { status: 503, headers });
 +  }
 +}
 +
 +export const HEAD = GET;
 diff --git a/app/paseo/setup/page.tsx b/app/paseo/setup/page.tsx
 new file mode 100644
-index 0000000..85e3cb0
+index 0000000..fa8d06c
 --- /dev/null
 +++ b/app/paseo/setup/page.tsx
-@@ -0,0 +1,16 @@
-+import Link from "next/link";
-+import { PaseoPluginPanel } from "@/components/PaseoPluginPanel";
-+
-+export const dynamic = "force-dynamic";
+@@ -0,0 +1,8 @@
++import { homedir } from "node:os";
++import { redirect } from "next/navigation";
 +
 +export default async function PaseoSetupPage({ searchParams }: { searchParams: Promise<{ cwd?: string }> }) {
 +  const { cwd } = await searchParams;
-+  return (
-+    <main className="paseo-setup-page">
-+      <div style={{ maxWidth: 780, margin: "0 auto", display: "flex", flexDirection: "column", gap: 24 }}>
-+        <header><Link href="/" style={{ fontSize: 13 }}>← 回到 Pi Web</Link><h1 style={{ fontSize: 24, marginBottom: 8 }}>Paseo 初始化與連線</h1><p style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.7 }}>首次安裝／啟用會自動建立初始化對話；未完成時可續接同一對話。此頁沿用 Pi Web 的登入保護。</p></header>
-+        <PaseoPluginPanel cwd={typeof cwd === "string" ? cwd : ""} setup />
-+      </div>
-+    </main>
-+  );
++  const params = new URLSearchParams({ cwd: typeof cwd === "string" && cwd.startsWith("/") ? cwd : homedir(), settings: "plugins" });
++  redirect(`/?${params}`);
 +}
 diff --git a/app/settings.css b/app/settings.css
-index 66e0880..7637e6c 100644
+index 66e0880..335228e 100644
 --- a/app/settings.css
 +++ b/app/settings.css
-@@ -2427,3 +2427,47 @@
+@@ -2427,3 +2427,25 @@
      }
    }
  }
@@ -983,7 +975,6 @@ index 66e0880..7637e6c 100644
 +.omnigent-actions select { color: var(--text); background: var(--bg-panel); border: 1px solid var(--border); padding: 8px; border-radius: 6px; max-width: 100%; }
 +@media (max-width: 640px) { .omnigent-detail { padding: 16px; } .omnigent-engines { grid-template-columns: 1fr; } }
 +
-+/* Settings clips its main area: each embedded panel owns vertical scrolling. */
 +.paseo-plugin-panel {
 +  display: flex;
 +  flex-direction: column;
@@ -996,29 +987,8 @@ index 66e0880..7637e6c 100644
 +  flex-shrink: 0;
 +  min-width: 0;
 +}
-+
-+.settings-section-host > .paseo-plugin-panel {
-+  height: 100%;
-+  min-height: 0;
-+  overflow-y: auto;
-+  overscroll-behavior-y: contain;
-+  padding: 16px;
-+  box-sizing: border-box;
-+}
-+
-+/* The standalone route also lives inside Pi Web's overflow-hidden body. */
-+.paseo-setup-page {
-+  height: var(--app-viewport-height, 100dvh);
-+  min-height: 0;
-+  overflow-y: auto;
-+  overscroll-behavior-y: contain;
-+  box-sizing: border-box;
-+  padding: 32px 20px calc(32px + env(safe-area-inset-bottom, 0px));
-+  background: var(--bg);
-+  color: var(--text);
-+}
 diff --git a/components/AppShell.tsx b/components/AppShell.tsx
-index c50b18f..8ce6ae4 100644
+index c50b18f..7bacf6f 100644
 --- a/components/AppShell.tsx
 +++ b/components/AppShell.tsx
 @@ -77,7 +77,7 @@ function parkedNewSessionDraftKey(cwd: string): string {
@@ -1039,6 +1009,16 @@ index c50b18f..8ce6ae4 100644
    const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
    const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
    const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
+@@ -1121,6 +1121,9 @@ export function AppShell() {
+   }, [newSessionDraftKey]);
+   const showChat = selectedSession !== null || effectiveNewSessionCwd !== null;
+   const projectTrustCwd = selectedSession?.cwd ?? effectiveNewSessionCwd;
++  useEffect(() => {
++    if (projectTrustCwd && searchParams.get("settings") === "plugins") setSettingsSection("plugins");
++  }, [projectTrustCwd, searchParams]);
+   // While restoring initial session from URL, don't show the placeholder
+   const showPlaceholder = initialSessionRestored && !showChat;
+ 
 diff --git a/components/OmnigentConfig.tsx b/components/OmnigentConfig.tsx
 new file mode 100644
 index 0000000..3ebb85f
@@ -1172,10 +1152,10 @@ index 0000000..3ebb85f
 +}
 diff --git a/components/PaseoPluginPanel.behavior.test.mjs b/components/PaseoPluginPanel.behavior.test.mjs
 new file mode 100644
-index 0000000..0a168cc
+index 0000000..63f0d91
 --- /dev/null
 +++ b/components/PaseoPluginPanel.behavior.test.mjs
-@@ -0,0 +1,243 @@
+@@ -0,0 +1,254 @@
 +import assert from "node:assert/strict";
 +import fs from "node:fs";
 +import { fileURLToPath } from "node:url";
@@ -1193,7 +1173,7 @@ index 0000000..0a168cc
 +function fixture(t, { status = {}, fetch } = {}) {
 +  const hooks = [], effects = [], requests = [], timers = new Map();
 +  let now = Date.now();
-+  let cursor = 0, tree, props = { cwd: "/fixture/project", setup: true }, nextTimer = 0;
++  let cursor = 0, tree, props = { cwd: "/fixture/project" }, nextTimer = 0;
 +  const same = (a, b) => a && b && a.length === b.length && a.every((value, index) => Object.is(value, b[index]));
 +  const react = {
 +    useState(initial) {
@@ -1277,10 +1257,10 @@ index 0000000..0a168cc
 +test("Paseo lifecycle error receipts are shown as failure rather than success", async (t) => {
 +  const f = fixture(t, { fetch: async (_url, options) => Response.json(options?.method === "POST" ? { error: "Paseo 初始化尚未完成；請檢查診斷。" } : { enabled: true, packageEnabled: true, daemon: { healthy: true } }) });
 +  await f.settle();
-+  f.button("啟動／繼續初始化").props.onClick();
++  f.button("啟動服務").props.onClick();
 +  await f.settle();
 +  assert.match(f.text(), /Paseo 初始化尚未完成/);
-+  assert.doesNotMatch(f.text(), /初始化已排入背景處理/);
++  assert.doesNotMatch(f.text(), /服務已排入背景啟動/);
 +});
 +
 +test("Paseo failed refresh does not leave stale pairing and model controls enabled", async (t) => {
@@ -1358,7 +1338,7 @@ index 0000000..0a168cc
 +  const f = fixture(t, { status: { phase: "restart_required", enabled: true, packageEnabled: true, daemon: { running: true, healthy: true } } });
 +  await f.settle();
 +  assert.match(f.text(), /需要重新啟動/);
-+  assert.match(f.text(), /停止.*啟動／繼續初始化/);
++  assert.match(f.text(), /停止.*啟動服務/);
 +  assert.equal(f.button("停止 Paseo 服務").props.disabled, false);
 +  assert.equal(f.button("產生配對連結").props.disabled, true);
 +});
@@ -1406,38 +1386,48 @@ index 0000000..0a168cc
 +  assert.equal(f.button("產生配對連結").props.disabled, false);
 +});
 +
-+// The gesture regression lives in e2e/paseo-mobile-scroll.mjs. This contract
-+// also catches accidentally detaching the component from its scroll styles.
-+test("Paseo panel participates in the bounded settings scroll layout", (t) => {
++// The gesture regression lives in e2e/paseo-mobile-scroll.mjs. PluginsConfig's
++// detail area owns scrolling; the Paseo panel must not create a nested scroller.
++test("Paseo panel participates in the Plugins settings scroll layout", (t) => {
 +  const f = fixture(t);
 +  assert.equal(f.render().props.className, "paseo-plugin-panel");
 +  const css = fs.readFileSync(new URL("../app/settings.css", import.meta.url), "utf8");
-+  const rule = css.match(/\.settings-section-host > \.paseo-plugin-panel\s*\{([^}]+)\}/)?.[1];
-+  assert.ok(rule);
-+  for (const declaration of ["height: 100%", "min-height: 0", "overflow-y: auto", "overscroll-behavior-y: contain"]) assert.ok(rule.includes(declaration));
++  const rule = css.match(/\.config-detail\s*\{([^}]+)\}/)?.[1];
++  assert.ok(rule?.includes("overflow-y: auto"));
++  assert.doesNotMatch(css, /\.paseo-plugin-panel\s*\{[^}]*overflow-y:/);
 +  const page = fs.readFileSync(new URL("../app/paseo/setup/page.tsx", import.meta.url), "utf8");
-+  assert.ok(page.includes('className="paseo-setup-page"'));
-+  assert.match(css, /\.paseo-setup-page\s*\{[^}]*overflow-y: auto/);
++  assert.ok(page.includes('settings: "plugins"'));
++});
++
++test("Paseo pairing lives in plugin Settings without a conversation shortcut", async (t) => {
++  const f = fixture(t, { fetch: async (_url, options) => Response.json(options?.method === "POST" ? { url: "/paseo-web/welcome#fixture-private" } : { enabled: true, packageEnabled: true, daemon: { healthy: true } }) });
++  await f.settle();
++  assert.equal(f.button("產生配對連結").props.disabled, false);
++  assert.doesNotMatch(f.text(), /開啟初始化對話|設定 Paseo/);
++  assert.equal(f.requests.some((request) => request.options?.method === "POST"), false);
++  f.button("產生配對連結").props.onClick();
++  await f.settle();
++  assert.deepEqual(f.requests.filter((request) => request.options?.method === "POST").map((request) => JSON.parse(request.options.body).action), ["pair"]);
++  assert.ok(f.elements().some((element) => element.type === "a" && element.props?.href === "/paseo-web/welcome#fixture-private"));
 +});
 diff --git a/components/PaseoPluginPanel.tsx b/components/PaseoPluginPanel.tsx
 new file mode 100644
-index 0000000..1fa20c0
+index 0000000..7582d1c
 --- /dev/null
 +++ b/components/PaseoPluginPanel.tsx
-@@ -0,0 +1,207 @@
+@@ -0,0 +1,198 @@
 +"use client";
 +
 +import { useCallback, useEffect, useRef, useState } from "react";
-+import Link from "next/link";
 +import { ConfigButton, ConfigDetailActions, ConfigDetailGrid, ConfigDetailGridRow, ConfigFooterStatus, ConfigSectionTitle } from "./SettingsUi";
-+import { PASEO_APP_URL, PASEO_PROVIDERS, paseoModelCatalog, paseoProviderLabel, paseoPublicStatus, paseoSessionUrl, safePaseoPairUrl, type PaseoModelCatalog, type PaseoPublicStatus } from "@/lib/paseo-ui";
++import { PASEO_APP_URL, PASEO_PROVIDERS, paseoModelCatalog, paseoProviderLabel, paseoPublicStatus, safePaseoPairUrl, type PaseoModelCatalog, type PaseoPublicStatus } from "@/lib/paseo-ui";
 +
 +const STATUS_FRESH_MS = 15_000;
 +
 +const PHASE_LABELS: Record<string, string> = {
-+  restart_required: "需要重新啟動；請先停止 Paseo 服務，再按「啟動／繼續初始化」。",
-+  disabled: "已停用", idle: "等待初始化", installing: "下載安裝中", activating: "正在啟動", starting: "正在啟動",
-+  not_installed: "尚未安裝", stopped: "服務已停止", ready: "服務已啟動", running: "服務已啟動", paired: "已配對", complete: "初始化完成", error: "需要處理", failed: "需要處理",
++  restart_required: "需要重新啟動；請先停止 Paseo 服務，再按「啟動服務」。",
++  disabled: "已停用", idle: "等待啟動", installing: "下載安裝中", activating: "正在啟動", starting: "正在啟動",
++  not_installed: "尚未安裝", stopped: "服務已停止", ready: "服務已啟動", running: "服務已啟動", paired: "已配對", complete: "服務已就緒", error: "需要處理", failed: "需要處理",
 +};
 +
 +async function request(cwd: string, action?: string, config?: Record<string, string>, provider?: string): Promise<Record<string, unknown>> {
@@ -1451,7 +1441,7 @@ index 0000000..1fa20c0
 +  return result;
 +}
 +
-+export function PaseoPluginPanel({ cwd = "", disabled = false, setup = false }: { cwd?: string; disabled?: boolean; setup?: boolean }) {
++export function PaseoPluginPanel({ cwd = "", disabled = false }: { cwd?: string; disabled?: boolean }) {
 +  const [status, setStatus] = useState<PaseoPublicStatus>({});
 +  const [busy, setBusy] = useState("");
 +  const [error, setError] = useState("");
@@ -1546,8 +1536,7 @@ index 0000000..1fa20c0
 +        setNotice("診斷已更新。提供者仍需各自完成登入與實際對話驗證。");
 +      } else {
 +        if (kind === "config") nameEdited.current = false;
-+        if (paseoSessionUrl(result.onboardingSessionId)) setStatus((current) => ({ ...current, onboardingSessionId: result.onboardingSessionId as string }));
-+        setNotice(kind === "config" ? "設定已儲存。" : kind === "disable" ? "已要求停止 Paseo 服務。" : "初始化已排入背景處理；請繼續初始化對話。" );
++        setNotice(kind === "config" ? "設定已儲存。" : kind === "disable" ? "已要求停止 Paseo 服務。" : "Paseo 服務已排入背景啟動；可在此頁查看狀態並配對。" );
 +      }
 +      versions.mutation = false;
 +      await refresh();
@@ -1557,7 +1546,6 @@ index 0000000..1fa20c0
 +    } finally { if (current()) { versions.mutation = false; setBusy(""); } }
 +  };
 +
-+  const sessionUrl = paseoSessionUrl(status.onboardingSessionId);
 +  const packageDisabled = disabled || status.packageEnabled === false;
 +  const serviceReady = statusCurrent && !packageDisabled && status.enabled !== false && status.daemon?.healthy === true && status.phase !== "restart_required";
 +  const mutationBusy = Boolean(busy) && !["diagnose", "models"].includes(busy);
@@ -1569,7 +1557,7 @@ index 0000000..1fa20c0
 +      </p>
 +      {!statusCurrent && Object.keys(status).length > 0 && <p role="status" style={{ fontSize: 12, margin: 0 }}>狀態尚未確認；以下為上次取得的資訊。請重新整理或檢查診斷。</p>}
 +      <ConfigDetailGrid>
-+        <ConfigDetailGridRow label="初始化狀態">{disabled ? "插件已停用" : PHASE_LABELS[status.phase ?? ""] ?? status.phase ?? "尚未取得"}</ConfigDetailGridRow>
++        <ConfigDetailGridRow label="服務狀態">{disabled ? "插件已停用" : PHASE_LABELS[status.phase ?? ""] ?? status.phase ?? "尚未取得"}</ConfigDetailGridRow>
 +        <ConfigDetailGridRow label="Paseo 服務">{status.daemon?.healthy ? "連線正常" : status.daemon?.running ? "程序執行中，等待連線確認" : status.daemon?.running === false ? "尚未啟動" : "尚未確認"}</ConfigDetailGridRow>
 +        <ConfigDetailGridRow label="Pi 插件">{status.packageInstalled ? (packageDisabled ? "已安裝／已停用" : "已安裝／已啟用") : "尚未確認"}</ConfigDetailGridRow>
 +        <ConfigDetailGridRow label="Paseo 安裝">{status.daemon?.installed ? "已安裝" : "尚未確認"}</ConfigDetailGridRow>
@@ -1582,24 +1570,20 @@ index 0000000..1fa20c0
 +        })}
 +      </ConfigDetailGrid>
 +      <ConfigDetailActions>
-+        {!setup && <Link href={`/paseo/setup?cwd=${encodeURIComponent(cwd)}`} target="_blank" rel="noopener noreferrer" className="config-button config-button-secondary config-button-default">設定 Paseo</Link>}
 +        <ConfigButton onClick={() => void refresh()} disabled={Boolean(busy)}>重新整理</ConfigButton>
 +        <ConfigButton onClick={() => void action("diagnose")} disabled={Boolean(busy)}>{busy === "diagnose" ? "診斷中…" : "檢查診斷"}</ConfigButton>
-+        <ConfigButton onClick={() => void action("activate")} disabled={Boolean(busy) || packageDisabled}>{busy === "activate" ? "啟動中…" : "啟動／繼續初始化"}</ConfigButton>
++        <ConfigButton onClick={() => void action("activate")} disabled={Boolean(busy) || packageDisabled}>{busy === "activate" ? "啟動中…" : "啟動服務"}</ConfigButton>
 +        <ConfigButton onClick={() => void action("disable")} disabled={mutationBusy || packageDisabled || (status.enabled === false && status.daemon?.running !== true)}>{busy === "disable" ? "停止中…" : "停止 Paseo 服務"}</ConfigButton>
-+        {sessionUrl && <Link href={sessionUrl} className="config-button config-button-secondary config-button-default" target="_blank" rel="noopener noreferrer">開啟初始化對話</Link>}
 +        <a href={status.webClient ? PASEO_APP_URL : "https://app.paseo.sh"} target="_blank" rel="noopener noreferrer" className="config-button config-button-secondary config-button-default">開啟 Paseo</a>
 +      </ConfigDetailActions>
 +      {packageDisabled && <p style={{ fontSize: 12, margin: 0 }}>請先在 Pi Web 插件設定啟用 Paseo，再進行配對。</p>}
-+      {status.webClient && <p style={{ fontSize: 12, margin: 0 }}>{status.webClient.ready ? "修正版 Paseo 網頁已就緒。" : "Paseo 網頁準備中；請按「啟動／繼續初始化」。"}</p>}
-+      {setup && (
-+        <>
++      {status.webClient && <p style={{ fontSize: 12, margin: 0 }}>{status.webClient.ready ? "修正版 Paseo 網頁已就緒。" : "Paseo 網頁準備中；請按「啟動服務」。"}</p>}
 +          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 16, display: "flex", flexDirection: "column", gap: 12 }}>
 +            <ConfigSectionTitle>容器資訊</ConfigSectionTitle>
 +            <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13 }}>容器備註（僅供此設定頁使用）
 +              <input className="config-add-source-input" value={name} onChange={(event) => { nameEdited.current = true; setName(event.target.value); }} maxLength={100} placeholder="例如：Pi Agent 容器" disabled={Boolean(busy)} />
 +            </label>
-+            {cwd && <p style={{ fontSize: 12, margin: 0, overflowWrap: "anywhere" }}>初始化工作目錄：{cwd}</p>}
++            {cwd && <p style={{ fontSize: 12, margin: 0, overflowWrap: "anywhere" }}>工作目錄：{cwd}</p>}
 +            <ConfigDetailActions><ConfigButton onClick={() => void action("config")} disabled={Boolean(busy)}>{busy === "config" ? "儲存中…" : "儲存設定"}</ConfigButton></ConfigDetailActions>
 +          </div>
 +          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 16, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -1612,11 +1596,9 @@ index 0000000..1fa20c0
 +                void (navigator.clipboard?.writeText(new URL(pairUrl, window.location.href).href) ?? Promise.reject()).then(() => setNotice("配對連結已複製。請只交給你自己的 Paseo 裝置。"), () => setError("無法存取剪貼簿，請使用配對按鈕開啟 Paseo。"));
 +              }}>複製配對連結</ConfigButton>}
 +            </ConfigDetailActions>
-+            <p style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.7, margin: 0 }}>提供者需要補登入時，請依初始化對話的官方登入步驟操作。API Key、密碼與配對密鑰請在官方登入畫面或 Pi Web 的模型設定輸入。</p>
++            <p style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.7, margin: 0 }}>提供者需要補登入時，請使用各自的官方登入流程。API Key、密碼與配對密鑰請在官方登入畫面或 Pi Web 的模型設定輸入。</p>
 +          </div>
-+        </>
-+      )}
-+      {setup && <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
++      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
 +        <ConfigSectionTitle>模型、模式與思考等級</ConfigSectionTitle>
 +        {!serviceReady && <p style={{ fontSize: 12, margin: 0 }}>等待 Paseo 服務連線確認後，即可配對並讀取模型。請啟動服務或重新整理狀態。</p>}
 +        <ConfigDetailActions>{PASEO_PROVIDERS.map((provider) => <ConfigButton key={provider.id} onClick={() => void action("models", provider.id)} disabled={Boolean(busy) || !serviceReady}>讀取 {provider.label} 模型</ConfigButton>)}</ConfigDetailActions>
@@ -1625,7 +1607,7 @@ index 0000000..1fa20c0
 +          <p style={{ margin: 0 }}>模式：{catalog.modes.map((mode) => mode.label).join("、") || "Paseo 尚未回報可用模式"}</p>
 +          {catalog.models.length ? <ul style={{ margin: 0 }}>{catalog.models.map((model) => <li key={model.id}>{model.label}{model.isDefault ? "（預設）" : ""}{model.thinkingOptions.length ? `；思考：${model.thinkingOptions.map((option) => option.label).join("、")}` : ""}</li>)}</ul> : <p style={{ margin: 0 }}>尚無可用模型，請檢查提供者登入。</p>}
 +        </div>)}
-+      </div>}
++      </div>
 +      {checks.length > 0 && <ul style={{ fontSize: 12, lineHeight: 1.8, margin: 0 }}>{checks.map((check, index) => <li key={`${check.name}:${index}`}>{check.name}：{check.status}{check.message ? ` — ${check.message}` : ""}</li>)}</ul>}
 +      {notice && <ConfigFooterStatus summary={notice} />}
 +      {error && <div role="alert"><ConfigFooterStatus summary={error} tone="error" /></div>}
@@ -1668,7 +1650,7 @@ index adcc4a2..5ceb182 100644
 +  assert.doesNotMatch(panelSource, /settings\.paseo/);
 +});
 diff --git a/components/SettingsPanel.tsx b/components/SettingsPanel.tsx
-index bf3a2ff..a46f2f2 100644
+index bf3a2ff..1b30362 100644
 --- a/components/SettingsPanel.tsx
 +++ b/components/SettingsPanel.tsx
 @@ -33,6 +33,8 @@ import { SkillsConfig } from "./SkillsConfig";
@@ -1703,19 +1685,19 @@ index bf3a2ff..a46f2f2 100644
            {/* No project needed: the global mcp.json is listed alone, and a project adds its group. */}
            {sectionHost("mcp", <McpConfig embedded key={cwd ?? ""} cwd={cwd} trust={projectTrust} onTrustProject={onOpenTrustDialog} onProjectTrustChanged={onProjectTrustChanged} onClose={onClose} />)}
 +          {sectionHost("omnigent", <OmnigentConfig active={section === "omnigent"} onModels={() => activateSection("models")} />)}
-+          {sectionHost("paseo", <PaseoPluginPanel cwd="" setup disabled={section !== "paseo"} />)}
++          {sectionHost("paseo", <PaseoPluginPanel cwd="" disabled={section !== "paseo"} />)}
          </main>
        </div>
      </div>
 diff --git a/docs/agents/settings-ui.md b/docs/agents/settings-ui.md
-index 274b438..38d3238 100644
+index 274b438..7fd3e2b 100644
 --- a/docs/agents/settings-ui.md
 +++ b/docs/agents/settings-ui.md
 @@ -2,6 +2,7 @@
  
  ## Plugins and skills
  - `/api/plugins` uses pi's `SettingsManager` + `DefaultPackageManager` for global/project package install, remove, update, enable and disable; disabling writes empty `extensions/skills/prompts/themes` arrays to the package entry.
-+- The optional `@woowtech/pi-paseo` integration receives confirmed install/enable/update/disable/remove events after settings writes succeed. Only that package's installed `package.json` identity activates its runtime; bulk failures and preserved filtered entries receive no event. `lib/paseo-plugin.ts` dynamically imports its `src/host-api.mjs` from installed metadata or the operator's `PI_PASEO_PLUGIN_ROOT`, so it must ship alongside this host build. Runtime failures are public setup notices, never raw CLI output, and do not invalidate a completed Pi package installation. Every host lifecycle/restore/removal hook forwards `createOnboarding(prompt, remember)`; the host awaits `remember(realSessionId)` immediately after SDK creation and before naming, preflight, prompting or shutdown, so failures reuse that identity. Node instrumentation resumes enabled global packages once; the runtime owns the lock and unique onboarding session id. The session uses Pi's SDK and default permissions; with no configured model its first authorized user request is still saved for later continuation. `/paseo/setup` and `/api/plugin-paseo` share the existing proxy/auth boundary. Public status excludes pairing URLs; only the explicit no-store pairing action returns one, and the browser holds it in component memory. Official relay uses no extra Paseo account password.
++- The optional `@woowtech/pi-paseo` integration receives confirmed install/enable/update/disable/remove events after settings writes succeed. Only the installed package identity activates its runtime. The host loads `src/host-api.mjs` from the installed package. Startup and package operations run the background service without creating a Pi conversation. Pairing, service controls, provider diagnostics and models appear inside Settings > Plugins > Paseo. Old `/paseo/setup` links redirect there. The protected `/api/plugin-paseo` pairing action returns a no-store link only after a deliberate click; the browser keeps it in component memory. Public status omits pairing URLs and legacy onboarding session IDs.
  - `/api/skills` lists through `DefaultResourceLoader`, so settings paths, package skills and project `.agents/skills` appear as the runtime sees them. Toggling a skill edits only the `disable-model-invocation` frontmatter key of its `SKILL.md`, so user formatting survives, and `PATCH /api/skills` edits only `.md` files (its roots also hold `auth.json`, settings and project files). `/api/skills/install` shells through `npx skills add ... --agent pi`; project installs run in the selected cwd.
  - **Group switches.** Each sidebar group of the Skills, Plugins and MCP panels (a skill scope, a package scope, an `mcp.json`; not standalone extensions) has a `ConfigSidebarGroupSwitch` in its heading row, so the 190px phone sidebar loses no height. As with the Models provider switch, it is on only while every row is: a partial group reads as off beside its `n/m` count and one click completes it. A panel whose group can hold rows its switch never turns on passes its own `checked` (MCP: `mcpGroupSwitchChecked()`), or the switch stays off for good. One request carries the list (`PATCH /api/skills` `filePaths`, `POST /api/plugins` `packages`, `POST /api/mcp` `set-enabled` `servers`) and answers per item, so a refused row does not stop the rest; what was left undone shows under the heading (`ConfigSidebarGroupStatus`). An entry already in the requested state is left alone; enabling keeps an entry's own keys such as `autoload`. `SettingsManager` never throws a failed load or write (`flush()` resolves), so the bulk plugin path reads `drainErrors()`, or an unreadable settings.json would report success. Disabling empties the four resource lists and keeps no filters, so a group switched off leaves an enabled filtered package on (the SDK reports every object entry as `filtered`) and says so; the bulk route refuses it.
  
@@ -1726,7 +1708,7 @@ index 274b438..38d3238 100644
 +
 +- Plugin/Paseo mutations parse bounded UTF-8 JSON objects before settings or runtime discovery (64 KiB plugins, 16 KiB Paseo). Reject malformed scopes/sources/cwds without SDK work; success and refusal responses use no-store. The Paseo panel pauses polls during mutations, ignores obsolete workspace/action responses, and expires readiness after 15 seconds without a confirmed status. Slow polls share one pending read. `restart_required` instructs Stop then Start and disables pairing/model reads until recovery. Runtime status cache invalidation remains the installed plugin’s responsibility.
 +
-+- Paseo owns scrolling inside the bounded `.settings-section-host`; keep its `paseo-plugin-panel` class and height/min-height/overflow rules together. The standalone `/paseo/setup` route scrolls its viewport-sized main element because the app body hides overflow. Verify physical touch/wheel access to bottom controls, expanded catalogs and back to the heading with `PI_WEB_E2E_URL=... node e2e/paseo-mobile-scroll.mjs`.
++- Settings > Plugins uses its existing `.config-detail` scroller for Paseo. Keep the Paseo panel in that detail area without a nested vertical scroller. Verify physical touch/wheel access to bottom controls, expanded catalogs and back to the heading with the mobile scroll regression against a deployed Settings > Plugins panel.
 diff --git a/e2e/omnigent-settings-only.mjs b/e2e/omnigent-settings-only.mjs
 new file mode 100644
 index 0000000..142f994
@@ -1833,13 +1815,13 @@ index 0000000..142f994
 +}
 diff --git a/e2e/paseo-mobile-scroll-runner.mjs b/e2e/paseo-mobile-scroll-runner.mjs
 new file mode 100644
-index 0000000..5f5aa46
+index 0000000..342a54b
 --- /dev/null
 +++ b/e2e/paseo-mobile-scroll-runner.mjs
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,37 @@
 +import {spawn} from 'node:child_process';
 +import {once} from 'node:events';
-+import {mkdtempSync,rmSync} from 'node:fs';
++import {mkdtempSync,mkdirSync,rmSync,writeFileSync} from 'node:fs';
 +import {createServer} from 'node:net';
 +import {tmpdir} from 'node:os';
 +import {join} from 'node:path';
@@ -1847,10 +1829,15 @@ index 0000000..5f5aa46
 +
 +// Production build, isolated HOME and agent store; never use operator settings.
 +const home=mkdtempSync(join(tmpdir(),'paseo-scroll-e2e-'));
++if(!process.env.PI_PASEO_PLUGIN_ROOT)throw new Error('PI_PASEO_PLUGIN_ROOT is required for the Settings fixture');
++mkdirSync(join(home,'agent'),{recursive:true});
++writeFileSync(join(home,'agent','settings.json'),JSON.stringify({packages:[process.env.PI_PASEO_PLUGIN_ROOT]}));
++mkdirSync(join(home,'agent','pi-paseo'),{recursive:true});
++writeFileSync(join(home,'agent','pi-paseo','host-registration.json'),JSON.stringify({enabled:false}));
 +const probe=createServer();probe.listen(0,'127.0.0.1');await once(probe,'listening');
 +const port=probe.address().port;await new Promise(resolve=>probe.close(resolve));
 +const base=`http://127.0.0.1:${port}`;
-+const env={...process.env,HOME:home,PI_CODING_AGENT_DIR:join(home,'agent'),PI_WEB_PASSWORD:'',PI_PASEO_PLUGIN_ROOT:'',PI_OMNIGENT_PLUGIN_ROOT:'',PI_PASEO_DISCOVERY_ONLY:'1',PI_PASEO_SKIP_POSTINSTALL:'1',NEXT_TELEMETRY_DISABLED:'1'};
++const env={...process.env,HOME:home,PI_CODING_AGENT_DIR:join(home,'agent'),PI_WEB_PASSWORD:'',PI_OMNIGENT_PLUGIN_ROOT:'',PI_PASEO_DISCOVERY_ONLY:'1',PI_PASEO_SKIP_POSTINSTALL:'1',NEXT_TELEMETRY_DISABLED:'1'};
 +const server=spawn(process.execPath,['node_modules/next/dist/bin/next','start','-H','127.0.0.1','-p',String(port)],{env,stdio:['ignore','ignore','inherit']});
 +const stopped=once(server,'exit');
 +try {
@@ -1871,10 +1858,10 @@ index 0000000..5f5aa46
 +}
 diff --git a/e2e/paseo-mobile-scroll.mjs b/e2e/paseo-mobile-scroll.mjs
 new file mode 100644
-index 0000000..e94e62e
+index 0000000..bc51aa8
 --- /dev/null
 +++ b/e2e/paseo-mobile-scroll.mjs
-@@ -0,0 +1,98 @@
+@@ -0,0 +1,105 @@
 +import assert from 'node:assert/strict';
 +import {chromium} from 'playwright';
 +
@@ -1894,11 +1881,8 @@ index 0000000..e94e62e
 +  {name:'small-phone',width:360,height:640,mobile:true},
 +  {name:'landscape',width:844,height:390,mobile:true},
 +  {name:'desktop',width:1280,height:900,mobile:false},
-+  {name:'setup-phone',width:390,height:780,mobile:true,setup:true},
 +];
-+const cases = process.env.PI_WEB_SCROLL_SURFACE === 'setup'
-+  ? viewports.filter(c=>!c.setup).map(c=>({...c,name:`setup-${c.name}`,setup:true}))
-+  : viewports;
++const cases = viewports;
 +const results = [];
 +try {
 +  for (const c of cases) {
@@ -1914,24 +1898,26 @@ index 0000000..e94e62e
 +          modes:[],models:Array.from({length:60},(_,i)=>({id:`model-${i}`,label:`Scroll model ${i} ${'long-name-'.repeat(8)}`})),
 +        } : status});
 +      });
-+      await page.goto(new URL(c.setup ? '/paseo/setup' : '/',base).href,{waitUntil:'domcontentloaded'});
-+      if(!c.setup) {
-+        await page.getByRole('button',{name:/^(Settings|設定)$/}).waitFor({state:'attached'});
-+        // Open the dialog directly; scroll assertions below use physical input only.
-+        await page.getByRole('button',{name:/^(Settings|設定)$/}).evaluate(el=>el.click());
-+        const select=page.locator('select').filter({has:page.locator('option[value="paseo"]')});
-+        if(await select.isVisible())await select.selectOption('paseo');
-+        else await page.locator('.settings-section-tab').filter({hasText:'Paseo'}).click();
-+      }
++      await page.goto(base+'/',{waitUntil:'domcontentloaded'});
++      await page.waitForTimeout(1200);
++      assert.equal(new URL(page.url()).searchParams.has('session'),false,`${c.name}: home must not open a Paseo setup conversation`);
++      assert.equal(await page.getByRole('button',{name:/Paseo/i}).count(),0,`${c.name}: no Paseo shortcut on home`);
++      assert.equal(await page.getByRole('link',{name:/Paseo/i}).count(),0,`${c.name}: no Paseo link on home`);
++      const target=new URL(c.name==='phone' ? '/paseo/setup' : '/',base);
++      target.searchParams.set('cwd',process.env.HOME);
++      if(c.name!=='phone')target.searchParams.set('settings','plugins');
++      await page.goto(target.href,{waitUntil:'domcontentloaded'});
++      assert.equal(new URL(page.url()).searchParams.get('settings'),'plugins');
 +      const panel=page.getByRole('region',{name:'Paseo 連線設定'});
 +      await panel.waitFor();
++      const scrollRoot=page.locator('.config-detail').filter({has:panel});
 +      const button=panel.getByRole('button',{name:'讀取 Pi 模型',exact:true});
 +      await page.waitForFunction(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent==='讀取 Pi 模型');return b&&!b.disabled;});
 +      const cdp=await context.newCDPSession(page);
 +      async function swipe(direction=1) {
-+        const box=await panel.boundingBox();
++        const box=await scrollRoot.boundingBox();
 +        const x=Math.min(c.width-32,box.x+box.width*0.65);
-+        const top=Math.max(90,box.y+30),bottom=Math.min(c.height-48,box.y+box.height-32);
++        const top=Math.max(90,box.y+30),bottom=Math.min(c.height-110,box.y+box.height-32);
 +        if(c.mobile){
 +          const start=direction>0?bottom:top,end=direction>0?top:bottom;
 +          await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y:start}]});
@@ -1954,8 +1940,16 @@ index 0000000..e94e62e
 +        });
 +      }
 +      async function reach(locator,direction=1) {
-+        for(let i=0;i<35 && !(await inViewport(locator));i++)await swipe(direction);
-+        assert.ok(await inViewport(locator), `${c.name}: control reachable by ${c.mobile?'touch':'wheel'} scrolling`);
++        for(let i=0;i<45 && !(await inViewport(locator));i++){
++          const target=await locator.boundingBox(), root=await scrollRoot.boundingBox();
++          const toward=target&&root ? target.y<root.y+12 ? -1 : target.y+target.height>root.y+root.height-12 ? 1 : direction : direction;
++          await swipe(toward);
++        }
++        if (!(await inViewport(locator))) {
++          await page.screenshot({ path: '/tmp/pi-paseo-scroll-failure.png' });
++          const metrics = await scrollRoot.evaluate(el => ({scrollTop:el.scrollTop,scrollHeight:el.scrollHeight,clientHeight:el.clientHeight,rect:el.getBoundingClientRect().toJSON(),overflow:getComputedStyle(el).overflowY}));
++          assert.fail(`${c.name}: control reachable by ${c.mobile?'touch':'wheel'} scrolling; ${JSON.stringify(metrics)}`);
++        }
 +      }
 +      // Never let click/scrollIntoView hide a broken gesture scroll path.
 +      await reach(button);
@@ -1993,16 +1987,15 @@ index 782f95a..11362fc 100644
    // In production Next 16 answers SIGINT/SIGTERM with server.close() and waits
    // for every connection to end, without a timeout. SSE streams only end when
 diff --git a/lib/api-types.ts b/lib/api-types.ts
-index 31c20be..6ee52aa 100644
+index 31c20be..d5a7775 100644
 --- a/lib/api-types.ts
 +++ b/lib/api-types.ts
-@@ -874,6 +874,13 @@ export interface PluginsResponse {
+@@ -874,6 +874,12 @@ export interface PluginsResponse {
    totals: PluginResourceCounts;
    diagnostics: PluginDiagnostic[];
    projectResourcesLoaded: boolean;
 +  /** Public setup metadata only; pairing secrets are returned by a separate action. */
 +  paseo?: {
-+    onboardingSessionId?: string;
 +    scheduled?: boolean;
 +    phase?: string;
 +    error?: string;
@@ -2555,7 +2548,7 @@ index 0000000..fa015ea
 +}
 diff --git a/lib/paseo-name.test.mjs b/lib/paseo-name.test.mjs
 new file mode 100644
-index 0000000..506e890
+index 0000000..ddfcffd
 --- /dev/null
 +++ b/lib/paseo-name.test.mjs
 @@ -0,0 +1,64 @@
@@ -2593,7 +2586,7 @@ index 0000000..506e890
 +    "./process.mjs": { findExecutable: () => assert.fail("No installers may execute"), runProcess: async (_command, args) => { assert.ok(args.includes("--version"), "Only fixture version detection is allowed"); assert.equal(args[0], path.join(runtimeDir, "node_modules/@getpaseo/cli/bin/paseo")); return "0.11.2"; } },
 +    "./runtime-layout.mjs": { ...runtimeLayout, runtimeReady: () => true, markRuntimeReady: () => {} },
 +    "./provider-launchers.mjs": { resolveProviderLaunchers: async () => ({}), configureProviders: () => ({}) },
-+    "./onboarding.mjs": { readRecord, writeRecord, onboardingStatus: () => ({}) },
++    "./onboarding.mjs": { readRecord, writeRecord },
 +    "./supervisor.mjs": {},
 +    "./web-client.mjs": { WEB_BASE_PATH: "/paseo-web", ensureWebClient: async () => {}, webClientStatus: () => ({ ready: false }) },
 +  };
@@ -2623,35 +2616,6 @@ index 0000000..506e890
 +  await runtime.activate();
 +  assert.equal(readRecord(path.join(loc.paseoHome, "config.json")).daemon?.name, undefined, "Display labels must stay outside the strict daemon configuration");
 +});
-diff --git a/lib/paseo-onboarding.ts b/lib/paseo-onboarding.ts
-new file mode 100644
-index 0000000..63446e0
---- /dev/null
-+++ b/lib/paseo-onboarding.ts
-@@ -0,0 +1,23 @@
-+import type { SessionManager } from "@earendil-works/pi-coding-agent";
-+
-+type OnboardingSession = {
-+  send: (command: Record<string, unknown>) => Promise<unknown>;
-+  inner: { sessionManager: SessionManager };
-+};
-+
-+/** Persist the authorized request even when model preflight rejects it. */
-+export async function promptPaseoOnboarding(session: OnboardingSession, message: string): Promise<boolean> {
-+  const state = await session.send({ type: "get_state" }) as { model?: unknown };
-+  if (state.model) {
-+    try {
-+      await session.send({ type: "prompt", message });
-+      return false;
-+    } catch { /* Record the request below if preflight did not persist it. */ }
-+  }
-+  const manager = session.inner.sessionManager;
-+  if (!manager.getEntries().some((entry) => entry.type === "message" && entry.message.role === "user")) {
-+    manager.appendMessage({ role: "user", content: message, timestamp: Date.now() });
-+    return true;
-+  }
-+  return true;
-+}
 diff --git a/lib/paseo-package.ts b/lib/paseo-package.ts
 new file mode 100644
 index 0000000..e2460bb
@@ -2694,10 +2658,10 @@ index 0000000..e2460bb
 +}
 diff --git a/lib/paseo-plugin-lifecycle.test.mjs b/lib/paseo-plugin-lifecycle.test.mjs
 new file mode 100644
-index 0000000..f7d5089
+index 0000000..b8ab47d
 --- /dev/null
 +++ b/lib/paseo-plugin-lifecycle.test.mjs
-@@ -0,0 +1,42 @@
+@@ -0,0 +1,40 @@
 +import assert from "node:assert/strict";
 +import test from "node:test";
 +import { dispatchPaseoLifecycle, paseoLifecycleTargets } from "./paseo-plugin-lifecycle.ts";
@@ -2725,27 +2689,25 @@ index 0000000..f7d5089
 +
 +test("lifecycle preserves package operation success when runtime setup fails without leaking output", async () => {
 +  const calls = [];
-+  const api = { lifecycle: async (input, hooks) => { calls.push(input); await hooks.createOnboarding(); throw new Error("secret-pairing-url-password"); } };
-+  const result = await dispatchPaseoLifecycle(api, "install", "/workspace", paseo, [paseo], async () => "unique-session");
++  const api = { lifecycle: async (input) => { calls.push(input); throw new Error("secret-pairing-url-password"); } };
++  const result = await dispatchPaseoLifecycle(api, "install", "/workspace", paseo, [paseo]);
 +  assert.equal(calls.length, 1);
 +  assert.deepEqual(calls[0].packages, [paseo]);
 +  assert.match(result.error, /設定頁/);
 +  assert.doesNotMatch(JSON.stringify(result), /secret/);
 +});
 +
-+test("lifecycle returns the runtime's existing onboarding id to the plugin response", async () => {
-+  let created = 0;
-+  const result = await dispatchPaseoLifecycle({ lifecycle: async (_input, hooks) => ({ onboardingSessionId: await hooks.createOnboarding(), scheduled: true }) }, "enable", "/workspace", paseo, [paseo], async () => { created++; return "existing-session"; });
-+  assert.equal(created, 1);
-+  assert.equal(result.onboardingSessionId, "existing-session");
++test("lifecycle omits legacy conversation IDs from package receipts", async () => {
++  const result = await dispatchPaseoLifecycle({ lifecycle: async () => ({ onboardingSessionId: "existing-session", scheduled: true }) }, "enable", "/workspace", paseo, [paseo]);
++  assert.equal('onboardingSessionId' in result, false);
 +  assert.equal(result.scheduled, true);
 +});
 diff --git a/lib/paseo-plugin-lifecycle.ts b/lib/paseo-plugin-lifecycle.ts
 new file mode 100644
-index 0000000..da299ba
+index 0000000..c2d002b
 --- /dev/null
 +++ b/lib/paseo-plugin-lifecycle.ts
-@@ -0,0 +1,92 @@
+@@ -0,0 +1,85 @@
 +/** A confirmed Pi package operation, after its settings write succeeded. */
 +export type PaseoLifecycleAction = "install" | "enable" | "update" | "disable" | "remove";
 +export const PASEO_PACKAGE_NAME = "@woowtech/pi-paseo";
@@ -2759,15 +2721,10 @@ index 0000000..da299ba
 +};
 +
 +export type PaseoLifecycleResult = {
-+  onboardingSessionId?: string;
 +  scheduled?: boolean;
 +  phase?: string;
 +  error?: string;
 +};
-+
-+export type PaseoOnboardingRemember = (sessionId: string) => void | Promise<void>;
-+export type PaseoOnboardingCreator = (prompt?: string, remember?: PaseoOnboardingRemember) => Promise<string>;
-+export type PaseoHostHooks = { createOnboarding: PaseoOnboardingCreator };
 +
 +export type PaseoHostApi = {
 +  lifecycle: (input: {
@@ -2776,8 +2733,8 @@ index 0000000..da299ba
 +    source: string;
 +    scope: "global" | "project";
 +    packages: PaseoPackageRef[];
-+  }, hooks: PaseoHostHooks) => Promise<PaseoLifecycleResult>;
-+  restore: (hooks: PaseoHostHooks) => Promise<PaseoLifecycleResult>;
++  }) => Promise<PaseoLifecycleResult>;
++  restore: () => Promise<PaseoLifecycleResult>;
 +  status: () => Promise<Record<string, unknown>>;
 +  diagnostics: () => Promise<Record<string, unknown>>;
 +  pair: () => Promise<{ url: string; expiresAt?: string }>;
@@ -2816,10 +2773,9 @@ index 0000000..da299ba
 +  cwd: string,
 +  target: PaseoPackageRef,
 +  packages: PaseoPackageRef[],
-+  createOnboarding: PaseoOnboardingCreator,
 +): Promise<PaseoLifecycleResult> {
 +  try {
-+    const result = await api.lifecycle({ action, cwd, source: target.source, scope: target.scope, packages }, { createOnboarding });
++    const result = await api.lifecycle({ action, cwd, source: target.source, scope: target.scope, packages });
 +    return paseoLifecycleResult(result);
 +  } catch {
 +    // Runtime exceptions may contain subprocess output or a pairing secret.
@@ -2832,7 +2788,6 @@ index 0000000..da299ba
 +  if (!input || typeof input !== "object") return {};
 +  const value = input as Record<string, unknown>;
 +  const result: PaseoLifecycleResult = {};
-+  if (typeof value.onboardingSessionId === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(value.onboardingSessionId)) result.onboardingSessionId = value.onboardingSessionId;
 +  if (typeof value.scheduled === "boolean") result.scheduled = value.scheduled;
 +  if (typeof value.phase === "string" && /^[a-zA-Z0-9_-]{1,60}$/.test(value.phase)) result.phase = value.phase;
 +  if (value.error) result.error = "Paseo 初始化尚未完成；請開啟設定頁檢查診斷。";
@@ -2840,10 +2795,10 @@ index 0000000..da299ba
 +}
 diff --git a/lib/paseo-plugin.test.mjs b/lib/paseo-plugin.test.mjs
 new file mode 100644
-index 0000000..a3bda49
+index 0000000..3cc37da
 --- /dev/null
 +++ b/lib/paseo-plugin.test.mjs
-@@ -0,0 +1,412 @@
+@@ -0,0 +1,358 @@
 +import assert from "node:assert/strict";
 +import fs from "node:fs";
 +import path from "node:path";
@@ -2862,15 +2817,12 @@ index 0000000..a3bda49
 +
 +// Run the actual host modules with isolated SDK, API and session boundaries.
 +// No account files, services or model requests are used by these regressions.
-+function fixture({ newOnboarding = false, failAt = "", enabled = true, desiredEnabled = enabled, globals = [globalPackage], projects = [], env = {}, trusted = true, existing = [home, projectCwd], files = [], stopFailure = false, owner = globals.find((pkg) => pkg.packageName === lifecycle.PASEO_PACKAGE_NAME) ?? projects[0] } = {}) {
++function fixture({ legacySessionId = "existing-session", enabled = true, desiredEnabled = enabled, globals = [globalPackage], projects = [], env = {}, trusted = true, existing = [home, projectCwd], files = [], stopFailure = false, owner = globals.find((pkg) => pkg.packageName === lifecycle.PASEO_PACKAGE_NAME) ?? projects[0] } = {}) {
 +  const calls = [];
-+  const onboardingEvents = [];
-+  const onboardingMessages = [];
-+  let created = 0;
 +  const discoveries = [];
 +  const pathChecks = [];
 +  const trustChecks = [];
-+  const state = { enabled: desiredEnabled, running: desiredEnabled, onboardingSessionId: newOnboarding ? "" : "existing-session" };
++  const state = { enabled: desiredEnabled, running: desiredEnabled, onboardingSessionId: legacySessionId };
 +  const records = new Map([["host-registration", { enabled, cwd: projectCwd }]]);
 +  const processes = new Map();
 +  const signals = [];
@@ -2909,23 +2861,6 @@ index 0000000..a3bda49
 +    },
 +    "./file-access": { allowFileRoot() {} },
 +    "./project-trust": { getProjectTrustStatus(cwd) { trustChecks.push(cwd); return { trusted }; } },
-+    "./rpc-manager": { async startRpcSession() {
-+      assert.ok(newOnboarding, "Existing onboarding must be reused");
-+      created++;
-+      onboardingEvents.push("created");
-+      const entries = [];
-+      return { realSessionId: "created-session", session: {
-+        async send(command) {
-+          onboardingEvents.push(command.type);
-+          if (command.type === failAt) throw new Error("fixture-private-failure");
-+          return command.type === "get_state" && failAt === "prompt" ? { model: { id: "fixture-model" } } : {};
-+        },
-+        async shutdown() { onboardingEvents.push("shutdown"); if (failAt === "shutdown") throw new Error("fixture-private-failure"); },
-+        inner: { sessionManager: { getEntries: () => entries, appendMessage(message) { onboardingEvents.push("append"); onboardingMessages.push(message.content); entries.push({ type: "message", message }); } } },
-+      } };
-+    } },
-+    "./session-reader": { invalidateSessionListCache() {} },
-+    "./paseo-onboarding": {},
 +    "./plugin-package-lock": { serializePluginPackageOperation: (task) => task() },
 +    "./paseo-plugin-lifecycle": lifecycle,
 +    "./paseo-package": {
@@ -3002,16 +2937,7 @@ index 0000000..a3bda49
 +      readRecord: (file) => ({ ...records.get(recordName(file)) }),
 +      writeRecord: (file, value) => records.set(recordName(file), value),
 +      withLock: async (_file, task) => task(),
-+      onboardingStatus: () => ({ sessionId: state.onboardingSessionId }),
-+      ensureOnboarding: async (create) => {
-+        if (!state.onboardingSessionId) {
-+          await create("Fixture authorized onboarding prompt", (id) => {
-+            onboardingEvents.push("remembered");
-+            state.onboardingSessionId = id;
-+          });
-+        }
-+        return { sessionId: state.onboardingSessionId };
-+      },
++
 +    },
 +    "node:child_process": { spawn(_command, argv) {
 +      const pid = ++nextPid;
@@ -3040,17 +2966,16 @@ index 0000000..a3bda49
 +    const api = loadRoot("host-api.mjs", pkg, { ...rootStubs, "./supervisor.mjs": supervisor });
 +    apis.set(`fixture-api:${pkg.source}`, {
 +      ...api,
-+      async lifecycle(input, hooks) { calls.push({ method: "lifecycle", apiSource: pkg.source, ...input }); return api.lifecycle(input, hooks); },
-+      async restore(hooks) { calls.push({ method: "restore", apiSource: pkg.source }); return api.restore(hooks); },
++      async lifecycle(input) { calls.push({ method: "lifecycle", apiSource: pkg.source, ...input }); return api.lifecycle(input); },
++      async restore() { calls.push({ method: "restore", apiSource: pkg.source }); return api.restore(); },
 +    });
 +  }
-+  if (newOnboarding) stubs["./paseo-onboarding"] = load("paseo-onboarding.ts");
 +  const plugin = load("paseo-plugin.ts");
 +  stubs["./paseo-plugin"] = plugin;
-+  return { ...plugin, ...load("plugin-lifecycle.ts"), calls, state, discoveries, pathChecks, trustChecks, records, processes, signals, onboardingEvents, onboardingMessages, createdCount: () => created };
++  return { ...plugin, ...load("plugin-lifecycle.ts"), calls, state, discoveries, pathChecks, trustChecks, records, processes, signals,  };
 +}
 +
-+test("failed last-binding removal resumes the previously enabled service and its onboarding", async () => {
++test("failed last-binding removal resumes the previously enabled service", async () => {
 +  const unrelated = { ...globalPackage, source: "/fixture/unrelated", installedPath: "/fixture/unrelated", packageName: "unrelated" };
 +  const f = fixture({ globals: [unrelated, globalPackage] });
 +  const removal = await f.preparePluginPackageRemoval(projectCwd, [unrelated, globalPackage], globalPackage.source, "global");
@@ -3166,7 +3091,7 @@ index 0000000..a3bda49
 +    assert.equal(f.state.enabled, enabled);
 +    assert.equal(f.state.running, enabled);
 +    assert.deepEqual(f.calls.map((call) => call.method), ["restore"]);
-+    assert.equal(result.onboardingSessionId, "existing-session");
++    assert.equal('onboardingSessionId' in result, false);
 +  });
 +}
 +
@@ -3217,95 +3142,40 @@ index 0000000..a3bda49
 +}
 +
 +
-+for (const failAt of ["set_session_name", "get_state", "prompt", "shutdown", ""]) {
-+  test(`live host lifecycle checkpoints newly created ID before post-creation work (${failAt || "success"})`, async () => {
-+    const f = fixture({ newOnboarding: true, failAt });
-+    const first = await f.applyPaseoPackageLifecycle("install", projectCwd, [], [globalPackage], [globalPackage]);
-+    assert.equal(f.state.onboardingSessionId, "created-session");
-+    assert.deepEqual(f.onboardingEvents.slice(0, 3), ["created", "remembered", "set_session_name"]);
-+    if (failAt && failAt !== "prompt") assert.match(first.error, /設定頁/);
-+    if (failAt === "prompt") assert.ok(f.onboardingEvents.indexOf("remembered") < f.onboardingEvents.indexOf("prompt"));
-+    const retried = await f.applyPaseoPackageLifecycle("enable", projectCwd, [{ ...globalPackage, disabled: true }], [globalPackage], [globalPackage]);
-+    assert.equal(retried.onboardingSessionId, "created-session");
-+    assert.equal(f.createdCount(), 1, "Post-creation failure must reuse the checkpointed session");
-+    assert.doesNotMatch(JSON.stringify(first), /fixture-private-failure/);
-+  });
-+}
-+
-+test("startup restore forwards both onboarding arguments through the live host creator", async () => {
-+  const f = fixture({ newOnboarding: true });
++test("install, enable and startup restore never create a conversation", async () => {
++  const f = fixture({ legacySessionId: "" });
++  const installed = await f.applyPaseoPackageLifecycle("install", projectCwd, [], [globalPackage], [globalPackage]);
++  const enabled = await f.applyPaseoPackageLifecycle("enable", projectCwd, [{ ...globalPackage, disabled: true }], [globalPackage], [globalPackage]);
 +  await f.restorePaseoPlugin();
-+  assert.equal(f.state.onboardingSessionId, "created-session");
-+  assert.deepEqual(f.onboardingEvents.slice(0, 3), ["created", "remembered", "set_session_name"]);
++  assert.equal(f.state.onboardingSessionId, "");
++  assert.equal('onboardingSessionId' in installed, false);
++  assert.equal('onboardingSessionId' in enabled, false);
 +});
 +
-+test("remaining-package restore and failed-removal recovery preserve the onboarding checkpoint", async () => {
-+  const f = fixture({ newOnboarding: true, projects: [projectPackage] });
++test("remaining-package restore and failed-removal recovery never create a conversation", async () => {
++  const f = fixture({ legacySessionId: "", projects: [projectPackage] });
 +  const removal = await f.preparePluginPackageRemoval(projectCwd, [globalPackage, projectPackage], projectPackage.source, "project");
 +  await removal.recover();
-+  assert.equal(f.state.onboardingSessionId, "created-session");
-+  assert.equal(f.createdCount(), 1);
-+  assert.deepEqual(f.onboardingEvents.slice(0, 3), ["created", "remembered", "set_session_name"]);
-+});
-+
-+test("the live host creator uses the supplied authorized prompt after checkpointing", async () => {
-+  const f = fixture({ newOnboarding: true });
-+  const remembered = [];
-+  await f.createPaseoOnboarding(projectCwd, (id) => { remembered.push(id); f.onboardingEvents.push("remembered"); }, "Authorized fixture prompt");
-+  assert.deepEqual(remembered, ["created-session"]);
-+  assert.deepEqual(f.onboardingMessages, ["Authorized fixture prompt"]);
-+  assert.deepEqual(f.onboardingEvents.slice(0, 3), ["created", "remembered", "set_session_name"]);
 +});
 diff --git a/lib/paseo-plugin.ts b/lib/paseo-plugin.ts
 new file mode 100644
-index 0000000..994b594
+index 0000000..4106d1d
 --- /dev/null
 +++ b/lib/paseo-plugin.ts
-@@ -0,0 +1,137 @@
-+import { randomUUID } from "node:crypto";
+@@ -0,0 +1,106 @@
 +import { statSync } from "node:fs";
 +import { homedir } from "node:os";
 +import { isAbsolute } from "node:path";
 +import { DefaultPackageManager, getAgentDir, SettingsManager } from "@earendil-works/pi-coding-agent";
-+import { allowFileRoot } from "./file-access";
 +import { getProjectTrustStatus } from "./project-trust";
-+import { startRpcSession } from "./rpc-manager";
-+import { invalidateSessionListCache } from "./session-reader";
 +import { paseoHostApiUrl, paseoPackageRoot, readPaseoPackageManifest } from "./paseo-package";
-+import { promptPaseoOnboarding } from "./paseo-onboarding";
 +import { serializePluginPackageOperation } from "./plugin-package-lock";
-+import { dispatchPaseoLifecycle, paseoLifecycleResult, paseoLifecycleTargets, PASEO_PACKAGE_NAME, type PaseoHostApi, type PaseoOnboardingRemember, type PaseoLifecycleAction, type PaseoLifecycleResult, type PaseoPackageRef } from "./paseo-plugin-lifecycle";
-+
-+export const PASEO_ONBOARDING_PROMPT = `請協助完成這個容器的 Paseo 連線初始化。插件正在背景安裝與啟動 Paseo，沿用容器內 Claude Code、Codex、Pi 的現有登入與權限。
-+請先檢查 Paseo 狀態，說明還需要的連線資訊，並引導我到 /paseo/setup 完成配對與設定。使用 Paseo 官方 relay，透過設定頁提供的配對連結開啟網頁；官方配對不需要另外提供 Paseo 帳號密碼。
-+若提供者尚未登入或登入過期，請引導我使用其官方登入流程。密碼、API Key、配對密鑰與配對連結只能在受保護的設定畫面或官方登入介面輸入，不要要求貼到對話、不要讀取或輸出憑證檔內容。
-+完成後分別驗證 Claude Code、Codex、Pi 能在 Paseo 選擇模型與執行模式、新建對話、收到回覆並續聊。不要改成完整權限。`;
++import { dispatchPaseoLifecycle, paseoLifecycleResult, paseoLifecycleTargets, PASEO_PACKAGE_NAME, type PaseoHostApi, type PaseoLifecycleAction, type PaseoLifecycleResult, type PaseoPackageRef } from "./paseo-plugin-lifecycle";
 +
 +type RuntimeState = { apis: Map<string, PaseoHostApi>; restore?: Promise<void> };
 +const runtimeGlobal = globalThis as typeof globalThis & { __piPaseoHost?: RuntimeState };
 +function runtimeState(): RuntimeState {
 +  return runtimeGlobal.__piPaseoHost ??= { apis: new Map() };
-+}
-+
-+export async function createPaseoOnboarding(cwd: string, remember?: PaseoOnboardingRemember, prompt = PASEO_ONBOARDING_PROMPT): Promise<string> {
-+  const { session, realSessionId } = await startRpcSession(`__paseo__${randomUUID()}`, "", cwd);
-+  try {
-+    // Persist identity before any fallible post-creation command. Recovery must
-+    // resume this session even if naming, preflight, prompting or shutdown fails.
-+    await remember?.(realSessionId);
-+    await session.send({ type: "set_session_name", name: "Paseo 連線初始化" });
-+    allowFileRoot(cwd);
-+    if (await promptPaseoOnboarding(session, prompt)) {
-+      // Reopen from disk on continuation so the model sees the saved request.
-+      await session.shutdown();
-+    }
-+    return realSessionId;
-+  } catch (failure) {
-+    await session.shutdown().catch(() => undefined);
-+    throw failure;
-+  } finally {
-+    invalidateSessionListCache();
-+  }
 +}
 +
 +function isDisabled(entry: unknown): boolean {
@@ -3364,9 +3234,9 @@ index 0000000..994b594
 +      const api = remaining ? await loadPaseoHostApi(remaining) : preloaded ?? await loadPaseoHostApi(target, true);
 +      if ((action === "disable" || action === "remove") && remaining) {
 +        // Reconcile the remaining registration without clearing a manual Stop.
-+        result = paseoLifecycleResult(await api.restore({ createOnboarding: (prompt, remember) => createPaseoOnboarding(cwd, remember, prompt) }));
++        result = paseoLifecycleResult(await api.restore());
 +      } else {
-+        result = await dispatchPaseoLifecycle(api, action, cwd, remaining ?? target, packages, (prompt, remember) => createPaseoOnboarding(cwd, remember, prompt));
++        result = await dispatchPaseoLifecycle(api, action, cwd, remaining ?? target, packages);
 +      }
 +    } catch {
 +      result = { error: "Paseo 整合服務尚未載入；請檢查插件安裝位置並開啟設定頁。" };
@@ -3393,21 +3263,21 @@ index 0000000..994b594
 +    const enabled = packages.find((pkg) => !pkg.disabled);
 +    if (!enabled) return;
 +    const api = await loadPaseoHostApi(enabled);
-+    await api.restore({ createOnboarding: (prompt, remember) => createPaseoOnboarding(cwd, remember, prompt) });
++    await api.restore();
 +  }).catch(() => {
 +    // Status/diagnostics expose a safe retry path; never log subprocess errors.
-+    console.warn("[pi-web] Paseo startup recovery needs attention; open /paseo/setup.");
++    console.warn("[pi-web] Paseo startup recovery needs attention; open Settings > Plugins.");
 +  });
 +}
 diff --git a/lib/paseo-ui.test.mjs b/lib/paseo-ui.test.mjs
 new file mode 100644
-index 0000000..dc1526c
+index 0000000..e35f85b
 --- /dev/null
 +++ b/lib/paseo-ui.test.mjs
-@@ -0,0 +1,30 @@
+@@ -0,0 +1,28 @@
 +import assert from "node:assert/strict";
 +import test from "node:test";
-+import { paseoDiagnosticChecks, paseoPublicStatus, paseoSessionUrl, readPaseoConfig, safePaseoPairUrl } from "./paseo-ui.ts";
++import { paseoDiagnosticChecks, paseoPublicStatus, readPaseoConfig, safePaseoPairUrl } from "./paseo-ui.ts";
 +
 +test("pairing opens only the official app and stays out of public status", () => {
 +  assert.equal(safePaseoPairUrl("/paseo-web/welcome#secret"), "/paseo-web/welcome#secret");
@@ -3430,17 +3300,15 @@ index 0000000..dc1526c
 +  assert.doesNotMatch(JSON.stringify(result), /secret/);
 +});
 +
-+test("onboarding navigation accepts a session identifier rather than an arbitrary destination", () => {
-+  assert.equal(paseoSessionUrl("1234-session"), "/?session=1234-session");
-+  assert.equal(paseoSessionUrl("//evil.example"), null);
-+  assert.equal(paseoSessionUrl("id&cwd=/other"), null);
++test("public status drops legacy onboarding references", () => {
++  assert.deepEqual(paseoPublicStatus({ onboardingSessionId: "old-session", onboardingCompleted: true }), {});
 +});
 diff --git a/lib/paseo-ui.ts b/lib/paseo-ui.ts
 new file mode 100644
-index 0000000..8e23037
+index 0000000..ac28b10
 --- /dev/null
 +++ b/lib/paseo-ui.ts
-@@ -0,0 +1,137 @@
+@@ -0,0 +1,132 @@
 +/** Fixed local client; no caller-provided origins receive pairing material. */
 +export const PASEO_APP_URL = "/paseo-web";
 +export const PASEO_PROVIDERS = [{ id: "claude", label: "Claude Code" }, { id: "codex", label: "Codex" }, { id: "pi", label: "Pi" }] as const;
@@ -3453,10 +3321,6 @@ index 0000000..8e23037
 +    const url = new URL(value);
 +    return url.protocol === "https:" && url.hostname === "app.paseo.sh" && !url.username && !url.password && !url.port ? url.href : null;
 +  } catch { return null; }
-+}
-+
-+export function paseoSessionUrl(id: unknown): string | null {
-+  return typeof id === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(id) ? `/?session=${encodeURIComponent(id)}` : null;
 +}
 +
 +function record(value: unknown): Record<string, unknown> {
@@ -3480,7 +3344,7 @@ index 0000000..8e23037
 +  authentication?: string; chatErrorCode?: string; chatCheckedAt?: string; modes?: Array<{ id: string; label: string }>; defaultModeId?: string;
 +};
 +export type PaseoPublicStatus = {
-+  phase?: string; enabled?: boolean; packageEnabled?: boolean; packageInstalled?: boolean; onboardingSessionId?: string; onboardingCompleted?: boolean; chatVerified?: boolean;
++  phase?: string; enabled?: boolean; packageEnabled?: boolean; packageInstalled?: boolean; chatVerified?: boolean;
 +  chatCheckedAt?: string;
 +  daemon?: { running?: boolean; healthy?: boolean; installed?: boolean; relayEnabled?: boolean; relayConnected?: boolean; relayVerified?: boolean; relayVerifiedAt?: string };
 +  providers?: PaseoProviderStatus[];
@@ -3497,8 +3361,7 @@ index 0000000..8e23037
 +  const checkedAt = timestamp(value.chatCheckedAt ?? acceptance.checkedAt);
 +  if (checkedAt) result.chatCheckedAt = checkedAt;
 +  if (typeof value.phase === "string" && /^[a-zA-Z0-9_-]{1,60}$/.test(value.phase)) result.phase = value.phase;
-+  for (const flag of ["enabled", "packageEnabled", "packageInstalled", "onboardingCompleted", "chatVerified"] as const) if (typeof value[flag] === "boolean") result[flag] = value[flag];
-+  if (paseoSessionUrl(value.onboardingSessionId)) result.onboardingSessionId = value.onboardingSessionId as string;
++  for (const flag of ["enabled", "packageEnabled", "packageInstalled", "chatVerified"] as const) if (typeof value[flag] === "boolean") result[flag] = value[flag];
 +  if (value.daemon && typeof value.daemon === "object") {
 +    const daemon = record(value.daemon);
 +    result.daemon = {};
@@ -3580,15 +3443,15 @@ index 0000000..8e23037
 +}
 diff --git a/lib/plugin-lifecycle.ts b/lib/plugin-lifecycle.ts
 new file mode 100644
-index 0000000..776d578
+index 0000000..250a60b
 --- /dev/null
 +++ b/lib/plugin-lifecycle.ts
-@@ -0,0 +1,72 @@
+@@ -0,0 +1,71 @@
 +import { existsSync } from "node:fs";
 +import { homedir } from "node:os";
 +import { join, resolve } from "node:path";
-+import { applyPaseoPackageLifecycle, createPaseoOnboarding, loadPaseoHostApi, restorePaseoPlugin } from "./paseo-plugin";
-+import { PASEO_PACKAGE_NAME, type PaseoHostApi, type PaseoHostHooks, type PaseoLifecycleAction, type PaseoPackageRef } from "./paseo-plugin-lifecycle";
++import { applyPaseoPackageLifecycle, loadPaseoHostApi, restorePaseoPlugin } from "./paseo-plugin";
++import { PASEO_PACKAGE_NAME, type PaseoHostApi, type PaseoLifecycleAction, type PaseoPackageRef } from "./paseo-plugin-lifecycle";
 +import { readRegularFileText } from "./regular-file";
 +
 +/** Generic package route seam; integration discovery stays outside the route. */
@@ -3622,7 +3485,6 @@ index 0000000..776d578
 +  const api = await loadPaseoHostApi(target, true);
 +  const paseoPackages = packages.filter((pkg) => pkg.packageName === PASEO_PACKAGE_NAME);
 +  const remaining = paseoPackages.find((pkg) => !pkg.disabled && (pkg.source !== source || pkg.scope !== scope));
-+  const hooks: PaseoHostHooks = { createOnboarding: (prompt, remember) => createPaseoOnboarding(cwd, remember, prompt) };
 +  let wasEnabled = false;
 +  let recovery = api;
 +  try {
@@ -3631,9 +3493,9 @@ index 0000000..776d578
 +      recovery = await loadPaseoHostApi(remaining);
 +      // restore honors a manual pause; when enabled, startSupervisor waits for
 +      // the old package's supervisor to exit before starting the remaining one.
-+      await recovery.restore(hooks);
++      await recovery.restore();
 +    } else {
-+      await api.lifecycle({ action: "remove", cwd, source, scope, packages: [] }, hooks);
++      await api.lifecycle({ action: "remove", cwd, source, scope, packages: [] });
 +      const status = await api.status();
 +      if (status.enabled === true || (status.daemon as { running?: boolean } | undefined)?.running === true) throw new Error("Cleanup incomplete");
 +    }
@@ -3644,10 +3506,10 @@ index 0000000..776d578
 +    api: recovery,
 +    async recover() {
 +      if (remaining) {
-+        await recovery.restore(hooks);
++        await recovery.restore();
 +      } else if (wasEnabled && !target.disabled) {
 +        // Undo only our temporary cleanup pause, never a pre-existing Stop.
-+        await recovery.lifecycle({ action: "enable", cwd, source, scope, packages: paseoPackages }, hooks);
++        await recovery.lifecycle({ action: "enable", cwd, source, scope, packages: paseoPackages });
 +      }
 +    },
 +  };

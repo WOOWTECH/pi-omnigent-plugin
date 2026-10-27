@@ -15,10 +15,12 @@ Repository 為公開，可直接安裝，不需要 GitHub token。安裝後請�
 商業部署請固定版本，避免不同容器在更新時取得不同程式：
 
 ```text
-git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.24
+git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.25
 ```
 
-v0.3.24 改用 Settings → Omnigent 作為唯一的綁定入口；啟動、安裝與重啟不再建立或開啟設定對話。舊版留下的設定對話不再自動選取；既有授權 host 的恢復與模型驗證仍可用。Pi Web 0.10 的原生與 Omnigent＋Paseo 補丁均需重新安裝並重啟，HA add-on 另由新版映像更新。
+v0.3.25 與 Paseo v0.1.12 共用 Pi Web 時，兩個插件都只在 Settings 分頁處理綁定；首頁不會自動開啟設定對話，也不增加 Paseo 快捷按鈕。共用安裝器只接受 v0.1.12 的精確補丁雜湊，避免舊版 Paseo 再度建立對話。更新兩個插件後執行 `pi-omnigent install-ui` 並重啟 Pi Web；HA add-on 另由新版映像更新。
+
+v0.3.24 改用 Settings → Omnigent 作為唯一的綁定入口；啟動、安裝與重啟不再建立或開啟設定對話。舊版留下的設定對話不再自動選取；既有授權 host 的恢復與模型驗證仍可用。
 
 v0.3.23 修正 PaaS 受管 Omnigent host 的連線判斷：部署注入的 `OG_SERVER_URL` 是登入提示／備援網址；已運行 host 實際使用的 server 以 Omnigent 設定與 supervisor 狀態為準。兩者一致且 supervisor 有記錄時，可向該 server 重新登入，即使提示網址不同；若目前使用的 server 不同、狀態衝突，或 supervisor 狀態缺失而提示網址不同，插件仍會在提交帳密前拒絕切換。此更新不會自動搬移 host 或更改供應商登入。
 
@@ -42,7 +44,7 @@ Omnigent SDK 的舊登入不會觸發恢復。首次安裝、停用後重新啟�
 無關程序占用，本版採取拒絕恢復並要求人工檢查，登入與原 host 身分仍保留。
 host 回線不代表模型供應商已授權或所有引擎的對話驗收完成。
 
-同一 Pi Web 安裝 `git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.10` 後，執行 `pi-omnigent install-ui`，驗證兩個固定補丁並產生一份共用 Pi Web 建置。v0.3.21 沿用已驗證的 Pi Web 補丁，支援 Paseo 0.1.10；Paseo 0.1.9、0.1.7／0.1.8 仍依各自已核對的 adapter hash 相容。Paseo 設定頁會開啟同一 Pi Web 網域的 `/paseo-web`。只接受已驗證的版本與補丁雜湊，不會降版既有 Paseo。重新啟動後，設定列順序為 **MCP → Omnigent → Paseo**；兩個服務各自維持原本的登入、連線與停用狀態。
+同一 Pi Web 安裝 `git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.12` 後，執行 `pi-omnigent install-ui`，驗證兩個固定補丁並產生一份共用 Pi Web 建置。Paseo 配對、模型與服務控制都位於 Settings → Paseo；設定頁也可開啟同一 Pi Web 網域的 `/paseo-web`。只接受已驗證的版本與補丁雜湊，不會降版既有 Paseo。重新啟動後，設定列順序為 **MCP → Omnigent → Paseo**；兩個服務各自維持原本的登入、連線與停用狀態。
 
 ```bash
 pi install /path/to/pi-omnigent-plugin
@@ -200,4 +202,4 @@ pi install git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.14
 pi install git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.7
 ```
 
-Paseo 安裝器會交給 Omnigent 建立共用介面；完成後重啟 Pi Web，再到 `/paseo/setup` 配對。收到 `RESTART_REQUIRED` 時，完成重啟後重新整理並驗證三種引擎對話。首次編譯建議預留至少 3 GiB 可用磁碟空間；實測不足 1 GiB 時套件安裝可能因 `ENOSPC` 失敗。官方 Paseo 的主機顯示名稱請在 Paseo App 內修改；插件的「容器備註」僅存於設定頁。
+Paseo 安裝器會交給 Omnigent 建立共用介面；完成後重啟 Pi Web，再到 Settings → Paseo 配對。收到 `RESTART_REQUIRED` 時，完成重啟後重新整理並驗證三種引擎對話。首次編譯建議預留至少 3 GiB 可用磁碟空間；實測不足 1 GiB 時套件安裝可能因 `ENOSPC` 失敗。官方 Paseo 的主機顯示名稱請在 Paseo App 內修改；插件的「容器備註」僅存於設定頁。
