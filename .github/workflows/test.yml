@@ -110,7 +110,7 @@ jobs:
           - version: '0.1.10'
             commit: 'd544c9510dcb8b84c9b97a21562644415b000f12'
           - version: '0.1.11'
-            commit: 'bd60d4128cee45debc90beaa83dadb6f4411aebc'
+            commit: '6034c615e994d9d15f7497a250a7c82f566fded8'
     env:
       PLAYWRIGHT_BROWSERS_PATH: /tmp/paseo-playwright
       PASEO_COMMIT: ${{ matrix.paseo.commit }}
