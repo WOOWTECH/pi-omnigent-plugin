@@ -15,7 +15,7 @@ Repository 為公開，可直接安裝，不需要 GitHub token。安裝後會�
 商業部署請固定版本，避免不同容器在更新時取得不同程式：
 
 ```text
-git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.26
+git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.27
 ```
 
 v0.3.27 恢復新安裝時建立一個可在 Pi Web 側欄找到的「Omnigent 連線設定」對話，並在重啟時沿用同一筆對話。對話只指引使用者到 Settings 輸入網址與帳密；密碼不寫入對話，也不自動呼叫模型。v0.3.26 修正 Pi 原生登入後 Omnigent 模型選單可能為空：已授權但清單為空時，插件會執行 Pi 的模型目錄更新並重新查詢 host。失敗後 15 分鐘內不重複請求；重新登入可立即重試。這個模型清單動作不複製登入憑證。
