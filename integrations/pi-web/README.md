@@ -27,6 +27,8 @@ v0.3.6 的原生 API 對單一引擎驗證回報該次測試的結果；其它�
 v0.3.9 增加 `/omnigent` 直達原生設定頁；獨立及 Omnigent＋Paseo 合併介面均支援。
 
 
+v0.3.24 已移除 Omnigent 首頁自動選取、設定對話 API 與早期互動攔截腳本；Settings → Omnigent 保留完整綁定與模型驗證操作。Omnigent＋Paseo 補丁仍保留 Paseo 自身的配對流程。
+
 v0.3.17 增加首次首頁的 onboarding 自動選取。`GET /api/omnigent/onboarding` 只讀已安裝且原生啟用的插件狀態與保存的 session ID，不呼叫 host／模型或建立對話。首頁只選取該精確 ID，Paseo 共存不影響選擇。ready、disabled、removed、明確 query/cwd/session、tab/workspace/terminal 記憶及草稿都會阻止自動選取。
 
 head script 在 hydration 前記錄輸入、點選、觸控及捲動。等待中的 API 與 catalog 每次完成後重查導航與操作，並在採用前再讀一次生命周期。冷啟動尚未保存 ID 時，最多等待自首次頁面載入起 30 秒、每次完成後隔 1 秒、最多 30 次嘗試；請求不重疊，使用者操作會中止且本次頁面不重試。超過上限後可手動開啟設定對話，或重新造訪未選工作的新首頁。

@@ -69,7 +69,7 @@ jobs:
         working-directory: /tmp/pi-web-omnigent
       - run: npm audit --audit-level=high
         working-directory: /tmp/pi-web-omnigent
-      - run: node --test lib/omnigent-runtime.test.mjs lib/omnigent-reload.test.mjs lib/omnigent-onboarding.test.mjs lib/omnigent-auto-open.test.mjs app/api/omnigent/onboarding/route.test.mjs lib/settings-navigation.test.mjs app/api/omnigent/route.test.mjs components/SettingsPanel.test.mjs
+      - run: node --test lib/omnigent-runtime.test.mjs lib/omnigent-reload.test.mjs lib/settings-navigation.test.mjs app/api/omnigent/route.test.mjs components/SettingsPanel.test.mjs
         working-directory: /tmp/pi-web-omnigent
       - run: npx tsc --noEmit
         working-directory: /tmp/pi-web-omnigent
@@ -80,19 +80,19 @@ jobs:
           CIRCLE_NODE_TOTAL: '3'
       - run: npx playwright install --with-deps chromium
         working-directory: /tmp/pi-web-omnigent
-      - name: Fresh onboarding and interaction races (production)
+      - name: Settings-only binding and legacy-session regression (production)
         shell: bash
         run: |
           set -o pipefail
-          node e2e/omnigent-onboarding.mjs | tee onboarding-browser.json
+          node e2e/omnigent-settings-only.mjs | tee settings-only-browser.json
         working-directory: /tmp/pi-web-omnigent
         env:
           PI_OMNIGENT_TEST_PLUGIN_ROOT: ${{ github.workspace }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: onboarding-native-browser
-          path: /tmp/pi-web-omnigent/onboarding-browser.json
+          name: settings-only-native-browser
+          path: /tmp/pi-web-omnigent/settings-only-browser.json
           retention-days: 30
   combined-ui:
     name: combined-ui (${{ matrix.paseo.version }})
@@ -152,7 +152,7 @@ jobs:
         working-directory: /tmp/pi-web-combined
       - run: npm audit --audit-level=high --no-fund
         working-directory: /tmp/pi-web-combined
-      - run: node --test lib/omnigent-onboarding.test.mjs lib/omnigent-auto-open.test.mjs app/api/omnigent/onboarding/route.test.mjs lib/settings-navigation.test.mjs app/api/plugin-paseo/route.test.mjs app/api/omnigent/route.test.mjs components/PaseoPluginPanel.behavior.test.mjs components/SettingsPanel.test.mjs
+      - run: node --test lib/settings-navigation.test.mjs app/api/plugin-paseo/route.test.mjs app/api/omnigent/route.test.mjs components/PaseoPluginPanel.behavior.test.mjs components/SettingsPanel.test.mjs
         working-directory: /tmp/pi-web-combined
       - name: Actual Paseo display-preference host contract
         if: matrix.paseo.version == '0.1.9' || matrix.paseo.version == '0.1.10' || matrix.paseo.version == '0.1.11'
@@ -190,11 +190,11 @@ jobs:
       - name: Mobile and desktop Paseo scroll regression
         run: node e2e/paseo-mobile-scroll-runner.mjs
         working-directory: /tmp/pi-web-combined
-      - name: Fresh onboarding and interaction races (production)
+      - name: Settings-only binding and legacy-session regression (production)
         shell: bash
         run: |
           set -o pipefail
-          node e2e/omnigent-onboarding.mjs | tee onboarding-browser.json
+          node e2e/omnigent-settings-only.mjs | tee settings-only-browser.json
         working-directory: /tmp/pi-web-combined
         env:
           PI_OMNIGENT_TEST_PLUGIN_ROOT: ${{ github.workspace }}
@@ -202,6 +202,6 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: onboarding-combined-${{ matrix.paseo.version }}-browser
-          path: /tmp/pi-web-combined/onboarding-browser.json
+          name: settings-only-combined-${{ matrix.paseo.version }}-browser
+          path: /tmp/pi-web-combined/settings-only-browser.json
           retention-days: 30

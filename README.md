@@ -1,6 +1,6 @@
 # Pi Omnigent Plugin
 
-將 Pi Agent／Pi Web 容器接到 Omnigent，並提供專用連線設定對話與既有引擎的實際對話驗證。插件會偵測 Claude Code／Codex／Pi，當下有什麼就連結什麼，不補裝缺少的引擎。
+將 Pi Agent／Pi Web 容器接到 Omnigent，並在 Pi Web 設定頁提供連線綁定與既有引擎的實際對話驗證。插件會偵測 Claude Code／Codex／Pi，當下有什麼就連結什麼，不補裝缺少的引擎。
 
 ## 安裝
 
@@ -10,13 +10,15 @@
 git:github.com/WOOWTECH/pi-omnigent-plugin
 ```
 
-Repository 為公開，可直接安裝，不需要 GitHub token。安裝會自動啟動設定對話。也可使用本機路徑或 npm source；本機開發目錄可用：
+Repository 為公開，可直接安裝，不需要 GitHub token。安裝後請至 Settings → Omnigent 輸入 Server URL、帳號與密碼；首頁不會自動開啟對話。也可使用本機路徑或 npm source；本機開發目錄可用：
 
 商業部署請固定版本，避免不同容器在更新時取得不同程式：
 
 ```text
-git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.23
+git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.24
 ```
+
+v0.3.24 改用 Settings → Omnigent 作為唯一的綁定入口；啟動、安裝與重啟不再建立或開啟設定對話。舊版留下的設定對話不再自動選取；既有授權 host 的恢復與模型驗證仍可用。Pi Web 0.10 的原生與 Omnigent＋Paseo 補丁均需重新安裝並重啟，HA add-on 另由新版映像更新。
 
 v0.3.23 修正 PaaS 受管 Omnigent host 的連線判斷：部署注入的 `OG_SERVER_URL` 是登入提示／備援網址；已運行 host 實際使用的 server 以 Omnigent 設定與 supervisor 狀態為準。兩者一致且 supervisor 有記錄時，可向該 server 重新登入，即使提示網址不同；若目前使用的 server 不同、狀態衝突，或 supervisor 狀態缺失而提示網址不同，插件仍會在提交帳密前拒絕切換。此更新不會自動搬移 host 或更改供應商登入。
 
@@ -47,11 +49,11 @@ pi install /path/to/pi-omnigent-plugin
 node /path/to/pi-omnigent-plugin/bin/cli.mjs activate
 ```
 
-本機路徑安裝不會執行 npm postinstall，因此需要上述 activate 一次。npm／git 套件安裝會由 postinstall 自動啟動介接器、建立「Omnigent 連線設定」對話，並在背景處理依賴下載。套件尚未發布到 npm；使用本機或 git source。
+本機路徑安裝不會執行 npm postinstall，因此需要上述 activate 一次。npm／git 套件安裝會由 postinstall 啟動介接器，並在背景處理依賴下載；綁定只從 Settings → Omnigent 進行。套件尚未發布到 npm；使用本機或 git source。
 
-首次安裝／啟用時，精靈一律重新詢問 Omnigent Server、帳號與遮罩密碼，包括已有登入的容器。背景程序先完成依賴安裝與建立設定對話；收到精靈輸入的資料後才登入、連線及驗證。帳密直接交給登入程式；密碼不寫入對話、模型工具參數或插件狀態。Omnigent 官方 token 儲存檔仍由 Omnigent 管理。
+首次綁定／重新綁定時，Settings → Omnigent 一律要求 Omnigent Server、帳號與遮罩密碼。背景程序先完成依賴安裝；使用者在設定頁送出資料後才登入與連線，模型驗證由設定頁的明確操作觸發。帳密直接交給登入程式；密碼不寫入對話、模型工具參數或插件狀態。Omnigent 官方 token 儲存檔仍由 Omnigent 管理。
 
-Pi Web 0.10 沒有套件安裝／啟用生命週期鉤子，所以插件包含一個啟動介接器。它讓原本的 Pi Web 繼續啟動，並建立或續接同一個設定對話。已知的 Pi shared runtime 啟動器會先備份再串接；其他未知啟動器會保留，並提供 `pi-omnigent-web` 入口。請使用 activate 回報的 launchCommand 作為服務命令。安裝後已有對話須使用 Pi Web Reload 載入新增命令；新對話會直接載入。
+Pi Web 0.10 沒有套件安裝／啟用生命週期鉤子，所以插件包含一個啟動介接器。它讓原本的 Pi Web 繼續啟動，並在背景準備依賴與恢復已授權的 host。已知的 Pi shared runtime 啟動器會先備份再串接；其他未知啟動器會保留，並提供 `pi-omnigent-web` 入口。請使用 activate 回報的 launchCommand 作為服務命令。安裝後已有對話須使用 Pi Web Reload 載入新增命令；新對話會直接載入。
 
 ## Pi Web 內操作
 
@@ -116,10 +118,10 @@ pi-omnigent acceptance --chat --engine claude
 
 Pi Web Plugins 的停用／移除操作會停止插件自動處理；移除套件後仍可用原本的 Pi Web 啟動器。也可執行 `pi-omnigent disable`，或 `pi-omnigent uninstall-host` 還原啟動器。原有容器 Omnigent host 的生命週期仍由既有管理器掌控。
 
-原生 Plugins 設定由啟動介接器與已載入的設定對話監看，約 500 ms 後生效。重新啟用會重新要求 server、帳號及遮罩密碼。既有版本升級保留已核准的連線，但 CLI 版本改變會要求重新驗證。
+原生 Plugins 設定由啟動介接器與已載入的插件監看，約 500 ms 後生效。重新啟用會重新要求 server、帳號及遮罩密碼。既有版本升級保留已核准的連線，但 CLI 版本改變會要求重新驗證。
 
 
-Omnigent server 帳密與模型供應商授權分開。新容器即使已登入 server、host 已在線，每個引擎仍需可用的模型來源：Claude Code／Codex 可使用各自的官方登入，或由 Omnigent 設定相容的 gateway；Pi 也需設定可用模型。插件會指出尚未可用的引擎；完成後使用 `/omnigent verify`，不必重新輸入 server 帳密。重新開啟已完成 server 登入的設定對話會續接模型授權說明；明確執行 `/omnigent setup` 或重新啟用仍會重新詢問。
+Omnigent server 帳密與模型供應商授權分開。新容器即使已登入 server、host 已在線，每個引擎仍需可用的模型來源：Claude Code／Codex 可使用各自的官方登入，或由 Omnigent 設定相容的 gateway；Pi 也需設定可用模型。插件會指出尚未可用的引擎；完成後使用 `/omnigent verify`，不必重新輸入 server 帳密。如需更新連線，請在 Settings → Omnigent 填寫新資料；`/omnigent setup` 僅提示前往 Settings → Omnigent。
 
 在執行 Pi Web 的容器內，使用**與 Pi Web 主程序相同的 `HOME`** 完成供應商登入；`kubectl exec` 開出的 shell 可能預設另一個 `HOME`，導致登入成功但 Omnigent 讀不到憑證。Pi7 的 Pi Web 使用 `/data/pi-agent/home`，可在該容器 shell 執行：
 
