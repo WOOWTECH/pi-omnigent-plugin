@@ -43,7 +43,7 @@ export function registerOmnigent(pi: ExtensionAPI, backend: Backend, web: any = 
     const body = details ? content + '\n\n```json\n' + JSON.stringify(details, null, 2) + '\n```' : content;
     pi.sendMessage({ customType: 'omnigent-plugin', content: body, display: true, ...(details ? { details } : {}) });
   };
-  const settingsLink = () => show('[開啟 Pi Web 的 Omnigent 設定](/omnigent)');
+  const settingsLink = () => show('請開啟 Pi Web Settings → Omnigent，於設定頁填寫或更新連線資料。');
 
   pi.on('session_start', async (_event, ctx) => {
     if (!ctx.hasUI || process.env.OMNIGENT_PI_NATIVE_CONFIG || process.env.PI_OMNIGENT_CHILD === '1') return;

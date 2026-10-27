@@ -58,7 +58,7 @@ test('setup and connection commands direct users to Settings without asking for 
   const h = harness();
   for (const command of ['setup', 'reconnect', 'disconnect', 'repair']) {
     await h.commands.omnigent.handler(command, h.ctx);
-    assert.match(h.messages.at(-1).content, /\/omnigent/);
+    assert.match(h.messages.at(-1).content, /Settings → Omnigent/);
   }
   assert.equal(h.calls.length, 0);
   assert.equal(Object.values(h.tools).some(tool => Object.keys(tool.parameters.properties).some(name => /password|username|server/.test(name))), false);

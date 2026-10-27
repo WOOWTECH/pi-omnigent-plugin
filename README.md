@@ -121,7 +121,7 @@ Pi Web Plugins 的停用／移除操作會停止插件自動處理；移除套�
 原生 Plugins 設定由啟動介接器與已載入的插件監看，約 500 ms 後生效。重新啟用會重新要求 server、帳號及遮罩密碼。既有版本升級保留已核准的連線，但 CLI 版本改變會要求重新驗證。
 
 
-Omnigent server 帳密與模型供應商授權分開。新容器即使已登入 server、host 已在線，每個引擎仍需可用的模型來源：Claude Code／Codex 可使用各自的官方登入，或由 Omnigent 設定相容的 gateway；Pi 也需設定可用模型。插件會指出尚未可用的引擎；完成後使用 `/omnigent verify`，不必重新輸入 server 帳密。如需更新連線，請在 Settings → Omnigent 填寫新資料；`/omnigent setup` 僅提供設定頁連結。
+Omnigent server 帳密與模型供應商授權分開。新容器即使已登入 server、host 已在線，每個引擎仍需可用的模型來源：Claude Code／Codex 可使用各自的官方登入，或由 Omnigent 設定相容的 gateway；Pi 也需設定可用模型。插件會指出尚未可用的引擎；完成後使用 `/omnigent verify`，不必重新輸入 server 帳密。如需更新連線，請在 Settings → Omnigent 填寫新資料；`/omnigent setup` 僅提示前往 Settings → Omnigent。
 
 在執行 Pi Web 的容器內，使用**與 Pi Web 主程序相同的 `HOME`** 完成供應商登入；`kubectl exec` 開出的 shell 可能預設另一個 `HOME`，導致登入成功但 Omnigent 讀不到憑證。Pi7 的 Pi Web 使用 `/data/pi-agent/home`，可在該容器 shell 執行：
 
