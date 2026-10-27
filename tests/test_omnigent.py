@@ -1029,6 +1029,56 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(self.auth.reads, [])
         self.assertEqual(self.client.calls, [])
 
+    def test_managed_active_server_overrides_runtime_hint(self):
+        runtime = self.home / "server-url"
+        runtime.write_text("https://deployment.example\n")
+        status = self.home / "status.json"
+        status.write_text(json.dumps({"server": "https://server.example"}))
+        plugin = self.plugin(server="https://server.example", username="user", password="secret", allowManagedHost=True)
+        host = {**plugin.local_host(), "managerRunning": True}
+        with patch.dict(os.environ, {"OG_SERVER_URL": "", "OG_SERVER_URL_FILE": str(runtime), "OG_STATUS_FILE": str(status)}), \
+                patch.object(plugin, "local_host", return_value=host), \
+                patch.object(plugin, "merge_config") as merge, \
+                patch.object(plugin, "sync_codex_catalog"), \
+                patch.object(plugin, "configured_codex_models", return_value=None), \
+                patch.object(adapter.subprocess, "Popen", side_effect=AssertionError("duplicate host")):
+            result = plugin.connect()
+        self.assertTrue(result["host"]["connected"])
+        self.assertEqual(result["server"], "https://server.example")
+        self.assertEqual(len(self.auth.saved), 1)
+        merge.assert_called_once_with("https://server.example")
+
+    def test_managed_active_sources_disagree_before_login(self):
+        status = self.home / "status.json"
+        status.write_text(json.dumps({"server": "https://other.example"}))
+        plugin = self.plugin(server="https://server.example", username="user", password="secret")
+        with patch.dict(os.environ, {"OG_STATUS_FILE": str(status), "OG_SERVER_URL": "", "OG_SERVER_URL_FILE": ""}), \
+                patch.object(plugin, "local_host", return_value={"managerRunning": True}):
+            self.assert_code("SERVER_MANAGED_BY_DEPLOYMENT", plugin.connect)
+        self.assertEqual(self.auth.saved, [])
+        self.assertEqual(self.client.calls, [])
+
+    def test_managed_missing_status_keeps_runtime_hint_guard(self):
+        runtime = self.home / "server-url"
+        runtime.write_text("https://deployment.example\n")
+        plugin = self.plugin(server="https://server.example", username="user", password="secret")
+        with patch.dict(os.environ, {"OG_SERVER_URL": "", "OG_SERVER_URL_FILE": str(runtime),
+                                          "OG_STATUS_FILE": str(self.home / "missing-status.json")}), \
+                patch.object(plugin, "local_host", return_value={"managerRunning": True}):
+            self.assert_code("SERVER_MANAGED_BY_DEPLOYMENT", plugin.connect)
+        self.assertEqual(self.auth.saved, [])
+        self.assertEqual(self.client.calls, [])
+
+    def test_invalid_managed_status_cannot_bypass_server_guard(self):
+        status = self.home / "status.json"
+        status.write_text(json.dumps({"server": "not-a-url"}))
+        plugin = self.plugin(server="https://server.example", username="user", password="secret")
+        with patch.dict(os.environ, {"OG_STATUS_FILE": str(status), "OG_SERVER_URL": "", "OG_SERVER_URL_FILE": ""}), \
+                patch.object(plugin, "local_host", return_value={"managerRunning": True}):
+            self.assert_code("SERVER_MANAGED_BY_DEPLOYMENT", plugin.connect)
+        self.assertEqual(self.auth.saved, [])
+        self.assertEqual(self.client.calls, [])
+
     def test_status_server_mismatch_is_also_rejected_before_auth(self):
         status = self.home / "status.json"
         status.write_text(json.dumps({"server": "https://deployment.example"}))

@@ -647,6 +647,14 @@ class Plugin:
     def require_compatible_kit_server(self, server: str) -> None:
         if not self.local_host()["managerRunning"]:
             return
+        # The deployment URL is a login hint/fallback. A running kit uses the
+        # tenant's last login in config.yaml; its status records that server.
+        # Trust a differing hint only when the supervisor recorded its active
+        # server. Otherwise retain the hint as a guard against an ambiguous
+        # switch while the supervisor is still running.
+        config_server = self.config().get("server")
+        status_path = Path(os.environ.get("OG_STATUS_FILE") or self.data_dir / "omnigent-host" / "status.json")
+        status_server = read_json(status_path).get("server")
         runtime = os.environ.get("OG_SERVER_URL")
         runtime_path = os.environ.get("OG_SERVER_URL_FILE")
         if not runtime and runtime_path:
@@ -654,18 +662,16 @@ class Plugin:
                 runtime = Path(runtime_path).read_text(encoding="utf-8").strip()
             except OSError:
                 pass
-        status_path = Path(os.environ.get("OG_STATUS_FILE") or self.data_dir / "omnigent-host" / "status.json")
-        status_server = read_json(status_path).get("server")
-        candidates = [runtime, status_server]
+        candidates = [config_server, status_server] if status_server else [config_server, runtime]
         for candidate in candidates:
             if not candidate:
                 continue
             try:
                 managed = normalize_server(candidate)
             except PluginError:
-                continue
+                raise PluginError("server_managed_by_deployment", "無法確認受管 host 目前使用的 server；請先檢查既有連線。") from None
             if managed != server:
-                raise PluginError("server_managed_by_deployment", "此容器的 host 由部署連接至另一個 server；請先調整部署設定，或沿用目前 server。")
+                raise PluginError("server_managed_by_deployment", "此容器的受管 host 目前使用另一個 server；請先確認既有連線。")
 
     def require_resume_identity(self, server: str) -> str:
         expected = self.request.get('resumeHostId')

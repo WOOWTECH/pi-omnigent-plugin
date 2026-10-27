@@ -15,8 +15,10 @@ Repository 為公開，可直接安裝，不需要 GitHub token。安裝會自�
 商業部署請固定版本，避免不同容器在更新時取得不同程式：
 
 ```text
-git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.21
+git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.23
 ```
+
+v0.3.23 修正 PaaS 受管 Omnigent host 的連線判斷：部署注入的 `OG_SERVER_URL` 是登入提示／備援網址；已運行 host 實際使用的 server 以 Omnigent 設定與 supervisor 狀態為準。兩者一致且 supervisor 有記錄時，可向該 server 重新登入，即使提示網址不同；若目前使用的 server 不同、狀態衝突，或 supervisor 狀態缺失而提示網址不同，插件仍會在提交帳密前拒絕切換。此更新不會自動搬移 host 或更改供應商登入。
 
 v0.3.21 修正原生套件狀態偶發讀取失敗時，Pi Web 設定頁可能暫時誤顯示 `disabled` 且連線按鈕停用的問題。生命週期讀取會在最多一秒內有限次重查；明確停用立即生效，持續移除或無法讀取仍維持停用。此更新只改插件執行邏輯，沿用 v0.3.20 已驗證的 Pi Web 補丁。
 
