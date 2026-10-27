@@ -182,6 +182,8 @@ jobs:
       - name: Mobile and desktop Paseo scroll regression
         run: node e2e/paseo-mobile-scroll-runner.mjs
         working-directory: /tmp/pi-web-combined
+        env:
+          PI_PASEO_PLUGIN_ROOT: /tmp/pi-paseo
       - name: Settings-only binding and legacy-session regression (production)
         shell: bash
         run: |
