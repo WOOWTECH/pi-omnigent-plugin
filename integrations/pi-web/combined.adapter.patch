@@ -3894,14 +3894,15 @@ new file mode 100644
 index 0000000..f9b146a
 --- /dev/null
 +++ b/lib/paseo-ui.test.mjs
-@@ -0,0 +1,29 @@
+@@ -0,0 +1,30 @@
 +import assert from "node:assert/strict";
 +import test from "node:test";
 +import { paseoDiagnosticChecks, paseoPublicStatus, paseoSessionUrl, readPaseoConfig, safePaseoPairUrl } from "./paseo-ui.ts";
 +
 +test("pairing opens only the official app and stays out of public status", () => {
 +  assert.equal(safePaseoPairUrl("/paseo-web/welcome#secret"), "/paseo-web/welcome#secret");
-+  for (const url of ["//evil.example/paseo-web/#secret", "/paseo-web/#secret", "/paseo-web/pair?redirect=evil#secret", "/paseo-web/../pair#secret", "/paseo-web/welcome#bad\nvalue", "/paseo-web/welcome#bad\\value"]) assert.equal(safePaseoPairUrl(url), null);
++  assert.equal(safePaseoPairUrl("/paseo-web/#secret"), "/paseo-web/welcome#secret");
++  for (const url of ["//evil.example/paseo-web/#secret", "/paseo-web/pair?redirect=evil#secret", "/paseo-web/../pair#secret", "/paseo-web/welcome#bad\nvalue", "/paseo-web/welcome#bad\\value"]) assert.equal(safePaseoPairUrl(url), null);
 +  assert.equal(safePaseoPairUrl("https://app.paseo.sh/pair#secret"), "https://app.paseo.sh/pair#secret");
 +  for (const url of ["javascript:alert(1)", "https://app.paseo.sh.evil.example/pair", "https://user:secret@app.paseo.sh", "http://app.paseo.sh", "https://app.paseo.sh:444"]) assert.equal(safePaseoPairUrl(url), null);
 +  assert.deepEqual(paseoPublicStatus({ phase: "ready", privateTimestamp: { readAt: 1234, value: "secret" }, statusReadAt: 1234, pairUrl: "secret", url: "secret", providers: [{ id: "codex", available: true, apiKey: "secret", status: "https://secret" }] }), { phase: "ready", providers: [{ id: "codex", available: true }] });
@@ -3929,7 +3930,7 @@ new file mode 100644
 index 0000000..c92e33a
 --- /dev/null
 +++ b/lib/paseo-ui.ts
-@@ -0,0 +1,136 @@
+@@ -0,0 +1,137 @@
 +/** Fixed local client; no caller-provided origins receive pairing material. */
 +export const PASEO_APP_URL = "/paseo-web";
 +export const PASEO_PROVIDERS = [{ id: "claude", label: "Claude Code" }, { id: "codex", label: "Codex" }, { id: "pi", label: "Pi" }] as const;
@@ -3937,6 +3938,7 @@ index 0000000..c92e33a
 +export function safePaseoPairUrl(value: unknown): string | null {
 +  if (typeof value !== "string" || value.length > 16384) return null;
 +  if (/^\/paseo-web\/welcome#[^\s\\]+$/.test(value)) return value;
++  if (/^\/paseo-web\/#[^\s\\]+$/.test(value)) return value.replace("/paseo-web/#", "/paseo-web/welcome#");
 +  try {
 +    const url = new URL(value);
 +    return url.protocol === "https:" && url.hostname === "app.paseo.sh" && !url.username && !url.password && !url.port ? url.href : null;
