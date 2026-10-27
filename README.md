@@ -10,7 +10,7 @@
 git:github.com/WOOWTECH/pi-omnigent-plugin
 ```
 
-Repository 為公開，可直接安裝，不需要 GitHub token。安裝後請至 Settings → Omnigent 輸入 Server URL、帳號與密碼；首頁不會自動開啟對話。也可使用本機路徑或 npm source；本機開發目錄可用：
+Repository 為公開，可直接安裝，不需要 GitHub token。安裝後會建立「Omnigent 連線設定」對話；請至 Settings → Omnigent 輸入 Server URL、帳號與密碼。也可使用本機路徑或 npm source；本機開發目錄可用：
 
 商業部署請固定版本，避免不同容器在更新時取得不同程式：
 
@@ -18,7 +18,7 @@ Repository 為公開，可直接安裝，不需要 GitHub token。安裝後請�
 git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.26
 ```
 
-v0.3.26 修正 Pi 原生登入後 Omnigent 模型選單可能為空：已授權但清單為空時，插件會執行 Pi 的模型目錄更新並重新查詢 host。失敗後 15 分鐘內不重複請求；重新登入可立即重試。這個動作不會建立對話或複製登入憑證。既有 Pi Web 設定介面不需重建，更新插件後重啟 Pi Web 即可載入新程式。
+v0.3.27 恢復新安裝時建立一個可在 Pi Web 側欄找到的「Omnigent 連線設定」對話，並在重啟時沿用同一筆對話。對話只指引使用者到 Settings 輸入網址與帳密；密碼不寫入對話，也不自動呼叫模型。v0.3.26 修正 Pi 原生登入後 Omnigent 模型選單可能為空：已授權但清單為空時，插件會執行 Pi 的模型目錄更新並重新查詢 host。失敗後 15 分鐘內不重複請求；重新登入可立即重試。這個模型清單動作不複製登入憑證。
 
 v0.3.25 與 Paseo v0.1.12 共用 Pi Web 時，兩個插件都只在 Settings 分頁處理綁定；首頁不會自動開啟設定對話，也不增加 Paseo 快捷按鈕。共用安裝器只接受 v0.1.12 的精確補丁雜湊，避免舊版 Paseo 再度建立對話。更新兩個插件後執行 `pi-omnigent install-ui` 並重啟 Pi Web；HA add-on 另由新版映像更新。
 
@@ -53,7 +53,7 @@ pi install /path/to/pi-omnigent-plugin
 node /path/to/pi-omnigent-plugin/bin/cli.mjs activate
 ```
 
-本機路徑安裝不會執行 npm postinstall，因此需要上述 activate 一次。npm／git 套件安裝會由 postinstall 啟動介接器，並在背景處理依賴下載；綁定只從 Settings → Omnigent 進行。套件尚未發布到 npm；使用本機或 git source。
+本機路徑安裝不會執行 npm postinstall，因此需要上述 activate 一次。npm／git 套件安裝會由 postinstall 啟動介接器、建立設定對話，並在背景處理依賴下載；綁定資料只從 Settings → Omnigent 輸入。套件尚未發布到 npm；使用本機或 git source。
 
 首次綁定／重新綁定時，Settings → Omnigent 一律要求 Omnigent Server、帳號與遮罩密碼。背景程序先完成依賴安裝；使用者在設定頁送出資料後才登入與連線，模型驗證由設定頁的明確操作觸發。帳密直接交給登入程式；密碼不寫入對話、模型工具參數或插件狀態。Omnigent 官方 token 儲存檔仍由 Omnigent 管理。
 
