@@ -61,6 +61,7 @@ test('incomplete boot creates one setup conversation before preparing dependenci
   assert.match(transcript, /Omnigent 連線設定/);
   assert.match(transcript, /Server URL/);
   assert.doesNotMatch(transcript, /password.*:/i);
+  assert.equal(fs.statSync(readOnboarding(options).sessionFile).mode & 0o777, 0o600);
 });
 
 test('existing setup conversation is reused and stale metadata is repaired', async t => {
@@ -71,11 +72,25 @@ test('existing setup conversation is reused and stale metadata is repaired', asy
   assert.equal(second.status, 'reused');
   assert.equal(second.sessionId, first.sessionId);
   assert.equal(sdk.created, 1);
+  fs.chmodSync(readOnboarding(options).sessionFile, 0o644);
+  await ensureOnboarding({ ...options, sdk });
+  assert.equal(fs.statSync(readOnboarding(options).sessionFile).mode & 0o777, 0o600);
   fs.unlinkSync(readOnboarding(options).sessionFile);
   const repaired = await ensureOnboarding({ ...options, sdk });
   assert.equal(repaired.status, 'created');
   assert.notEqual(repaired.sessionId, first.sessionId);
   assert.equal(sdk.created, 2);
+});
+
+test('setup conversation refuses metadata pointing outside Pi sessions', async t => {
+  const options = fixture(t);
+  const sdk = onboardingSdk();
+  await ensureOnboarding({ ...options, sdk });
+  const outside = path.join(options.home, 'unrelated.jsonl');
+  fs.writeFileSync(outside, '{}\n', { mode: 0o644 });
+  fs.writeFileSync(path.join(options.stateDir, 'onboarding.json'), JSON.stringify({ sessionId: 'foreign', sessionFile: outside }));
+  await assert.rejects(ensureOnboarding({ ...options, sdk }), /Invalid onboarding session path/);
+  assert.equal(fs.statSync(outside).mode & 0o777, 0o644);
 });
 
 test('unknown Pi Web launcher is preserved and a named wrapper composes it', async t => {

@@ -40,6 +40,19 @@ export function readOnboarding(options = {}) {
   return readJson(path.join(webLocations(options).stateDir, 'onboarding.json'));
 }
 
+function privateOnboardingSession(loc, file) {
+  const agent = fs.realpathSync(loc.agentDir);
+  const sessions = fs.realpathSync(path.join(loc.agentDir, 'sessions'));
+  const target = fs.realpathSync(file);
+  if (!sessions.startsWith(agent + path.sep) || !target.startsWith(sessions + path.sep) ||
+      !fs.lstatSync(file).isFile()) throw new Error('Invalid onboarding session path.');
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    if (!fs.fstatSync(fd).isFile()) throw new Error('Invalid onboarding session file.');
+    fs.fchmodSync(fd, 0o600);
+  } finally { fs.closeSync(fd); }
+}
+
 /** Persist one discoverable Pi conversation; credentials are entered in Settings. */
 export async function ensureOnboarding(options = {}) {
   const loc = webLocations(options);
@@ -48,7 +61,8 @@ export async function ensureOnboarding(options = {}) {
     const result = await locked(lock, async () => {
       const file = path.join(loc.stateDir, 'onboarding.json');
       const current = readJson(file);
-      if (current.sessionId && current.sessionFile && fs.existsSync(current.sessionFile)) {
+      if (typeof current.sessionId === 'string' && typeof current.sessionFile === 'string' && fs.existsSync(current.sessionFile)) {
+        privateOnboardingSession(loc, current.sessionFile);
         return { status: 'reused', sessionId: current.sessionId, url: `/?session=${encodeURIComponent(current.sessionId)}` };
       }
       const sdk = await loadPiSdk(options);
@@ -58,6 +72,7 @@ export async function ensureOnboarding(options = {}) {
       session.appendSessionInfo(onboardingTitle);
       session.appendCustomEntry('omnigent-onboarding', { version: 1 });
       session.appendMessage({ role: 'user', content: '啟動 Omnigent 連線設定。請在設定頁輸入 Server URL、帳號及密碼，密碼不要貼在對話裡。', timestamp: Date.now() });
+      privateOnboardingSession(loc, session.getSessionFile());
       const record = { version: 1, sessionId: session.getSessionId(), sessionFile: session.getSessionFile(), cwd, createdAt: new Date().toISOString() };
       writeJson(file, record);
       return { status: 'created', sessionId: record.sessionId, url: `/?session=${encodeURIComponent(record.sessionId)}` };
