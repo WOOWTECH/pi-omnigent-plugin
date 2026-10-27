@@ -41,7 +41,7 @@ test('ready boot preserves status without creating a conversation or calling Pi 
   assert.equal(fs.existsSync(path.join(options.stateDir, 'onboarding.json')), false);
 });
 
-test('incomplete boot creates one setup conversation before preparing dependencies', async t => {
+test('incomplete boot prepares dependencies and leaves binding in Settings without a conversation', async t => {
   const options = fixture(t);
   const sdk = onboardingSdk();
   let prepared = false, conversationPresentDuringPrepare = false;
@@ -52,30 +52,27 @@ test('incomplete boot creates one setup conversation before preparing dependenci
       return { phase: 'needs-login' }; },
   }, sdk, fetch: () => assert.fail('boot must not submit a model turn') });
   assert.equal(prepared, true);
-  assert.equal(conversationPresentDuringPrepare, true);
+  assert.equal(conversationPresentDuringPrepare, false);
   assert.equal(result.startup.status, 'settings-required');
-  assert.equal(result.onboarding.status, 'created');
-  assert.equal(sdk.created, 1);
-  assert.equal(readOnboarding(options).sessionId, result.onboarding.sessionId);
-  const transcript = fs.readFileSync(readOnboarding(options).sessionFile, 'utf8');
-  assert.match(transcript, /Omnigent 連線設定/);
-  assert.match(transcript, /Server URL/);
-  assert.doesNotMatch(transcript, /password.*:/i);
+  assert.equal(sdk.created, 0);
+  assert.equal(fs.existsSync(path.join(options.stateDir, 'onboarding.json')), false);
+  assert.equal(fs.existsSync(path.join(options.agentDir, 'sessions')), false);
 });
 
-test('existing setup conversation is reused and stale metadata is repaired', async t => {
+test('legacy setup metadata cannot trigger or expose a conversation', async t => {
   const options = fixture(t);
   const sdk = onboardingSdk();
-  const first = await ensureOnboarding({ ...options, sdk });
-  const second = await ensureOnboarding({ ...options, sdk });
-  assert.equal(second.status, 'reused');
-  assert.equal(second.sessionId, first.sessionId);
-  assert.equal(sdk.created, 1);
-  fs.unlinkSync(readOnboarding(options).sessionFile);
-  const repaired = await ensureOnboarding({ ...options, sdk });
-  assert.equal(repaired.status, 'created');
-  assert.notEqual(repaired.sessionId, first.sessionId);
-  assert.equal(sdk.created, 2);
+  fs.mkdirSync(options.stateDir, { recursive: true });
+  fs.writeFileSync(path.join(options.stateDir, 'onboarding.json'), JSON.stringify({ sessionId: 'legacy-session' }));
+  const result = await boot({ ...options, sdk, runtime: {
+    status: async () => ({ phase: 'needs-login' }),
+    prepare: async () => ({ phase: 'needs-login' }),
+  } });
+  assert.equal(result.startup.status, 'settings-required');
+  assert.equal(sdk.created, 0);
+  assert.deepEqual(readOnboarding(options), {});
+  assert.equal((await ensureOnboarding({ ...options, sdk })).status, 'settings-only');
+  assert.equal(sdk.created, 0);
 });
 
 test('unknown Pi Web launcher is preserved and a named wrapper composes it', async t => {

@@ -38,26 +38,25 @@ function fixture(t) {
   return { ctx, state, options, login };
 }
 
-test('two boots and a later restart restore the host and reuse one setup conversation without model calls', async t => {
+test('two boots and a later restart restore the host without creating a setup conversation or model calls', async t => {
   const f = fixture(t); await f.login();
   await boot(f.options);
   assert.equal(f.state.online, true, 'the real boot must restore the prior connection');
-  const original = readOnboarding(f.options);
-  assert.ok(original.sessionId);
-  assert.equal(fs.existsSync(original.sessionFile), true);
+  assert.deepEqual(readOnboarding(f.options), {});
+  assert.equal(fs.existsSync(path.join(f.ctx.loc.stateDir, 'onboarding.json')), false);
   await boot(f.options); f.state.online = false; await boot(f.options);
   assert.equal(f.state.online, true); assert.equal(f.state.hostId, 'original-host');
-  assert.equal(readOnboarding(f.options).sessionId, original.sessionId);
+  assert.equal(fs.existsSync(path.join(f.ctx.loc.stateDir, 'onboarding.json')), false);
   assert.equal(f.state.calls.some(c => ['connect', 'verify'].includes(c.action)), false);
   assert.equal((await runtime.status(f.ctx)).phase, 'needs-verification');
 });
 
-test('ambient SDK login cannot resume a fresh install; onboarding still asks for account setup', async t => {
+test('ambient SDK login cannot resume a fresh install or trigger a setup conversation', async t => {
   const f = fixture(t); f.state.online = true;
   // External status advertises an existing SDK host; no plugin consent exists.
   await boot(f.options);
   await boot(f.options);
-  assert.ok(readOnboarding(f.options).sessionId);
+  assert.equal(fs.existsSync(path.join(f.ctx.loc.stateDir, 'onboarding.json')), false);
   assert.equal(f.state.calls.some(c => ['connect', 'resume', 'verify'].includes(c.action)), false);
   const state = await runtime.status(f.ctx); assert.equal(state.loginConfirmed, false);
   assert.equal(state.phase, 'needs-login');

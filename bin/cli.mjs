@@ -57,15 +57,11 @@ try {
       const lifecycle = await packageLifecycle({ loc, allowUnregistered: args.includes('--auto') });
       if (!lifecycle.active) { print({ phase: 'inactive', reason: lifecycle.reason }); process.exit(0); }
       const host = await installHost({ loc });
-      let onboarding;
-      try { onboarding = await ensureOnboarding({ loc }); }
-      catch { onboarding = { status: 'unavailable' }; }
-      saveJSON(path.join(loc.stateDir, 'activation.json'), { activatedAt: new Date().toISOString(), host, onboarding });
-      // Downloads and server checks run in a separate worker. The new setup
-      // conversation contains no credentials and does not submit a model turn.
+      saveJSON(path.join(loc.stateDir, 'activation.json'), { activatedAt: new Date().toISOString(), host });
+      // Downloads and server checks run in a separate worker. Binding starts in Settings.
       const worker = spawn(process.execPath, [fileURLToPath(import.meta.url), 'boot', ...(args.includes('--auto') ? ['--activation-worker'] : [])], { env: process.env, detached: true, stdio: 'ignore' });
       worker.on('error', () => {}); worker.unref();
-      print({ phase: 'activated', host, onboarding, setup: 'settings-required' });
+      print({ phase: 'activated', host, setup: 'settings-required' });
     }
   } else {
     print({ usage: 'pi-omnigent activate | onboarding | acceptance [--chat] [--engine ENGINE --model MODEL] | status | catalog | verify [--engine claude|codex|pi] | initialize [--server URL] | disconnect | repair | install-dependencies | install-host | install-ui [--prebuilt-root PATH] | cleanup-ui [--dry-run|--apply] | launch-web | enable | disable' });
