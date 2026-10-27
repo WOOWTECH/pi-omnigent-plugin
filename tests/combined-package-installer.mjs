@@ -32,7 +32,7 @@ function treeHash(root) {
 }
 const paseo = json(path.join(paseoRoot, 'package.json'));
 assert.equal(paseo.name, '@woowtech/pi-paseo');
-assert.ok(['0.1.9', '0.1.10', '0.1.11'].includes(paseo.version));
+assert.equal(paseo.version, '0.1.12');
 const originalHash = treeHash(paseoRoot);
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-combined-package-'));
 const home = path.join(temporary, 'home');
@@ -74,13 +74,13 @@ try {
   const hostFile = path.join(home, '.local/share/pi-omnigent-web/host-install.json');
   const hostBefore = fs.readFileSync(hostFile);
   const rejected = [];
-  for (const version of ['0.1.12', '0.1.10-rc.1']) {
+  for (const version of ['0.1.11', '0.1.10-rc.1']) {
     writeJson(manifest, { ...paseo, version });
     await assert.rejects(installUi(options), { code: 'COMBINED_ADAPTER_MISMATCH' });
     rejected.push(version);
   }
   // Each supported version must carry its own exact contributor patch.
-  writeJson(manifest, { ...paseo, version: paseo.version === '0.1.9' ? '0.1.10' : '0.1.9' });
+  writeJson(manifest, { ...paseo, version: '0.1.11' });
   await assert.rejects(installUi(options), { code: 'COMBINED_ADAPTER_MISMATCH' });
   fs.writeFileSync(manifest, savedManifest);
   // Recompute the overlay's own hash: the combined contributor pin must still reject it.
