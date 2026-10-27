@@ -680,7 +680,7 @@ class Plugin:
         if (not isinstance(expected, str) or not expected or not isinstance(host, dict)
                 or host.get('host_id') != expected or not config.get('server')
                 or normalize_server(config['server']) != server):
-            raise PluginError('connection_identity_mismatch', '既有連線身分不符；請在設定對話確認原本的 server 與 host。')
+            raise PluginError('connection_identity_mismatch', '既有連線身分不符；請在 Settings → Omnigent 確認原本的 server 與 host。')
         return expected
 
     def ensure_host(self, server: str) -> str:
@@ -741,7 +741,7 @@ class Plugin:
             raise PluginError('invalid_request', '恢復連線不可提交新的帳號密碼。')
         self.require_compatible_kit_server(server)
         if not self.auth.token(server):
-            raise PluginError('needs_login', '原連線登入已失效，請在設定對話重新登入。')
+            raise PluginError('needs_login', '原連線登入已失效，請在 Settings → Omnigent 重新登入。')
         client = self.client_factory(server, False)
         account = client.request('GET', '/v1/me')
         # /v1/me uses user_id; /auth/login's user.id is a different envelope.
@@ -754,7 +754,7 @@ class Plugin:
             self.require_resume_identity(server)
             own = client.request('GET', f'/v1/hosts/{quote(host_id, safe="")}')
             if not isinstance(own, dict) or own.get('host_id') != host_id or not valid_identity(own.get('owner')) or own['owner'] != account_id:
-                raise PluginError('connection_identity_mismatch', '原 host 不屬於目前登入；請在設定對話確認。')
+                raise PluginError('connection_identity_mismatch', '原 host 不屬於目前登入；請在 Settings → Omnigent 確認。')
             return own
         own_host()
         manager = self.ensure_host(server)

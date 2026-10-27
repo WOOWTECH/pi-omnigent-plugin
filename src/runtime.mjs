@@ -182,7 +182,7 @@ function terminalDiagnostic(proof, engine) {
 async function verifyInternal(ctx, { engine, model } = {}) {
   const { loc, call } = ctx; const state = stateOf(loc);
   if (state.enabled === false) return { ok: false, phase: 'disabled' };
-  if (state.loginConfirmed !== true) return { ok: false, phase: 'needs-login', error: { code: 'FRESH_LOGIN_REQUIRED', message: '請在設定對話重新輸入網址、帳號與密碼。' } };
+  if (state.loginConfirmed !== true) return { ok: false, phase: 'needs-login', error: { code: 'FRESH_LOGIN_REQUIRED', message: '請在 Settings → Omnigent 重新輸入網址、帳號與密碼。' } };
   if (!state.server) return { ok: false, phase: 'needs-setup', error: { code: 'SERVER_REQUIRED', message: '請先設定 Omnigent Server。' } };
   if (engine && !ENGINES.includes(engine)) throw new Error('Unknown engine.');
   const installed = ENGINES.filter(name => ctx.dependencies[name]?.available === true);
@@ -248,14 +248,14 @@ export async function initialize(options = {}) {
     const target = server || local.data?.server;
     if (!target) {
       writeState(loc, { phase: 'needs-setup' });
-      return { ok: false, phase: 'needs-setup', message: '請在專用設定對話輸入 Omnigent Server。' };
+      return { ok: false, phase: 'needs-setup', message: '請在 Settings → Omnigent 輸入 Omnigent Server。' };
     }
     const normalized = normalizeServer(target);
     const freshLogin = typeof options.username === 'string' && options.username.trim()
       && typeof options.password === 'string' && options.password;
     if (!freshLogin && (requireFresh || previous.loginConfirmed !== true)) {
       writeState(loc, { phase: 'needs-login', server: normalized, loginConfirmed: false });
-      return { ok: false, phase: 'needs-login', server: normalized, error: { code: 'FRESH_LOGIN_REQUIRED', message: '請在設定對話重新輸入網址、帳號與密碼。' } };
+      return { ok: false, phase: 'needs-login', server: normalized, error: { code: 'FRESH_LOGIN_REQUIRED', message: '請在 Settings → Omnigent 重新輸入網址、帳號與密碼。' } };
     }
     writeState(loc, { phase: 'connecting', server: normalized });
     const connected = await ctx.call('connect', { server: normalized,
