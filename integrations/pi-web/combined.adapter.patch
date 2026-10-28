@@ -1020,10 +1020,10 @@ index 0000000..fa8d06c
 +  redirect(`/?${params}`);
 +}
 diff --git a/app/settings.css b/app/settings.css
-index 66e0880..e9e9d1c 100644
+index 66e0880..4856157 100644
 --- a/app/settings.css
 +++ b/app/settings.css
-@@ -1520,6 +1520,17 @@
+@@ -1520,6 +1520,20 @@
    min-height: 0;
  }
  
@@ -1036,12 +1036,15 @@ index 66e0880..e9e9d1c 100644
 +  overflow-y: auto;
 +  overscroll-behavior: contain;
 +  -webkit-overflow-scrolling: touch;
++  /* Same side gutters as the other sections; the panel used to touch the dialog edge. */
++  box-sizing: border-box;
++  padding: 22px clamp(16px, 4vw, 40px) 40px;
 +}
 +
  .settings-general {
    width: 100%;
    max-height: 100%;
-@@ -2427,3 +2438,25 @@
+@@ -2427,3 +2441,25 @@
      }
    }
  }
