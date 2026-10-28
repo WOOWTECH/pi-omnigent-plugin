@@ -1804,14 +1804,14 @@ index 274b438..7fd3e2b 100644
 +- Settings > Plugins uses its existing `.config-detail` scroller for Paseo. Keep the Paseo panel in that detail area without a nested vertical scroller. Verify physical touch/wheel access to bottom controls, expanded catalogs and back to the heading with the mobile scroll regression against a deployed Settings > Plugins panel.
 diff --git a/e2e/fresh-install-zero-conversation.mjs b/e2e/fresh-install-zero-conversation.mjs
 new file mode 100644
-index 0000000..8030230
+index 0000000..6ba78d8
 --- /dev/null
 +++ b/e2e/fresh-install-zero-conversation.mjs
-@@ -0,0 +1,171 @@
+@@ -0,0 +1,174 @@
 +import assert from 'node:assert/strict';
 +import { spawn } from 'node:child_process';
 +import { once } from 'node:events';
-+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
++import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 +import { createServer } from 'node:net';
 +import { tmpdir } from 'node:os';
 +import { dirname, join, resolve } from 'node:path';
@@ -1826,6 +1826,9 @@ index 0000000..8030230
 +const paseoRoot = resolve(process.env.PI_PASEO_PLUGIN_ROOT || '');
 +assert.equal(JSON.parse(readFileSync(join(omnigentSource, 'package.json'))).name, '@woowtech/pi-omnigent-plugin');
 +assert.equal(JSON.parse(readFileSync(join(paseoRoot, 'package.json'))).name, '@woowtech/pi-paseo');
++// The route loads the plugin's real host API, which needs the plugin's runtime dependencies exactly as an installed
++// plugin has them; a bare checkout makes the route answer 503, which would look like a product failure.
++assert.ok(existsSync(join(paseoRoot, 'node_modules')), 'install the Paseo plugin runtime dependencies first: npm ci --omit=dev --ignore-scripts');
 +const home = mkdtempSync(join(tmpdir(), 'fresh-install-e2e-'));
 +const agentDir = join(home, 'agent'), pluginRoot = join(home, 'plugin'), stateDir = join(agentDir, 'omnigent-plugin');
 +mkdirSync(agentDir); mkdirSync(pluginRoot); mkdirSync(stateDir); mkdirSync(join(agentDir, 'pi-paseo'));

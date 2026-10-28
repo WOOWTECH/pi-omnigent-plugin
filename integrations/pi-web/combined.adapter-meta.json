@@ -13,7 +13,7 @@
     "packageVersion": "0.3.29",
     "adapterPatchSha256": "b67a2cca389836462dda1dd9a85afb011ce556157e215002a2ae46373422dadd"
   },
-  "patchSha256": "7ec4b78a9072b0ba33ad8d153186d9ffd8eacabbe42a2be1288071463571553d",
+  "patchSha256": "c5a1b94aa6547259365f2f4f49867e55722a5aef0b8e53a66f6b2b337b89d03b",
   "settingsSections": [
     "mcp",
     "omnigent",

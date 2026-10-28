@@ -193,6 +193,12 @@ jobs:
         env:
           PI_OMNIGENT_TEST_PLUGIN_ROOT: ${{ github.workspace }}
           PI_PASEO_PLUGIN_ROOT: /tmp/pi-paseo
+      - name: Install the Paseo plugin runtime dependencies, as an installed plugin has them
+        # The fresh-install test runs the real Paseo route, which loads the plugin's host API; a bare checkout answers 503.
+        run: npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+        working-directory: /tmp/pi-paseo
+        env:
+          PI_PASEO_SKIP_POSTINSTALL: '1'
       - name: Fresh install with no conversation (production)
         # A brand-new install has no session and no picked project. Settings > Paseo must load from the server's own
         # fallback directory, the first screen must point at Settings > Omnigent, and the Paseo section must scroll
