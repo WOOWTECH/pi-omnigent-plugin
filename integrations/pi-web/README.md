@@ -27,6 +27,8 @@ v0.3.6 的原生 API 對單一引擎驗證回報該次測試的結果；其它�
 v0.3.9 增加 `/omnigent` 直達原生設定頁；獨立及 Omnigent＋Paseo 合併介面均支援。
 
 
+v0.3.29 共用 Paseo v0.1.13 補丁：Settings → Paseo 在沒有對話也沒選專案時由伺服器自己決定的目錄載入（客戶端指定的目錄仍須在已服務根目錄內）；首頁 Get Started 增加第 3 行純文字提示 Settings → Omnigent；Paseo 分頁可在手機捲動。
+
 v0.3.25 共用 Paseo v0.1.12 補丁；兩個插件都只在 Settings 處理綁定，移除 Paseo 首頁設定對話的建立與自動開啟。舊版 `/paseo/setup` 轉到 Settings → Plugins，不再顯示獨立設定頁。共用安裝器只接受此版本的精確補丁雜湊。
 
 v0.3.24 已移除 Omnigent 首頁自動選取、設定對話 API 與早期互動攔截腳本；Settings → Omnigent 保留完整綁定與模型驗證操作。

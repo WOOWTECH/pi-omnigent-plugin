@@ -69,7 +69,7 @@ jobs:
         working-directory: /tmp/pi-web-omnigent
       - run: npm audit --audit-level=high
         working-directory: /tmp/pi-web-omnigent
-      - run: node --test lib/omnigent-runtime.test.mjs lib/omnigent-reload.test.mjs lib/settings-navigation.test.mjs app/api/omnigent/route.test.mjs components/SettingsPanel.test.mjs
+      - run: node --test lib/omnigent-runtime.test.mjs lib/omnigent-reload.test.mjs lib/settings-navigation.test.mjs lib/i18n/registry.test.mjs app/api/omnigent/route.test.mjs components/SettingsPanel.test.mjs
         working-directory: /tmp/pi-web-omnigent
       - run: npx tsc --noEmit
         working-directory: /tmp/pi-web-omnigent
@@ -101,8 +101,8 @@ jobs:
     strategy:
       matrix:
         paseo:
-          - version: '0.1.12'
-            ref: 'v0.1.12'
+          - version: '0.1.13'
+            ref: 'v0.1.13'
     env:
       PLAYWRIGHT_BROWSERS_PATH: /tmp/paseo-playwright
       PASEO_REF: ${{ matrix.paseo.ref }}
@@ -144,10 +144,10 @@ jobs:
         working-directory: /tmp/pi-web-combined
       - run: npm audit --audit-level=high --no-fund
         working-directory: /tmp/pi-web-combined
-      - run: node --test lib/settings-navigation.test.mjs app/api/plugin-paseo/route.test.mjs app/api/omnigent/route.test.mjs components/PaseoPluginPanel.behavior.test.mjs components/SettingsPanel.test.mjs
+      - run: node --test lib/settings-navigation.test.mjs lib/i18n/registry.test.mjs app/api/plugin-paseo/route.test.mjs app/api/omnigent/route.test.mjs components/PaseoPluginPanel.behavior.test.mjs components/SettingsPanel.test.mjs
         working-directory: /tmp/pi-web-combined
       - name: Actual Paseo display-preference host contract
-        if: matrix.paseo.version == '0.1.12'
+        if: matrix.paseo.version == '0.1.13'
         run: node --test lib/paseo-name.test.mjs
         working-directory: /tmp/pi-web-combined
         env:
@@ -161,7 +161,7 @@ jobs:
           CIRCLE_NODE_TOTAL: '3'
 
       - name: Real packed-package installer acceptance
-        if: matrix.paseo.version == '0.1.12'
+        if: matrix.paseo.version == '0.1.13'
         shell: bash
         run: |
           paseo_installer_dir="$RUNNER_TEMP/paseo-installer-package"
@@ -170,7 +170,7 @@ jobs:
           tar -xzf "$paseo_installer_dir/woowtech-pi-paseo-${PASEO_VERSION}.tgz" -C "$paseo_installer_dir"
           node tests/combined-package-installer.mjs /tmp/pi-web-combined "$paseo_installer_dir/package" "$RUNNER_TEMP/combined-installer.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always() && matrix.paseo.version == '0.1.12'
+        if: always() && matrix.paseo.version == '0.1.13'
         with:
           name: combined-installer-${{ matrix.paseo.version }}
           path: ${{ runner.temp }}/combined-installer.json
@@ -193,6 +193,30 @@ jobs:
         env:
           PI_OMNIGENT_TEST_PLUGIN_ROOT: ${{ github.workspace }}
           PI_PASEO_PLUGIN_ROOT: /tmp/pi-paseo
+      - name: Install the Paseo plugin runtime dependencies, as an installed plugin has them
+        # The fresh-install test runs the real Paseo route, which loads the plugin's host API; a bare checkout answers 503.
+        run: npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+        working-directory: /tmp/pi-paseo
+        env:
+          PI_PASEO_SKIP_POSTINSTALL: '1'
+      - name: Fresh install with no conversation (production)
+        # A brand-new install has no session and no picked project. Settings > Paseo must load from the server's own
+        # fallback directory, the first screen must point at Settings > Omnigent, and the Paseo section must scroll
+        # by touch on phones. A directory named by the client must stay refused.
+        shell: bash
+        run: |
+          set -o pipefail
+          node e2e/fresh-install-zero-conversation.mjs | tee fresh-install-browser.json
+        working-directory: /tmp/pi-web-combined
+        env:
+          PI_OMNIGENT_TEST_PLUGIN_ROOT: ${{ github.workspace }}
+          PI_PASEO_PLUGIN_ROOT: /tmp/pi-paseo
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: fresh-install-combined-${{ matrix.paseo.version }}-browser
+          path: /tmp/pi-web-combined/fresh-install-browser.json
+          retention-days: 30
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:

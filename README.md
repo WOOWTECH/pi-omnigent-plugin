@@ -15,8 +15,10 @@ Repository 為公開，可直接安裝，不需要 GitHub token。安裝後請�
 商業部署請固定版本，避免不同容器在更新時取得不同程式：
 
 ```text
-git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.28
+git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.29
 ```
+
+v0.3.29 修正全新安裝（沒有任何對話、也沒選專案）的三個問題，Settings → Omnigent 仍是唯一的綁定入口：①Omnigent＋Paseo 合併介面的 Settings → Paseo 在這種狀態下會回 404、所有狀態列顯示「尚未取得」且無法產生配對連結，現在改由伺服器自己決定的目錄（`PI_PASEO_CWD`，否則使用者家目錄；家目錄只讀全域套件）提供，客戶端指定的目錄仍必須在 Pi Web 已服務的根目錄內；②首頁「Get Started」多一行純文字提示，指向 Settings → Omnigent（不是按鈕或連結，不開啟對話）；③Settings → Paseo 分頁在手機與小視窗無法捲動、底部控制項被截斷，現在可捲動。合併補丁改為驗證 Paseo v0.1.13 的精確補丁雜湊，新增「全新安裝」瀏覽器回歸測試。既有 Pi Web 須執行 `pi-omnigent install-ui` 並重啟，或改用已內建新版 UI 的映像。
 
 v0.3.28 恢復 Settings → Omnigent 為唯一的綁定入口；安裝、啟動與重啟不建立或開啟設定對話，也不顯示舊版留下的設定對話連結。既有對話資料仍保留。v0.3.26 修正 Pi 原生登入後 Omnigent 模型選單可能為空：已授權但清單為空時，插件會執行 Pi 的模型目錄更新並重新查詢 host。失敗後 15 分鐘內不重複請求；重新登入可立即重試。這個模型清單動作不複製登入憑證。
 
@@ -46,7 +48,7 @@ Omnigent SDK 的舊登入不會觸發恢復。首次安裝、停用後重新啟�
 無關程序占用，本版採取拒絕恢復並要求人工檢查，登入與原 host 身分仍保留。
 host 回線不代表模型供應商已授權或所有引擎的對話驗收完成。
 
-同一 Pi Web 安裝 `git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.12` 後，執行 `pi-omnigent install-ui`，驗證兩個固定補丁並產生一份共用 Pi Web 建置。Paseo 配對、模型與服務控制都位於 Settings → Paseo；設定頁也可開啟同一 Pi Web 網域的 `/paseo-web`。只接受已驗證的版本與補丁雜湊，不會降版既有 Paseo。重新啟動後，設定列順序為 **MCP → Omnigent → Paseo**；兩個服務各自維持原本的登入、連線與停用狀態。
+同一 Pi Web 安裝 `git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.13` 後，執行 `pi-omnigent install-ui`，驗證兩個固定補丁並產生一份共用 Pi Web 建置。Paseo 配對、模型與服務控制都位於 Settings → Paseo；設定頁也可開啟同一 Pi Web 網域的 `/paseo-web`。只接受已驗證的版本與補丁雜湊，不會降版既有 Paseo。重新啟動後，設定列順序為 **MCP → Omnigent → Paseo**；兩個服務各自維持原本的登入、連線與停用狀態。
 
 ```bash
 pi install /path/to/pi-omnigent-plugin

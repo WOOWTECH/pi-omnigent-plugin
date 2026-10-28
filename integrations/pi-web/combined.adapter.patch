@@ -57,10 +57,10 @@ index 0000000..6026304
 +}
 diff --git a/app/api/plugin-paseo/route.test.mjs b/app/api/plugin-paseo/route.test.mjs
 new file mode 100644
-index 0000000..70b9e3c
+index 0000000..28df14c
 --- /dev/null
 +++ b/app/api/plugin-paseo/route.test.mjs
-@@ -0,0 +1,349 @@
+@@ -0,0 +1,400 @@
 +import assert from "node:assert/strict";
 +import fs from "node:fs";
 +import os from "node:os";
@@ -85,6 +85,11 @@ index 0000000..70b9e3c
 +  fs.mkdirSync(cwd);
 +  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
 +  const calls = [];
++  const discoveries = [];
++  // A real home directory that is NOT inside the served roots, for fresh-install cases.
++  const home = path.join(root, "home");
++  if (!options.homeMissing) fs.mkdirSync(home);
++  const extraEnv = typeof options.env === "function" ? options.env({ root, cwd, home }) : options.env;
 +  const snapshot = { phase: "running", enabled: true, daemon: { running: true, reachable: true }, ...options.status };
 +  const api = {
 +    async status() { calls.push("status"); return snapshot; },
@@ -97,7 +102,7 @@ index 0000000..70b9e3c
 +  };
 +  const pkg = { source: path.join(root, "package"), scope: "global", packageName: "@woowtech/pi-paseo", disabled: options.disabled === true };
 +  const sandbox = vm.createContext({
-+    process: { env: { HOME: root, PI_CODING_AGENT_DIR: path.join(root, "agent"), PI_PASEO_STATE_DIR: path.join(root, "state"), PI_WEB_PASSWORD: "fixture-password" }, platform: process.platform },
++    process: { env: { HOME: root, PI_CODING_AGENT_DIR: path.join(root, "agent"), PI_PASEO_STATE_DIR: path.join(root, "state"), PI_WEB_PASSWORD: "fixture-password", ...extraEnv }, platform: process.platform },
 +    Buffer, TextDecoder, URL, Response, console,
 +  });
 +  const modules = new Map();
@@ -111,14 +116,14 @@ index 0000000..70b9e3c
 +    "@/lib/plugin-updates": { isPluginSourceCheckable: () => false, checkPluginUpdates: async () => { calls.push("updates"); return []; } },
 +    "@/lib/plugin-lifecycle": { notifyPluginPackageChange() { calls.push("lifecycle"); }, preparePluginPackageRemoval() { calls.push("removal"); } },
 +    "@/lib/paseo-plugin": {
-+      configuredPaseoPackages(directory) { calls.push(`discover:${directory}`); return options.missing ? [] : [pkg]; },
++      configuredPaseoPackages(directory, globalOnly = false) { calls.push(`discover:${directory}`); discoveries.push({ directory, globalOnly }); return options.missing ? [] : [pkg]; },
 +      loadPaseoHostApi: async () => api,
 +    },
 +    "@/lib/file-access": {
-+      getAllowedFileRoots: async () => new Set([cwd]),
++      getAllowedFileRoots: async () => options.fresh ? new Set() : new Set([cwd]),
 +      isExistingFilePathAllowed: (directory, roots) => load(path.join(host, "lib/path-security.ts")).isExistingPathWithinRoots(directory, roots),
 +    },
-+    "node:os": { homedir: () => cwd },
++    "node:os": { homedir: () => options.fresh ? home : cwd },
 +  };
 +  function load(file) {
 +    if (modules.has(file)) return modules.get(file).exports;
@@ -150,7 +155,7 @@ index 0000000..70b9e3c
 +    const guarded = proxy(req);
 +    return guarded.headers.get("x-middleware-next") === "1" ? route[req.method](req) : guarded;
 +  }
-+  return { api, snapshot, cwd, root, calls, request, dispatch, route, serialize: load(path.join(host, "lib/plugin-package-lock.ts")).serializePluginPackageOperation };
++  return { api, snapshot, cwd, root, home, calls, discoveries, request, dispatch, route, serialize: load(path.join(host, "lib/plugin-package-lock.ts")).serializePluginPackageOperation };
 +}
 +
 +test("Paseo proxy authenticates requests and rejects CSRF before loading the installed API", async (t) => {
@@ -238,6 +243,52 @@ index 0000000..70b9e3c
 +    assert.equal((await f.dispatch(f.request({ action: "activate", cwd }))).status, 404);
 +  }
 +  assert.deepEqual(f.calls, []);
++});
++
++test("Paseo opens on a fresh install that has no conversation and no served project", async (t) => {
++  // No session cwd and no project picked: the allowed roots are empty and home is not inside them. The panel sends no
++  // cwd, so the server's own fallback must be usable, and it reads the global package only.
++  const f = fixture(t, { fresh: true });
++  const opened = await f.dispatch(f.request(undefined));
++  assert.equal(opened.status, 200);
++  assert.deepEqual(f.discoveries, [{ directory: f.home, globalOnly: true }]);
++  assert.equal((await f.dispatch(f.request({ action: "status", cwd: undefined }))).status, 200);
++  const pair = await f.dispatch(f.request({ action: "pair", cwd: undefined }));
++  assert.equal(pair.status, 200);
++  assert.match((await pair.json()).url, /app\.paseo\.sh/);
++  assert.equal((await f.dispatch(f.request({ action: "diagnose", cwd: undefined }))).status, 200);
++  // A directory the client names is still refused unless Pi Web serves it, even when it is the same home directory.
++  for (const target of [f.home, f.root, f.cwd]) {
++    assert.equal((await f.dispatch(f.request(undefined, { search: "?cwd=" + encodeURIComponent(target) }))).status, 404);
++    assert.equal((await f.dispatch(f.request({ action: "status", cwd: target }))).status, 404);
++  }
++});
++
++test("Paseo treats PI_PASEO_CWD as the operator's choice and refuses an unusable fallback", async (t) => {
++  const project = fixture(t, { fresh: true, env: ({ cwd }) => ({ PI_PASEO_CWD: cwd }) });
++  assert.equal((await project.dispatch(project.request(undefined))).status, 200);
++  assert.deepEqual(project.discoveries, [{ directory: project.cwd, globalOnly: false }], "an explicit project keeps project-aware discovery");
++  for (const [name, env, prepare] of [
++    ["missing", ({ root }) => ({ PI_PASEO_CWD: path.join(root, "missing") })],
++    ["a file", ({ root }) => ({ PI_PASEO_CWD: path.join(root, "file.txt") }), (f) => fs.writeFileSync(path.join(f.root, "file.txt"), "x")],
++    ["relative", () => ({ PI_PASEO_CWD: "relative/path" })],
++  ]) {
++    const f = fixture(t, { fresh: true, env });
++    prepare?.(f);
++    assert.equal((await f.dispatch(f.request(undefined))).status, 404, `a ${name} fallback is a 404, not a 503`);
++    assert.equal((await f.dispatch(f.request({ action: "status", cwd: undefined }))).status, 404);
++    assert.deepEqual(f.discoveries, [], `a ${name} fallback is never discovered`);
++  }
++});
++
++test("Paseo keeps full project discovery for served directories and answers 404 for a missing home", async (t) => {
++  const f = fixture(t);
++  assert.equal((await f.dispatch(f.request(undefined, { search: "?cwd=" + encodeURIComponent(f.cwd) }))).status, 200);
++  assert.equal((await f.dispatch(f.request(undefined))).status, 200, "home inside the served roots behaves as before");
++  assert.deepEqual(f.discoveries, [{ directory: f.cwd, globalOnly: false }, { directory: f.cwd, globalOnly: false }]);
++  const missing = fixture(t, { fresh: true, homeMissing: true });
++  assert.equal((await missing.dispatch(missing.request(undefined))).status, 404);
++  assert.deepEqual(missing.discoveries, []);
 +});
 +
 +test("Paseo masks runtime errors and projects status, diagnostics, models and pairing", async (t) => {
@@ -412,10 +463,10 @@ index 0000000..70b9e3c
 +});
 diff --git a/app/api/plugin-paseo/route.ts b/app/api/plugin-paseo/route.ts
 new file mode 100644
-index 0000000..9505447
+index 0000000..c829881
 --- /dev/null
 +++ b/app/api/plugin-paseo/route.ts
-@@ -0,0 +1,96 @@
+@@ -0,0 +1,107 @@
 +import { NextResponse } from "next/server";
 +import { readJsonObject, RequestBodyError } from "@/lib/json-request";
 +import { homedir } from "node:os";
@@ -441,13 +492,24 @@ index 0000000..9505447
 +  return NextResponse.json(value, { status, headers });
 +}
 +
++function directoryExists(directory: string): boolean {
++  try { return statSync(directory).isDirectory(); } catch { return false; }
++}
++
 +async function context(cwd: unknown) {
-+  const directory = typeof cwd === "string" && cwd ? cwd : process.env.PI_PASEO_CWD || homedir();
-+  if (!validCwd(directory)) return null;
-+  const roots = await getAllowedFileRoots();
-+  if (!isExistingFilePathAllowed(directory, roots)) return null;
-+  if (!statSync(directory).isDirectory()) return null;
-+  const packages = configuredPaseoPackages(directory);
++  // A directory named by the client must be one Pi Web already serves. The server's own fallback (PI_PASEO_CWD, else
++  // the user's home) is trusted: the managed Web client route and startup recovery already read it without that
++  // check, and requiring it made this panel unreachable on a fresh install that has no conversation and no
++  // selected project (the project picker only registers a child directory of home).
++  const requested = typeof cwd === "string" && cwd ? cwd : undefined;
++  const configured = process.env.PI_PASEO_CWD;
++  const directory = requested ?? (configured || homedir());
++  if (!validCwd(directory) || !directoryExists(directory)) return null;
++  const served = isExistingFilePathAllowed(directory, await getAllowedFileRoots());
++  if (!served && requested) return null;
++  // Outside the served roots only the global package is read, like the managed Web client route, unless the
++  // operator named a project explicitly with PI_PASEO_CWD.
++  const packages = configuredPaseoPackages(directory, !served && !configured);
 +  const target = packages.find((pkg) => !pkg.disabled) ?? packages[0];
 +  if (!target) return null;
 +  return { cwd: directory, packages, target, api: target.disabled ? null : await loadPaseoHostApi(target) };
@@ -958,10 +1020,31 @@ index 0000000..fa8d06c
 +  redirect(`/?${params}`);
 +}
 diff --git a/app/settings.css b/app/settings.css
-index 66e0880..335228e 100644
+index 66e0880..4856157 100644
 --- a/app/settings.css
 +++ b/app/settings.css
-@@ -2427,3 +2427,25 @@
+@@ -1520,6 +1520,20 @@
+   min-height: 0;
+ }
+ 
++/* The Paseo panel is its own settings section and has no scroll container of its own; the dialog body is
++   overflow:hidden, so on a phone or a short window its lower controls (pairing link, model catalog) were cut off
++   with no way to scroll. Only this section scrolls; Omnigent and the other sections scroll themselves. The rule is
++   on the host, not on .paseo-plugin-panel, because the same panel is also embedded in the Plugins tab where
++   .config-detail already owns scrolling. */
++.settings-section-host:has(> .paseo-plugin-panel) {
++  overflow-y: auto;
++  overscroll-behavior: contain;
++  -webkit-overflow-scrolling: touch;
++  /* Same side gutters as the other sections; the panel used to touch the dialog edge. */
++  box-sizing: border-box;
++  padding: 22px clamp(16px, 4vw, 40px) 40px;
++}
++
+ .settings-general {
+   width: 100%;
+   max-height: 100%;
+@@ -2427,3 +2441,25 @@
      }
    }
  }
@@ -988,7 +1071,7 @@ index 66e0880..335228e 100644
 +  min-width: 0;
 +}
 diff --git a/components/AppShell.tsx b/components/AppShell.tsx
-index c50b18f..7bacf6f 100644
+index c50b18f..57b6314 100644
 --- a/components/AppShell.tsx
 +++ b/components/AppShell.tsx
 @@ -77,7 +77,7 @@ function parkedNewSessionDraftKey(cwd: string): string {
@@ -1019,6 +1102,16 @@ index c50b18f..7bacf6f 100644
    // While restoring initial session from URL, don't show the placeholder
    const showPlaceholder = initialSessionRestored && !showChat;
  
+@@ -2406,7 +2409,8 @@ export function AppShell() {
+                    <div style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>{translate("workspace.getStarted")}</div>
+                   <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.8 }}>
+                      <span style={{ color: "var(--text-dim)", marginRight: 6 }}>1.</span>{translate("workspace.selectProject")}<br />
+-                     <span style={{ color: "var(--text-dim)", marginRight: 6 }}>2.</span>{translate("workspace.addModels")}
++                     <span style={{ color: "var(--text-dim)", marginRight: 6 }}>2.</span>{translate("workspace.addModels")}<br />
++                     <span style={{ color: "var(--text-dim)", marginRight: 6 }}>3.</span>{translate("omnigent.getStarted")}
+                   </div>
+                 </div>
+               </div>
 diff --git a/components/OmnigentConfig.tsx b/components/OmnigentConfig.tsx
 new file mode 100644
 index 0000000..3ebb85f
@@ -1709,6 +1802,186 @@ index 274b438..7fd3e2b 100644
 +- Plugin/Paseo mutations parse bounded UTF-8 JSON objects before settings or runtime discovery (64 KiB plugins, 16 KiB Paseo). Reject malformed scopes/sources/cwds without SDK work; success and refusal responses use no-store. The Paseo panel pauses polls during mutations, ignores obsolete workspace/action responses, and expires readiness after 15 seconds without a confirmed status. Slow polls share one pending read. `restart_required` instructs Stop then Start and disables pairing/model reads until recovery. Runtime status cache invalidation remains the installed plugin’s responsibility.
 +
 +- Settings > Plugins uses its existing `.config-detail` scroller for Paseo. Keep the Paseo panel in that detail area without a nested vertical scroller. Verify physical touch/wheel access to bottom controls, expanded catalogs and back to the heading with the mobile scroll regression against a deployed Settings > Plugins panel.
+diff --git a/e2e/fresh-install-zero-conversation.mjs b/e2e/fresh-install-zero-conversation.mjs
+new file mode 100644
+index 0000000..6ba78d8
+--- /dev/null
++++ b/e2e/fresh-install-zero-conversation.mjs
+@@ -0,0 +1,174 @@
++import assert from 'node:assert/strict';
++import { spawn } from 'node:child_process';
++import { once } from 'node:events';
++import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
++import { createServer } from 'node:net';
++import { tmpdir } from 'node:os';
++import { dirname, join, resolve } from 'node:path';
++import { fileURLToPath } from 'node:url';
++import { setTimeout as delay } from 'node:timers/promises';
++import { chromium } from 'playwright';
++
++// A brand-new install: no conversation, no project picked, an empty sessions directory. It exercises the real
++// production build and the real Paseo and Omnigent routes; only the long Paseo catalog on phones is mocked.
++const root = dirname(dirname(fileURLToPath(import.meta.url)));
++const omnigentSource = resolve(process.env.PI_OMNIGENT_TEST_PLUGIN_ROOT || '');
++const paseoRoot = resolve(process.env.PI_PASEO_PLUGIN_ROOT || '');
++assert.equal(JSON.parse(readFileSync(join(omnigentSource, 'package.json'))).name, '@woowtech/pi-omnigent-plugin');
++assert.equal(JSON.parse(readFileSync(join(paseoRoot, 'package.json'))).name, '@woowtech/pi-paseo');
++// The route loads the plugin's real host API, which needs the plugin's runtime dependencies exactly as an installed
++// plugin has them; a bare checkout makes the route answer 503, which would look like a product failure.
++assert.ok(existsSync(join(paseoRoot, 'node_modules')), 'install the Paseo plugin runtime dependencies first: npm ci --omit=dev --ignore-scripts');
++const home = mkdtempSync(join(tmpdir(), 'fresh-install-e2e-'));
++const agentDir = join(home, 'agent'), pluginRoot = join(home, 'plugin'), stateDir = join(agentDir, 'omnigent-plugin');
++mkdirSync(agentDir); mkdirSync(pluginRoot); mkdirSync(stateDir); mkdirSync(join(agentDir, 'pi-paseo'));
++for (const item of ['package.json', 'src', 'extensions']) cpSync(join(omnigentSource, item), join(pluginRoot, item), { recursive: true });
++symlinkSync(join(root, 'node_modules'), join(pluginRoot, 'node_modules'), 'dir');
++writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ packages: [pluginRoot, paseoRoot] }), { mode: 0o600 });
++writeFileSync(join(agentDir, 'pi-paseo', 'host-registration.json'), JSON.stringify({ enabled: false }));
++
++const probe = createServer(); probe.listen(0, '127.0.0.1'); await once(probe, 'listening');
++const port = probe.address().port; await new Promise(resolve => probe.close(resolve));
++const base = `http://127.0.0.1:${port}`;
++const env = {
++  PATH: process.env.PATH, HOME: home, LANG: 'C.UTF-8', NODE_ENV: 'production',
++  PI_CODING_AGENT_DIR: agentDir, PI_AGENT_DATA_DIR: agentDir, PI_OMNIGENT_STATE_DIR: stateDir,
++  PI_OMNIGENT_PLUGIN_ROOT: pluginRoot, PI_OMNIGENT_SDK_ROOT: root,
++  OMNIGENT_CONFIG_HOME: join(home, '.omnigent'), OMNIGENT_DATA_DIR: join(home, '.omnigent'),
++  PI_WEB_PASSWORD: '', PI_TELEMETRY: '0', PI_SKIP_VERSION_CHECK: '1', NEXT_TELEMETRY_DISABLED: '1',
++  PI_PASEO_PLUGIN_ROOT: paseoRoot, PI_PASEO_DISCOVERY_ONLY: '1', PI_PASEO_SKIP_POSTINSTALL: '1',
++};
++const server = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-H', '127.0.0.1', '-p', String(port)], { cwd: root, env, stdio: ['ignore', 'ignore', 'pipe'] });
++let serverError = ''; server.stderr.on('data', chunk => { serverError = (serverError + chunk.toString()).slice(-4000); });
++const stopped = once(server, 'exit'); let browser;
++const results = [];
++const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
++const sessionCount = page => page.evaluate(async () => (await (await fetch('/api/sessions?summary=1', { cache: 'no-store' })).json()).sessions.length);
++
++// Open Settings straight on a section. /omnigent opens the dialog, so this works on phones whose sidebar is closed.
++async function openSection(page, name) {
++  await page.goto(base + '/omnigent', { waitUntil: 'domcontentloaded' });
++  const dialog = page.locator('.settings-dialog-surface');
++  await dialog.waitFor({ state: 'visible', timeout: 20000 });
++  const picker = dialog.locator('.settings-mobile-section-picker');
++  if (await picker.isVisible().catch(() => false)) await picker.selectOption({ label: name });
++  else await dialog.getByRole('button', { name, exact: true }).click();
++  return dialog;
++}
++
++try {
++  let ready = false;
++  for (let attempt = 0; attempt < 160 && server.exitCode === null; attempt++) {
++    if (await fetch(base).then(response => response.ok, () => false)) { ready = true; break; }
++    await delay(250);
++  }
++  assert.equal(ready, true, 'isolated Pi Web did not start');
++  browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'], ...(executablePath ? { executablePath } : {}) });
++
++  // Desktop: the first screen, the real Paseo and Omnigent routes, and the client-supplied directory guard.
++  {
++    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-US' });
++    const page = await context.newPage(); let modelRequests = 0;
++    page.on('request', request => {
++      if (request.method() === 'POST') { try { if (['prompt', 'steer', 'follow_up'].includes(request.postDataJSON()?.type)) modelRequests++; } catch {} }
++    });
++    await page.goto(base + '/', { waitUntil: 'domcontentloaded' });
++    await page.getByText('Get Started', { exact: true }).waitFor({ timeout: 20000 });
++    const steps = (await page.getByText('Get Started', { exact: true }).locator('xpath=..').innerText()).replace(/\s+/g, ' ');
++    assert.match(steps, /1\.\s*Select a project directory/);
++    assert.match(steps, /2\.\s*Open Settings at the bottom, then choose Models/);
++    assert.match(steps, /3\.\s*Open Settings at the bottom, then choose Omnigent/, 'the first screen must point at Settings > Omnigent');
++    assert.equal(await sessionCount(page), 0, 'a fresh install has no conversation');
++
++    // Listen before the tab opens: the panel asks for its status the moment it mounts.
++    const paseoResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/plugin-paseo' && response.request().method() === 'GET', { timeout: 30000 });
++    await openSection(page, 'Paseo');
++    const paseo = await paseoResponse;
++    assert.equal(new URL(paseo.url()).searchParams.has('cwd'), false, 'the settings panel names no directory');
++    assert.equal(paseo.status(), 200, 'Paseo status must load with no conversation and no project');
++    const panel = page.getByRole('region', { name: 'Paseo 連線設定' });
++    await panel.waitFor({ state: 'visible' });
++    await delay(800);
++    assert.doesNotMatch(await panel.innerText(), /請先在插件設定安裝 Paseo/);
++
++    // A directory the client names must still be one Pi Web serves.
++    const refused = await context.request.get(`${base}/api/plugin-paseo?cwd=${encodeURIComponent(home)}`);
++    assert.equal(refused.status(), 404, 'a client-supplied directory outside the served roots stays refused');
++
++    const omnigentDialog = await openSection(page, 'Omnigent');
++    await omnigentDialog.getByRole('button', { name: 'Configure connection' }).waitFor({ state: 'visible', timeout: 20000 });
++    assert.equal(await sessionCount(page), 0, 'opening both settings sections creates no conversation');
++    assert.equal(modelRequests, 0);
++    results.push({ viewport: 'desktop', firstScreenSteps: 3, paseoStatus: paseo.status(), clientDirectoryGuard: refused.status(), sessions: 0 });
++    await context.close();
++  }
++
++  // Phones and a short window: the Paseo section must scroll to its lower controls by touch (it has no scroller of its own).
++  const status = { enabled: true, packageEnabled: true, packageInstalled: true, phase: 'running', daemon: { healthy: true, running: true, installed: true },
++    providers: ['claude', 'codex', 'pi'].map(id => ({ id, chatVerified: true })) };
++  for (const c of [{ name: 'phone', width: 390, height: 667 }, { name: 'small-phone', width: 360, height: 640 }, { name: 'landscape', width: 844, height: 390 }]) {
++    const context = await browser.newContext({ viewport: { width: c.width, height: c.height }, isMobile: true, hasTouch: true, locale: 'en-US' });
++    try {
++      const page = await context.newPage(); const errors = []; page.on('pageerror', error => errors.push(error.name));
++      await page.route('**/api/plugin-paseo*', async route => {
++        const request = route.request(), body = request.method() === 'POST' ? request.postDataJSON() : {};
++        assert.ok(!body.action || body.action === 'models', 'the layout check must not mutate the runtime');
++        await route.fulfill({ json: body.action === 'models'
++          ? { modes: [], models: Array.from({ length: 60 }, (_, i) => ({ id: `model-${i}`, label: `Scroll model ${i} ${'long-name-'.repeat(8)}` })) } : status });
++      });
++      await openSection(page, 'Paseo');
++      const panel = page.getByRole('region', { name: 'Paseo 連線設定' });
++      await panel.waitFor();
++      const scrollRoot = page.locator('.settings-section-host').filter({ has: panel });
++      const button = panel.getByRole('button', { name: '讀取 Pi 模型', exact: true });
++      await page.waitForFunction(() => { const b = [...document.querySelectorAll('button')].find(x => x.textContent === '讀取 Pi 模型'); return b && !b.disabled; });
++      const cdp = await context.newCDPSession(page);
++      async function swipe(direction = 1) {
++        const box = await scrollRoot.boundingBox();
++        const x = Math.min(c.width - 32, box.x + box.width * 0.65);
++        const top = Math.max(90, box.y + 30), bottom = Math.min(c.height - 110, box.y + box.height - 32);
++        const start = direction > 0 ? bottom : top, end = direction > 0 ? top : bottom;
++        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y: start }] });
++        for (let i = 1; i <= 10; i++) { await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: start + (end - start) * i / 10 }] }); await page.waitForTimeout(16); }
++        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
++        await page.waitForTimeout(100);
++      }
++      const inViewport = locator => locator.evaluate(el => {
++        const r = el.getBoundingClientRect();
++        if (r.top < 0 || r.bottom > innerHeight || r.left < 0 || r.right > innerWidth) return false;
++        const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
++        return hit === el || el.contains(hit);
++      });
++      // Never let click() or scrollIntoView() hide a broken gesture path: only real touch scrolling counts.
++      async function reach(locator, direction = 1) {
++        for (let i = 0; i < 45 && !(await inViewport(locator)); i++) {
++          const target = await locator.boundingBox(), rootBox = await scrollRoot.boundingBox();
++          await swipe(target && rootBox ? (target.y < rootBox.y + 12 ? -1 : target.y + target.height > rootBox.y + rootBox.height - 12 ? 1 : direction) : direction);
++        }
++        if (!(await inViewport(locator))) {
++          const metrics = await scrollRoot.evaluate(el => ({ scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight, overflowY: getComputedStyle(el).overflowY }));
++          assert.fail(`${c.name}: control not reachable by touch scrolling; ${JSON.stringify(metrics)}`);
++        }
++      }
++      await reach(panel.getByRole('button', { name: '產生配對連結', exact: true }));
++      await reach(button);
++      await button.click();
++      const last = panel.locator('li').last(); await last.waitFor();
++      await reach(last);
++      assert.ok((await last.textContent()).startsWith('Scroll model 59'));
++      assert.equal(await panel.evaluate(el => el.scrollWidth > el.clientWidth + 1), false, `${c.name}: long model names must wrap`);
++      await reach(panel.getByText('Paseo 連線', { exact: true }), -1);
++      assert.deepEqual(errors, []);
++      results.push({ viewport: c.name, touchScrollReachesPairingAndCatalog: true });
++    } finally { await context.close(); }
++  }
++  console.log(JSON.stringify({ passed: true, cases: results }));
++} catch (error) {
++  console.error(JSON.stringify({ passed: false, completedCases: results, error: error instanceof Error ? error.message : String(error) }));
++  if (server.exitCode !== null) console.error(serverError);
++  process.exitCode = 1;
++} finally {
++  await browser?.close(); server.kill('SIGTERM');
++  const timer = setTimeout(() => server.kill('SIGKILL'), 5000); await stopped; clearTimeout(timer);
++  rmSync(home, { recursive: true, force: true });
++}
 diff --git a/e2e/omnigent-settings-only.mjs b/e2e/omnigent-settings-only.mjs
 new file mode 100644
 index 0000000..142f994
@@ -2038,10 +2311,10 @@ index 3fe0643..330cce6 100644
  
  test("the view groups models by provider and marks custom ones", async () => {
 diff --git a/lib/i18n/messages/en.ts b/lib/i18n/messages/en.ts
-index 0bb5253..b7df3e2 100644
+index 0bb5253..41c57eb 100644
 --- a/lib/i18n/messages/en.ts
 +++ b/lib/i18n/messages/en.ts
-@@ -5,6 +5,49 @@ export const enLocale: LocalePlugin = {
+@@ -5,6 +5,50 @@ export const enLocale: LocalePlugin = {
    id: "en",
    label: "English",
    messages: {
@@ -2088,14 +2361,15 @@ index 0bb5253..b7df3e2 100644
 +    "omnigent.cancel": "Cancel",
 +    "omnigent.confirm": "Confirm disconnect",
 +    "omnigent.refresh": "Refresh",
++    "omnigent.getStarted": "Open Settings at the bottom, then choose Omnigent to connect this host to an Omnigent server",
      "common.ok": "OK",
      "common.language": "Language",
      "common.models": "Models",
 diff --git a/lib/i18n/messages/zh-CN.ts b/lib/i18n/messages/zh-CN.ts
-index eabdadb..180a2c4 100644
+index eabdadb..f88a262 100644
 --- a/lib/i18n/messages/zh-CN.ts
 +++ b/lib/i18n/messages/zh-CN.ts
-@@ -5,6 +5,49 @@ export const zhCNLocale: LocalePlugin = {
+@@ -5,6 +5,50 @@ export const zhCNLocale: LocalePlugin = {
    id: "zh-CN",
    label: "简体中文",
    messages: {
@@ -2142,14 +2416,15 @@ index eabdadb..180a2c4 100644
 +    "omnigent.cancel": "取消",
 +    "omnigent.confirm": "確認取消連線",
 +    "omnigent.refresh": "重新整理",
++    "omnigent.getStarted": "打开底部的“设置”，然后选择“Omnigent”，将这台主机连接到 Omnigent 服务器",
      "common.ok": "确定",
      "common.language": "语言",
      "common.models": "模型",
 diff --git a/lib/i18n/messages/zh-TW.ts b/lib/i18n/messages/zh-TW.ts
-index 3c18dc6..f893356 100644
+index 3c18dc6..7e981d3 100644
 --- a/lib/i18n/messages/zh-TW.ts
 +++ b/lib/i18n/messages/zh-TW.ts
-@@ -5,6 +5,49 @@ export const zhTWLocale: LocalePlugin = {
+@@ -5,6 +5,50 @@ export const zhTWLocale: LocalePlugin = {
    id: "zh-TW",
    label: "繁體中文",
    messages: {
@@ -2196,6 +2471,7 @@ index 3c18dc6..f893356 100644
 +    "omnigent.cancel": "取消",
 +    "omnigent.confirm": "確認取消連線",
 +    "omnigent.refresh": "重新整理",
++    "omnigent.getStarted": "開啟底部的「設定」，然後選擇「Omnigent」，把這台主機連到 Omnigent 伺服器",
      "common.ok": "確定",
      "common.language": "語言",
      "common.models": "模型",

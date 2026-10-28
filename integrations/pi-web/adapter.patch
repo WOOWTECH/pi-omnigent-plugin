@@ -92,7 +92,7 @@ index 66e0880..fea2228 100644
 +.omnigent-actions select { color: var(--text); background: var(--bg-panel); border: 1px solid var(--border); padding: 8px; border-radius: 6px; max-width: 100%; }
 +@media (max-width: 640px) { .omnigent-detail { padding: 16px; } .omnigent-engines { grid-template-columns: 1fr; } }
 diff --git a/components/AppShell.tsx b/components/AppShell.tsx
-index c50b18f..8ce6ae4 100644
+index c50b18f..3decda4 100644
 --- a/components/AppShell.tsx
 +++ b/components/AppShell.tsx
 @@ -77,7 +77,7 @@ function parkedNewSessionDraftKey(cwd: string): string {
@@ -113,6 +113,16 @@ index c50b18f..8ce6ae4 100644
    const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
    const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
    const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
+@@ -2406,7 +2406,8 @@ export function AppShell() {
+                    <div style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>{translate("workspace.getStarted")}</div>
+                   <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.8 }}>
+                      <span style={{ color: "var(--text-dim)", marginRight: 6 }}>1.</span>{translate("workspace.selectProject")}<br />
+-                     <span style={{ color: "var(--text-dim)", marginRight: 6 }}>2.</span>{translate("workspace.addModels")}
++                     <span style={{ color: "var(--text-dim)", marginRight: 6 }}>2.</span>{translate("workspace.addModels")}<br />
++                     <span style={{ color: "var(--text-dim)", marginRight: 6 }}>3.</span>{translate("omnigent.getStarted")}
+                   </div>
+                 </div>
+               </div>
 diff --git a/components/OmnigentConfig.tsx b/components/OmnigentConfig.tsx
 new file mode 100644
 index 0000000..3ebb85f
@@ -419,10 +429,10 @@ index 3fe0643..330cce6 100644
  
  test("the view groups models by provider and marks custom ones", async () => {
 diff --git a/lib/i18n/messages/en.ts b/lib/i18n/messages/en.ts
-index 0bb5253..b7df3e2 100644
+index 0bb5253..41c57eb 100644
 --- a/lib/i18n/messages/en.ts
 +++ b/lib/i18n/messages/en.ts
-@@ -5,6 +5,49 @@ export const enLocale: LocalePlugin = {
+@@ -5,6 +5,50 @@ export const enLocale: LocalePlugin = {
    id: "en",
    label: "English",
    messages: {
@@ -469,14 +479,15 @@ index 0bb5253..b7df3e2 100644
 +    "omnigent.cancel": "Cancel",
 +    "omnigent.confirm": "Confirm disconnect",
 +    "omnigent.refresh": "Refresh",
++    "omnigent.getStarted": "Open Settings at the bottom, then choose Omnigent to connect this host to an Omnigent server",
      "common.ok": "OK",
      "common.language": "Language",
      "common.models": "Models",
 diff --git a/lib/i18n/messages/zh-CN.ts b/lib/i18n/messages/zh-CN.ts
-index eabdadb..180a2c4 100644
+index eabdadb..f88a262 100644
 --- a/lib/i18n/messages/zh-CN.ts
 +++ b/lib/i18n/messages/zh-CN.ts
-@@ -5,6 +5,49 @@ export const zhCNLocale: LocalePlugin = {
+@@ -5,6 +5,50 @@ export const zhCNLocale: LocalePlugin = {
    id: "zh-CN",
    label: "简体中文",
    messages: {
@@ -523,14 +534,15 @@ index eabdadb..180a2c4 100644
 +    "omnigent.cancel": "取消",
 +    "omnigent.confirm": "確認取消連線",
 +    "omnigent.refresh": "重新整理",
++    "omnigent.getStarted": "打开底部的“设置”，然后选择“Omnigent”，将这台主机连接到 Omnigent 服务器",
      "common.ok": "确定",
      "common.language": "语言",
      "common.models": "模型",
 diff --git a/lib/i18n/messages/zh-TW.ts b/lib/i18n/messages/zh-TW.ts
-index 3c18dc6..f893356 100644
+index 3c18dc6..7e981d3 100644
 --- a/lib/i18n/messages/zh-TW.ts
 +++ b/lib/i18n/messages/zh-TW.ts
-@@ -5,6 +5,49 @@ export const zhTWLocale: LocalePlugin = {
+@@ -5,6 +5,50 @@ export const zhTWLocale: LocalePlugin = {
    id: "zh-TW",
    label: "繁體中文",
    messages: {
@@ -577,6 +589,7 @@ index 3c18dc6..f893356 100644
 +    "omnigent.cancel": "取消",
 +    "omnigent.confirm": "確認取消連線",
 +    "omnigent.refresh": "重新整理",
++    "omnigent.getStarted": "開啟底部的「設定」，然後選擇「Omnigent」，把這台主機連到 Omnigent 伺服器",
      "common.ok": "確定",
      "common.language": "語言",
      "common.models": "模型",
