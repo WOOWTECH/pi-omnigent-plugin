@@ -23,11 +23,15 @@ function readJson(file) {
   catch (error) { if (error.code === 'ENOENT') return {}; throw new Error('Plugin metadata is unreadable; inspect the plugin state directory.'); }
 }
 
-function writeJson(file, value) {
+function writeJson(file, value, expected) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const temporary = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
   try {
     fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+    // A repair never overwrites a record that changed after it was inspected.
+    if (expected !== undefined && fs.readFileSync(file, 'utf8') !== expected) {
+      throw Object.assign(new Error('Launcher metadata changed; run the check again.'), { code: 'HOST_RECORD_CHANGED' });
+    }
     fs.renameSync(temporary, file);
   } finally {
     try { fs.unlinkSync(temporary); } catch {}
@@ -262,6 +266,52 @@ export async function uninstallHost(options = {}) {
   if (isOwnedLauncher(namedShim)) fs.unlinkSync(namedShim);
   if (Object.keys(host).length) writeJson(metadata, { ...host, mode: 'uninstalled', uninstalledAt: new Date().toISOString() });
   return { status };
+}
+
+/** Read-only view of the launcher chain for pi-omnigent doctor. */
+export function inspectLaunchChain(options = {}) {
+  const loc = webLocations(options);
+  const host = readJson(path.join(loc.stateDir, 'host.json'));
+  if (!Object.keys(host).length || host.mode === 'uninstalled') return { installed: false };
+  let last = null;
+  try { last = JSON.parse(fs.readFileSync(path.join(loc.stateDir, 'launch.json'), 'utf8')); } catch {}
+  return { installed: true, mode: host.mode || null, recorded: host.realWeb || null,
+    ...resolveRealWeb(host, { loc, env: options.env || process.env }),
+    ...(last ? { lastLaunch: { checkedAt: last.checkedAt || null, by: last.by || null, realWeb: last.realWeb || null, source: last.source || null } } : {}) };
+}
+
+// Own launchers embed realWeb as their fallback for a removed plugin CLI; only
+// that literal changes, never the CLI path or node binary they start.
+function repointLauncher(file, from, to) {
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); } catch { return false; }
+  const before = `const native=${JSON.stringify(from)};`;
+  if (typeof from !== 'string' || !text.includes(launcherMarker) || text.split(before).length !== 2) return false;
+  const temporary = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+  try {
+    fs.writeFileSync(temporary, text.replace(before, () => `const native=${JSON.stringify(to)};`), { mode: 0o755, flag: 'wx' });
+    fs.renameSync(temporary, file);
+  } finally { try { fs.unlinkSync(temporary); } catch {} }
+  return true;
+}
+
+/** pi-omnigent doctor --fix: repoint a realWeb that no longer runs; login and other state stay untouched. */
+export function repointRealWeb(options = {}) {
+  const loc = webLocations(options);
+  const file = path.join(loc.stateDir, 'host.json');
+  let raw, host;
+  try { raw = fs.readFileSync(file, 'utf8'); }
+  catch (error) { if (error.code === 'ENOENT') return { status: 'skipped', code: 'LAUNCHER_NOT_INSTALLED' }; throw error; }
+  try { host = JSON.parse(raw); } catch { return { status: 'skipped', code: 'HOST_RECORD_UNREADABLE' }; }
+  if (!host || typeof host !== 'object' || Array.isArray(host) || host.mode === 'uninstalled') return { status: 'skipped', code: 'LAUNCHER_NOT_INSTALLED' };
+  const chosen = resolveRealWeb(host, { loc, env: options.env || process.env });
+  if (chosen.source === 'recorded') return { status: 'unchanged', realWeb: host.realWeb };
+  if (!chosen.realWeb) return { status: 'skipped', code: 'PI_WEB_UNAVAILABLE' };
+  writeJson(file, { ...host, realWeb: chosen.realWeb }, raw);
+  const launchers = [path.join(loc.home, '.local/bin/pi-web'), path.join(loc.home, '.local/bin/pi-omnigent-web')]
+    .filter(launcher => repointLauncher(launcher, host.realWeb, chosen.realWeb));
+  writeLaunchReceipt(loc, 'doctor-fix', host.realWeb, chosen);
+  return { status: 'repointed', from: host.realWeb || null, to: chosen.realWeb, source: chosen.source, launchers, rejected: chosen.rejected };
 }
 
 export async function boot(options = {}) {

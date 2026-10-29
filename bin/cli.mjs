@@ -7,20 +7,47 @@ import { initialize, status, catalog, verify, repair, disconnect, setEnabled, en
 import { installHost, uninstallHost, packageLifecycle, boot, launchWeb, ensureOnboarding } from '../src/web.mjs';
 import { installDependencies } from '../src/installer.mjs';
 import { acceptance } from '../src/acceptance.mjs';
+import { doctor, formatDoctor } from '../src/doctor.mjs';
+import { connectWithPassword, readPasswordStdin } from '../src/connect.mjs';
 import { installUi, cleanupUi, UiInstallError } from './install-ui.mjs';
 
 const [command = 'status', ...args] = process.argv.slice(2);
 const loc = locations();
 function option(name) { const index = args.indexOf(name); return index < 0 ? undefined : args[index + 1]; }
+// Strict flags for operator commands: unknown, repeated or value-less flags are
+// refused, and argument values are never echoed back.
+function flags(spec) {
+  const parsed = {};
+  for (let index = 0; index < args.length; index++) {
+    const name = args[index], kind = spec[name];
+    if (!kind || Object.hasOwn(parsed, name) || (kind === 'value' && index + 1 >= args.length)) {
+      throw Object.assign(new Error('Invalid arguments.'), { code: 'INVALID_ARGUMENTS' });
+    }
+    parsed[name] = kind === 'value' ? args[++index] : true;
+  }
+  return parsed;
+}
 function print(value) {
   process.stdout.write(JSON.stringify(value, null, 2) + '\n');
-  if (['acceptance', 'catalog', 'verify', 'initialize', 'repair', 'disconnect', 'install-dependencies', 'enable', 'disable'].includes(command) && value?.ok === false) process.exitCode = 1;
+  if (['acceptance', 'catalog', 'verify', 'initialize', 'repair', 'disconnect', 'install-dependencies', 'enable', 'disable', 'connect', 'doctor'].includes(command) && value?.ok === false) process.exitCode = 1;
 }
 try {
   if (command === 'status') print(await status());
   else if (command === 'acceptance') {
     const result = await acceptance({ chat: args.includes('--chat'), engine: option('--engine'), model: option('--model') });
     saveJSON(path.join(loc.stateDir, 'acceptance.json'), result); print(result);
+  }
+  else if (command === 'doctor') {
+    const parsed = flags({ '--json': 'flag', '--fix': 'flag' });
+    const report = await doctor({ loc, fix: parsed['--fix'] === true });
+    if (parsed['--json']) print(report);
+    else { process.stdout.write(formatDoctor(report)); if (!report.ok) process.exitCode = 1; }
+  }
+  else if (command === 'connect') {
+    // Runbooks only: the password comes from stdin, never argv or the environment.
+    const parsed = flags({ '--server': 'value', '--username': 'value', '--password-stdin': 'flag' });
+    if (parsed['--password-stdin'] !== true) throw Object.assign(new Error('Use --password-stdin.'), { code: 'PASSWORD_STDIN_REQUIRED' });
+    print(await connectWithPassword({ loc, server: parsed['--server'], username: parsed['--username'], password: await readPasswordStdin(process.stdin) }));
   }
   else if (command === 'catalog') print(await catalog());
   else if (command === 'disconnect') print(await disconnect());
@@ -64,7 +91,7 @@ try {
       print({ phase: 'activated', host, setup: 'settings-required' });
     }
   } else {
-    print({ usage: 'pi-omnigent activate | onboarding | acceptance [--chat] [--engine ENGINE --model MODEL] | status | catalog | verify [--engine claude|codex|pi] | initialize [--server URL] | disconnect | repair | install-dependencies | install-host | install-ui [--prebuilt-root PATH] | cleanup-ui [--dry-run|--apply] | launch-web | enable | disable' });
+    print({ usage: 'pi-omnigent activate | onboarding | acceptance [--chat] [--engine ENGINE --model MODEL] | status | doctor [--json] [--fix] | connect --server URL --username NAME --password-stdin | catalog | verify [--engine claude|codex|pi] | initialize [--server URL] | disconnect | repair | install-dependencies | install-host | install-ui [--prebuilt-root PATH] | cleanup-ui [--dry-run|--apply] | launch-web | enable | disable' });
     process.exitCode = 2;
   }
 } catch (error) {
