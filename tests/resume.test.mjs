@@ -75,21 +75,94 @@ for (const revoke of ['native-disable-enable', 'cli-disable-enable', 'disconnect
   });
 }
 
-for (const variant of ['no-connection', 'wrong-server', 'wrong-workspace', 'wrong-installation', 'public-receipt', 'symlink']) {
+for (const variant of ['no-connection', 'wrong-server', 'wrong-workspace', 'wrong-installation', 'wrong-package',
+  'unknown-installation-format', 'missing-installation-id', 'public-receipt', 'symlink']) {
   test(`resume fails closed with ${variant}`, async t => {
     const f = fixture(t); await f.login(); const file = path.join(f.ctx.loc.stateDir, 'connection.json');
     const proof = readJSON(file);
     if (variant === 'no-connection') fs.unlinkSync(file);
     else if (variant === 'public-receipt') fs.chmodSync(file, 0o644);
     else if (variant === 'symlink') { fs.renameSync(file, file+'.other'); fs.symlinkSync(file+'.other', file); }
+    else if (variant === 'missing-installation-id') {
+      const stateFile = path.join(f.ctx.loc.stateDir, 'state.json');
+      const { installationId, ...state } = readJSON(stateFile); assert.match(installationId, /^[0-9a-f]{32}$/);
+      saveJSON(stateFile, state);
+    }
     else { if (variant === 'wrong-server') proof.server='https://other.test';
       if (variant === 'wrong-workspace') proof.workspace='/another-installation';
-      if (variant === 'wrong-installation') proof.installation.dataDir='/another-installation'; saveJSON(file, proof); }
+      if (variant === 'wrong-installation') proof.installation.id='f'.repeat(32);
+      if (variant === 'wrong-package') proof.installation.package='@someone/pi-omnigent-plugin';
+      if (variant === 'unknown-installation-format') proof.installation.schema=3;
+      saveJSON(file, proof); }
     const result = await runtime.resumeAuthorizedHost(f.ctx);
     assert.equal(result.ok, false); assert.equal(result.error.code, 'CONNECTION_IDENTITY_MISMATCH');
     assert.equal(f.state.calls.length, 0);
   });
 }
+
+// 0.3.16–0.3.29 named the installation by its home and Omnigent paths.
+function pathIdentity(f, paths = {}) {
+  const stateFile = path.join(f.ctx.loc.stateDir, 'state.json'), file = path.join(f.ctx.loc.stateDir, 'connection.json');
+  const { installationId: _id, ...state } = readJSON(stateFile); saveJSON(stateFile, state);
+  const { loc } = f.ctx;
+  saveJSON(file, { ...readJSON(file), installation: { home: path.resolve(loc.home), configHome: path.resolve(loc.omniDir),
+    dataDir: path.resolve(loc.omniDataDir), ...paths } });
+  return file;
+}
+
+test('a 0.3.29 receipt named by paths migrates to the stable installation identity', async t => {
+  const f = fixture(t); await f.login(); const file = pathIdentity(f);
+  const result = await runtime.resumeAuthorizedHost(f.ctx);
+  assert.equal(result.resumed, true);
+  const state = readJSON(path.join(f.ctx.loc.stateDir, 'state.json')), proof = readJSON(file);
+  assert.match(state.installationId, /^[0-9a-f]{32}$/);
+  assert.equal(proof.installation.schema, 2);
+  assert.equal(proof.installation.id, state.installationId);
+  assert.equal(proof.installation.package, '@woowtech/pi-omnigent-plugin');
+  assert.equal(state.loginConfirmed, true);
+  // A second boot resumes from the migrated receipt without migrating again.
+  f.state.online = false;
+  assert.equal((await runtime.resumeAuthorizedHost(f.ctx)).resumed, true);
+  assert.equal(readJSON(path.join(f.ctx.loc.stateDir, 'state.json')).installationId, state.installationId);
+});
+
+test('a 0.3.29 receipt still migrates when its recorded paths differ, because paths are no longer the identity', async t => {
+  const f = fixture(t); await f.login(); pathIdentity(f, { home: '/old-image/home', dataDir: '/old-image/omnigent' });
+  assert.equal((await runtime.resumeAuthorizedHost(f.ctx)).resumed, true);
+  assert.deepEqual(f.state.calls.map(c => c.action), ['resume']);
+});
+
+for (const variant of ['wrong-server', 'wrong-workspace', 'no-host']) {
+  test(`a 0.3.29 receipt with ${variant} does not migrate`, async t => {
+    const f = fixture(t); await f.login(); const file = pathIdentity(f); const proof = readJSON(file);
+    if (variant === 'wrong-server') proof.server = 'https://other.test';
+    if (variant === 'wrong-workspace') proof.workspace = '/another-installation';
+    if (variant === 'no-host') delete proof.host;
+    saveJSON(file, proof);
+    const result = await runtime.resumeAuthorizedHost(f.ctx);
+    assert.equal(result.error.code, 'CONNECTION_IDENTITY_MISMATCH');
+    assert.equal(f.state.calls.length, 0);
+    assert.equal(readJSON(path.join(f.ctx.loc.stateDir, 'state.json')).installationId, undefined);
+  });
+}
+
+test('the installation identity survives sign-out and a fresh sign-in', async t => {
+  const f = fixture(t); await f.login();
+  const first = readJSON(path.join(f.ctx.loc.stateDir, 'state.json')).installationId;
+  assert.match(first, /^[0-9a-f]{32}$/);
+  await runtime.disconnect(f.ctx); await f.login();
+  assert.equal(readJSON(path.join(f.ctx.loc.stateDir, 'state.json')).installationId, first);
+  assert.equal(readJSON(path.join(f.ctx.loc.stateDir, 'connection.json')).installation.id, first);
+});
+
+test('new receipts keep the path fields that 0.3.16–0.3.29 compare, so a rollback still resumes', async t => {
+  const f = fixture(t); await f.login();
+  const { installation } = readJSON(path.join(f.ctx.loc.stateDir, 'connection.json'));
+  const { loc } = f.ctx;
+  // The exact check those versions make in resumeAuthorizedHost.
+  const bound = { home: path.resolve(loc.home), configHome: path.resolve(loc.omniDir), dataDir: path.resolve(loc.omniDataDir) };
+  assert.equal(Object.keys(bound).some(key => installation[key] !== bound[key]), false);
+});
 
 test('legacy successful connection restores only when original workspace/server/host proof remains', async t => {
   const f = fixture(t); await f.login(); const file = path.join(f.ctx.loc.stateDir, 'connection.json');
