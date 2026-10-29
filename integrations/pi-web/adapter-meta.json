@@ -3,5 +3,5 @@
   "repository": "https://github.com/agegr/pi-web",
   "baseCommit": "6fcd7d44981ab51a21d6cd6eb06d361d0e3d3068",
   "piWebVersion": "0.10.0",
-  "patchSha256": "b67a2cca389836462dda1dd9a85afb011ce556157e215002a2ae46373422dadd"
+  "patchSha256": "d464453c69b7329ed7257d84929de6ca125bd9ce33da95cc1e255d0ea13caf21"
 }

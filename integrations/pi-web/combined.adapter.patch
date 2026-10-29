@@ -1112,22 +1112,231 @@ index c50b18f..57b6314 100644
                    </div>
                  </div>
                </div>
+diff --git a/components/OmnigentConfig.behavior.test.mjs b/components/OmnigentConfig.behavior.test.mjs
+new file mode 100644
+index 0000000..5a173eb
+--- /dev/null
++++ b/components/OmnigentConfig.behavior.test.mjs
+@@ -0,0 +1,200 @@
++import assert from "node:assert/strict";
++import fs from "node:fs";
++import { fileURLToPath } from "node:url";
++import { setImmediate } from "node:timers/promises";
++import vm from "node:vm";
++import test from "node:test";
++import * as jsx from "react/jsx-runtime";
++import ts from "typescript";
++import { createJiti } from "jiti";
++
++const jiti = createJiti(import.meta.url);
++const { translateMessage } = await jiti.import("../lib/i18n/format.ts");
++const { getLocalePlugin } = await jiti.import("../lib/i18n/registry.ts");
++const messages = Object.fromEntries(["en", "zh-TW", "zh-CN"].map((id) => [id, getLocalePlugin(id).messages]));
++const panelPath = fileURLToPath(new URL("./OmnigentConfig.tsx", import.meta.url));
++const code = ts.transpileModule(fs.readFileSync(panelPath, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true }, fileName: panelPath }).outputText;
++
++// Run the actual panel with a small hook scheduler, as the Paseo panel test does. Fetch is isolated;
++// JSX keeps the real button props and the text a reader sees.
++function panel(view, { locale = "en", reply } = {}) {
++  const hooks = [], effects = [], requests = [];
++  let cursor = 0, tree;
++  const same = (a, b) => a && b && a.length === b.length && a.every((value, index) => Object.is(value, b[index]));
++  const react = {
++    useState(initial) {
++      const index = cursor++;
++      hooks[index] ??= { value: typeof initial === "function" ? initial() : initial };
++      return [hooks[index].value, (value) => { hooks[index].value = typeof value === "function" ? value(hooks[index].value) : value; }];
++    },
++    useRef(value) { const index = cursor++; hooks[index] ??= { current: value }; return hooks[index]; },
++    useCallback(callback, dependencies) {
++      const index = cursor++;
++      if (!same(hooks[index]?.dependencies, dependencies)) hooks[index] = { callback, dependencies };
++      return hooks[index].callback;
++    },
++    useEffect(effect, dependencies) {
++      const index = cursor++;
++      if (!same(hooks[index]?.dependencies, dependencies)) {
++        const previous = hooks[index];
++        hooks[index] = { dependencies };
++        effects.push(() => { previous?.cleanup?.(); hooks[index].cleanup = effect(); });
++      }
++    },
++  };
++  const t = (key, params) => translateMessage(locale, key, messages, params);
++  const blocks = Object.fromEntries(["ConfigButton", "ConfigDetail", "ConfigDetailGrid", "ConfigDetailGridRow", "ConfigDetailStack", "ConfigDetailTitle",
++    "ConfigEmptyState", "ConfigField", "ConfigFooter", "ConfigNotice", "ConfigPanelShell", "ConfigSectionTitle"].map((name) => [name, name]));
++  const sandbox = vm.createContext({
++    fetch: async (url, options = {}) => {
++      const body = options.body ? JSON.parse(options.body) : null;
++      requests.push({ url, method: options.method || "GET", body });
++      return body && reply ? reply(body) : Response.json(view);
++    },
++    FormData: class { get(name) { return { server: "https://omni.example", username: "person", password: "typed-password" }[name]; } },
++    console,
++  });
++  const loaded = { exports: {} };
++  vm.runInContext(`(function(require,module,exports){${code}\n})`, sandbox, { filename: panelPath })((specifier) => {
++    const modules = { react, "react/jsx-runtime": jsx, "@/hooks/useI18n": { useI18n: () => ({ t, locale }) }, "./SettingsUi": blocks };
++    assert.ok(Object.hasOwn(modules, specifier), specifier);
++    return modules[specifier];
++  }, loaded, loaded.exports);
++  const render = () => { cursor = 0; tree = loaded.exports.OmnigentConfig({ active: true, onModels: () => {} }); };
++  const nodes = (node, out = []) => {
++    if (Array.isArray(node)) for (const child of node) nodes(child, out);
++    else if (node && typeof node === "object" && node.props) { out.push(node); nodes(node.props.children, out); nodes(node.props.action, out); }
++    return out;
++  };
++  const textOf = (node) => typeof node === "string" || typeof node === "number" ? String(node)
++    : Array.isArray(node) ? node.map(textOf).join("") : node?.props ? textOf(node.props.children) : "";
++  const page = {
++    requests, textOf,
++    async settle() {
++      for (let round = 0; round < 10; round++) { render(); for (const effect of effects.splice(0)) effect(); await setImmediate(); }
++      render();
++    },
++    notices: () => nodes(tree).filter((node) => node.type === "ConfigNotice"),
++    alert: () => { const node = nodes(tree).find((item) => item.props.role === "alert"); return node ? textOf(node) : null; },
++    buttons: () => nodes(tree).filter((node) => node.type === "ConfigButton").map(textOf),
++    button: (name) => nodes(tree).find((node) => node.type === "ConfigButton" && textOf(node) === name),
++    row: (label) => { const node = nodes(tree).find((item) => item.type === "ConfigDetailGridRow" && item.props.label === label); return node ? textOf(node) : null; },
++    form: () => nodes(tree).find((node) => node.type === "form"),
++    async click(name) { const button = page.button(name); assert.ok(button, name); assert.equal(button.props.disabled, false, `${name} is enabled`); button.props.onClick(); await page.settle(); },
++  };
++  return page;
++}
++
++const view = (changes = {}) => ({ installed: true, active: true, version: "0.3.30", phase: "needs-login", server: "https://omni.example", loginConfirmed: false,
++  host: { id: "own-host", name: "Own host", connected: false, managed: false, manager: null, managerRunning: false, state: null }, issue: null,
++  engines: [{ key: "claude", installed: true, version: "2.1.0", configured: true, ready: false, verified: false, reason: null, models: [] }], ...changes });
++const hints = {
++  en: "This host identity is already used by another Omnigent account. Run omnigent host reset-id --yes in a terminal, then connect again.",
++  "zh-TW": "這個主機身分已被另一個 Omnigent 帳號使用。請在終端機執行 omnigent host reset-id --yes 後再重新連線。",
++  "zh-CN": "这个主机身份已被另一个 Omnigent 账号使用。请在终端执行 omnigent host reset-id --yes 后再重新连接。",
++};
++const resetId = { code: "NEEDS_RESET_ID", message: "此 host ID 屬於另一個 Omnigent 帳號。", hints, action: "reset-host-id" };
++const generic = "Operation incomplete. Review the status below. (NEEDS_RESET_ID)";
++const submitLogin = async (page) => {
++  await page.click("Configure connection");
++  page.form().props.onSubmit({ preventDefault() {}, currentTarget: {} });
++  await page.settle();
++};
++
++test("Settings › Omnigent shows the plugin's next step in the reader's language, with its code", async () => {
++  for (const locale of ["en", "zh-TW", "zh-CN"]) {
++    const page = panel(view({ phase: "error", issue: resetId }), { locale });
++    await page.settle();
++    const notice = page.notices().find((node) => page.textOf(node).startsWith(hints[locale]));
++    assert.ok(notice, locale);
++    assert.match(page.textOf(notice), /\(NEEDS_RESET_ID\)$/);
++    assert.equal(notice.props.action, undefined, "a terminal-only step has no button");
++  }
++});
++
++test("a refused login keeps the operation message and adds the plugin's next step below it", async () => {
++  const page = panel(view(), { reply: () => Response.json(view({ phase: "error", issue: resetId, operation: { ok: false, code: "NEEDS_RESET_ID" } })) });
++  await page.settle();
++  assert.equal(page.notices().some((node) => page.textOf(node).includes("NEEDS_RESET_ID")), false);
++  await submitLogin(page);
++  assert.deepEqual(page.requests.at(-1).body, { action: "connect", server: "https://omni.example", username: "person", password: "typed-password" });
++  assert.equal(page.alert(), generic);
++  assert.ok(page.notices().some((node) => page.textOf(node) === `${hints.en} (NEEDS_RESET_ID)`));
++});
++
++test("an older plugin without hints keeps today's display", async () => {
++  const older = view({ phase: "error", issue: { code: "NEEDS_RESET_ID", message: "此 host ID 屬於另一個 Omnigent 帳號。", hints: null, action: null } });
++  const page = panel(older, { reply: () => Response.json({ ...older, operation: { ok: false, code: "NEEDS_RESET_ID" } }) });
++  await page.settle();
++  await submitLogin(page);
++  assert.equal(page.alert(), generic);
++  assert.equal(page.notices().some((node) => page.textOf(node).includes("NEEDS_RESET_ID")), false);
++  assert.equal(JSON.stringify(page.notices().map(page.textOf)).includes("此 host ID"), false, "the adapter message is not shown");
++});
++
++test("a next step gets a button only when the page already has that operation", async () => {
++  const issue = (action) => ({ code: "SOME_ISSUE", message: null, hints: { en: "Do the next step." }, action });
++  const relogin = panel(view({ issue: issue("relogin") }));
++  await relogin.settle();
++  assert.equal(relogin.form(), undefined);
++  await relogin.click("Sign in again");
++  assert.ok(relogin.form(), "Sign in again opens the existing sign-in form");
++  await relogin.click("Sign in again");
++  assert.ok(relogin.form(), "a second press keeps the form open");
++  assert.equal(relogin.requests.some((request) => request.method === "POST"), false);
++
++  const ready = { phase: "needs-verification", loginConfirmed: true, host: { ...view().host, connected: true } };
++  const verify = panel(view({ ...ready, issue: issue("verify") }), { reply: () => Response.json(view({ ...ready, operation: { ok: true, code: null } })) });
++  await verify.settle();
++  const shortcut = verify.notices().find((node) => verify.textOf(node).startsWith("Do the next step."));
++  assert.equal(verify.textOf(shortcut.props.action), "Verify conversations");
++  shortcut.props.action.props.onClick(); await verify.settle();
++  assert.deepEqual(verify.requests.at(-1), { url: "/api/omnigent", method: "POST", body: { action: "verify" } });
++  const offline = panel(view({ phase: "needs-verification", loginConfirmed: true, issue: issue("verify") }));
++  await offline.settle();
++  assert.equal(offline.notices().find((node) => offline.textOf(node).startsWith("Do the next step.")).props.action.props.disabled, true);
++
++  const retry = panel(view({ issue: issue("retry") }));
++  await retry.settle();
++  const reads = retry.requests.length;
++  await retry.click("Check again");
++  assert.equal(retry.requests.length, reads + 1);
++  assert.equal(retry.requests.at(-1).method, "GET");
++
++  for (const action of ["reset-host-id", "repair", "contact-admin", null]) {
++    const page = panel(view({ issue: issue(action) }));
++    await page.settle();
++    const notice = page.notices().find((node) => page.textOf(node).startsWith("Do the next step."));
++    assert.ok(notice, String(action));
++    assert.equal(notice.props.action, undefined, `${action} has no button`);
++  }
++});
++
++test("an error phase never claims the server is signed in", async () => {
++  const connected = { loginConfirmed: true, host: { ...view().host, connected: true } };
++  const failed = panel(view({ ...connected, phase: "error", issue: { code: "CONNECTION_IDENTITY_MISMATCH", message: null, hints: null, action: null } }));
++  await failed.settle();
++  const texts = failed.notices().map(failed.textOf);
++  assert.ok(texts.includes("The last Omnigent step stopped with an error."));
++  assert.equal(texts.some((text) => text.startsWith("Server signed in")), false);
++  const pending = panel(view({ ...connected, phase: "needs-verification" }));
++  await pending.settle();
++  assert.ok(pending.notices().map(pending.textOf).some((text) => text.startsWith("Server signed in")));
++});
++
++test("the host row shows the supervisor's own state only when the supervisor reports it", async () => {
++  const host = (changes) => ({ host: { ...view().host, managed: true, manager: "kit", managerRunning: true, ...changes } });
++  for (const [locale, expected] of [["en", "Sign-in expired or revoked"], ["zh-TW", "登入已過期或已被撤銷"], ["zh-CN", "登录已过期或已被撤销"]]) {
++    const page = panel(view(host({ state: "login-expired" })), { locale });
++    await page.settle();
++    assert.equal(page.row(messages[locale]["omnigent.hostService"]), expected);
++  }
++  const future = panel(view(host({ state: "future-state" })));
++  await future.settle();
++  assert.equal(future.row("Host service"), "future-state");
++  for (const changes of [{ state: "unknown" }, { state: null }, { manager: "plugin", state: "running" }, { managerRunning: false, state: "running" }]) {
++    const page = panel(view(host(changes)));
++    await page.settle();
++    assert.equal(page.row("Host service"), null, JSON.stringify(changes));
++  }
++});
 diff --git a/components/OmnigentConfig.tsx b/components/OmnigentConfig.tsx
 new file mode 100644
-index 0000000..3ebb85f
+index 0000000..d42868a
 --- /dev/null
 +++ b/components/OmnigentConfig.tsx
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,141 @@
 +"use client";
 +
 +import { useCallback, useEffect, useRef, useState } from "react";
 +import { useI18n } from "@/hooks/useI18n";
-+import type { OmnigentView } from "@/lib/omnigent-types";
++import type { OmnigentIssue, OmnigentView } from "@/lib/omnigent-types";
 +import { ConfigButton, ConfigDetail, ConfigDetailGrid, ConfigDetailGridRow, ConfigDetailStack, ConfigDetailTitle,
 +  ConfigEmptyState, ConfigField, ConfigFooter, ConfigNotice, ConfigPanelShell, ConfigSectionTitle } from "./SettingsUi";
 +
++// Host supervisor states with their own wording; any other state is shown as reported.
++const HOST_STATES = ["running", "starting", "waiting-login", "login-expired", "needs-reset-id", "host-error", "duplicate-host", "backoff", "stopped"];
++
 +export function OmnigentConfig({ active, onModels }: { active: boolean; onModels: () => void }) {
-+  const { t } = useI18n();
++  const { t, locale } = useI18n();
 +  const [view, setView] = useState<OmnigentView | null>(null);
 +  const [error, setError] = useState<string | null>(null);
 +  const [busy, setBusy] = useState<string | null>(null);
@@ -1177,6 +1386,16 @@ index 0000000..3ebb85f
 +    : item.configured === "needs-auth" ? t("omnigent.providerRequired")
 +    : !item.models.length ? t("omnigent.modelsRequired")
 +    : item.verified && item.ready ? t("omnigent.verified") : t("omnigent.needsVerification");
++  const verify = () => void act("verify", { ...(selection.engine ? { engine: selection.engine } : {}), ...(selection.model ? { model: selection.model } : {}) });
++  // The plugin's next step in the reader's language (plugin 0.3.30+). Without hints the page keeps its generic text.
++  const hint = view?.issue?.hints ? view.issue.hints[locale] || view.issue.hints.en || null : null;
++  // A button only for an operation this page already has; any other step stays in the hint text.
++  const issueAction = (issue: OmnigentIssue) => issue.action === "relogin"
++    ? <ConfigButton size="small" disabled={!usable} onClick={() => setShowSetup(true)}>{t("omnigent.signInAgain")}</ConfigButton>
++    : issue.action === "verify" ? <ConfigButton size="small" disabled={!usable || !view?.loginConfirmed || !view?.host.connected} onClick={verify}>{t("omnigent.verify")}</ConfigButton>
++    : issue.action === "retry" ? <ConfigButton size="small" disabled={!!busy} onClick={() => void read()}>{t("omnigent.checkAgain")}</ConfigButton>
++    : undefined;
++  const hostState = (state: string) => HOST_STATES.includes(state) ? t(`omnigent.hostState.${state}`) : state;
 +
 +  return <ConfigPanelShell embedded title="Omnigent" onClose={() => {}}>
 +    <ConfigDetail>
@@ -1186,13 +1405,16 @@ index 0000000..3ebb85f
 +        {!view ? <ConfigEmptyState>{t("omnigent.loading")}</ConfigEmptyState> : !view.installed ? <ConfigEmptyState>
 +          {t("omnigent.installRequired")} <code>git:github.com/WOOWTECH/pi-omnigent-plugin</code>
 +        </ConfigEmptyState> : <>
-+          <ConfigNotice>{view.phase === "ready" ? t("omnigent.ready") : view.loginConfirmed && view.host.connected
-+            ? t("omnigent.hostConnected") : t("omnigent.setupRequired")}</ConfigNotice>
++          <ConfigNotice>{view.phase === "ready" ? t("omnigent.ready") : view.phase === "error" ? t("omnigent.needsAttention")
++            : view.loginConfirmed && view.host.connected ? t("omnigent.hostConnected") : t("omnigent.setupRequired")}</ConfigNotice>
 +          {!view.active && <ConfigNotice>{t("omnigent.disabled")}</ConfigNotice>}
++          {hint && view.issue && <ConfigNotice action={issueAction(view.issue)}>{hint} ({view.issue.code})</ConfigNotice>}
 +          <ConfigDetailGrid>
 +            <ConfigDetailGridRow label={t("omnigent.server")}>{view.server || "—"}</ConfigDetailGridRow>
 +            <ConfigDetailGridRow label={t("omnigent.host")}>{view.host.name || "—"}</ConfigDetailGridRow>
 +            <ConfigDetailGridRow label={t("omnigent.status")}>{view.host.connected ? t("omnigent.online") : t("omnigent.offline")}</ConfigDetailGridRow>
++            {view.host.manager === "kit" && view.host.managerRunning && view.host.state && view.host.state !== "unknown"
++              && <ConfigDetailGridRow label={t("omnigent.hostService")}>{hostState(view.host.state)}</ConfigDetailGridRow>}
 +            <ConfigDetailGridRow label={t("omnigent.version")}>{view.version || "—"}</ConfigDetailGridRow>
 +          </ConfigDetailGrid>
 +          <div className="omnigent-actions">
@@ -1233,7 +1455,7 @@ index 0000000..3ebb85f
 +              <option value="">{t("omnigent.currentModel")}</option>
 +              {engine.models.map(model => <option key={model.id} value={model.id}>{model.label}</option>)}
 +            </select>}
-+            <ConfigButton disabled={!usable || !view.loginConfirmed || !view.host.connected} onClick={() => void act("verify", { ...(selection.engine ? { engine: selection.engine } : {}), ...(selection.model ? { model: selection.model } : {}) })}>{t("omnigent.verify")}</ConfigButton>
++            <ConfigButton disabled={!usable || !view.loginConfirmed || !view.host.connected} onClick={verify}>{t("omnigent.verify")}</ConfigButton>
 +          </div>
 +          <ConfigButton variant="danger" disabled={!usable || !view.loginConfirmed} onClick={() => setConfirmDisconnect(true)}>{t("omnigent.disconnect")}</ConfigButton>
 +          {confirmDisconnect && <ConfigNotice action={<div className="omnigent-actions"><ConfigButton disabled={!!busy} onClick={() => setConfirmDisconnect(false)}>{t("omnigent.cancel")}</ConfigButton><ConfigButton variant="danger" disabled={!usable} onClick={() => void act("disconnect", { confirm: true })}>{t("omnigent.confirm")}</ConfigButton></div>}>{t("omnigent.disconnectNotice")}</ConfigNotice>}
@@ -1729,10 +1951,19 @@ index 83fddc9..5ec59dd 100644
          <ConfigSectionTitle>{t("i18n.resolvedResources")}</ConfigSectionTitle>
          <ResourceList pkg={pkg} />
 diff --git a/components/SettingsPanel.test.mjs b/components/SettingsPanel.test.mjs
-index adcc4a2..5ceb182 100644
+index adcc4a2..25be538 100644
 --- a/components/SettingsPanel.test.mjs
 +++ b/components/SettingsPanel.test.mjs
-@@ -228,3 +228,9 @@ test("keeps password authentication to one login field and one settings action",
+@@ -1,6 +1,8 @@
+ import assert from "node:assert/strict";
+ import { readFile } from "node:fs/promises";
+ import test from "node:test";
++// Settings › Omnigent behavior runs with this file, which every UI test job already lists.
++import "./OmnigentConfig.behavior.test.mjs";
+ 
+ const panelSource = await readFile(new URL("./SettingsPanel.tsx", import.meta.url), "utf8");
+ const cssSource = await readFile(new URL("../app/settings.css", import.meta.url), "utf8");
+@@ -228,3 +230,9 @@ test("keeps password authentication to one login field and one settings action",
    assert.match(loginSource, /className="web-login-composer"[\s\S]*?type="password"[\s\S]*?<button type="submit"/);
    assert.match(globalCssSource, /\.web-login-composer \{[\s\S]*?display: flex;[\s\S]*?border-radius: 14px/);
  });
@@ -1783,7 +2014,7 @@ index bf3a2ff..1b30362 100644
        </div>
      </div>
 diff --git a/docs/agents/settings-ui.md b/docs/agents/settings-ui.md
-index 274b438..7fd3e2b 100644
+index 274b438..a026bcc 100644
 --- a/docs/agents/settings-ui.md
 +++ b/docs/agents/settings-ui.md
 @@ -2,6 +2,7 @@
@@ -1794,10 +2025,11 @@ index 274b438..7fd3e2b 100644
  - `/api/skills` lists through `DefaultResourceLoader`, so settings paths, package skills and project `.agents/skills` appear as the runtime sees them. Toggling a skill edits only the `disable-model-invocation` frontmatter key of its `SKILL.md`, so user formatting survives, and `PATCH /api/skills` edits only `.md` files (its roots also hold `auth.json`, settings and project files). `/api/skills/install` shells through `npx skills add ... --agent pi`; project installs run in the selected cwd.
  - **Group switches.** Each sidebar group of the Skills, Plugins and MCP panels (a skill scope, a package scope, an `mcp.json`; not standalone extensions) has a `ConfigSidebarGroupSwitch` in its heading row, so the 190px phone sidebar loses no height. As with the Models provider switch, it is on only while every row is: a partial group reads as off beside its `n/m` count and one click completes it. A panel whose group can hold rows its switch never turns on passes its own `checked` (MCP: `mcpGroupSwitchChecked()`), or the switch stays off for good. One request carries the list (`PATCH /api/skills` `filePaths`, `POST /api/plugins` `packages`, `POST /api/mcp` `set-enabled` `servers`) and answers per item, so a refused row does not stop the rest; what was left undone shows under the heading (`ConfigSidebarGroupStatus`). An entry already in the requested state is left alone; enabling keeps an entry's own keys such as `autoload`. `SettingsManager` never throws a failed load or write (`flush()` resolves), so the bulk plugin path reads `drainErrors()`, or an unreadable settings.json would report success. Disabling empties the four resource lists and keeps no filters, so a group switched off leaves an enabled filtered package on (the SDK reports every object entry as `filtered`) and says so; the bulk route refuses it.
  
-@@ -10,3 +11,7 @@
+@@ -10,3 +11,8 @@
  - **Every add pane chooses global or project in one place:** a `ConfigSaveTarget` (scope switch aria-labelled `config.saveTo`, plus the path that choice writes to) first under the pane's title, where a detail pane shows its `ConfigScopeTag` and path. Skills, Plugins and MCP get it through `ConfigAddSourceHeading` (title, the catalog links at its right, then the save target); Sub-agents put it in the detail header in place of the tag while creating. The submit button stays where its flow needs it (Install under the source box or on each skill result, Save in the footer, Add at the end of the MCP form), with why it waits beside it, not under the save target. The path is shown whole, never cut short: it wraps after a separator (`<wbr>`), then anywhere. Sub-agents offer both scopes whatever the folder's trust: profiles are not project resources that wait for it.
  - **Why a control is unavailable is visible text** — a scope switch's `disabledReason` (under the switch's whole line, so controls passed as its `children` stay level with it), the note under a detail header, a footer summary that opens its diagnostics — never only a `title` tooltip, which a touch screen cannot show.
  - `ConfigTrustNotice` shows its button only when given `onTrust`; Settings › MCP passes AppShell's trust dialog through `SettingsPanel` (see **Trust from Settings** in [mcp-settings.md](mcp-settings.md)). Skills and Plugins take the page's `trust` and reload after a decision but have no Trust button; adding one needs `onOpenTrustDialog` passed to them and `mcpProjectTrustable()`'s rule.
++- **Settings › Omnigent shows the plugin's own reason.** `/api/omnigent` passes only `issue.code`, `message`, `hints` (`en`, `zh-TW`, `zh-CN`) and `action` from the installed plugin's `status()`, and the host supervisor's `state`, `manager`, `managed` and `managerRunning`. The panel shows the hint in the reader's language with its code; plugins before 0.3.30 send no hints, so the panel keeps its generic text. A next step gets a button only for an operation the panel already has (`relogin` opens the sign-in form, `verify` sends the verify request, `retry` reads the status again); `reset-host-id`, `repair` and `contact-admin` stay in the hint text until the plugin exposes an operation for them. The `error` phase never shows the signed-in sentence.
 +
 +- Plugin/Paseo mutations parse bounded UTF-8 JSON objects before settings or runtime discovery (64 KiB plugins, 16 KiB Paseo). Reject malformed scopes/sources/cwds without SDK work; success and refusal responses use no-store. The Paseo panel pauses polls during mutations, ignores obsolete workspace/action responses, and expires readiness after 15 seconds without a confirmed status. Slow polls share one pending read. `restart_required` instructs Stop then Start and disables pairing/model reads until recovery. Runtime status cache invalidation remains the installed plugin’s responsibility.
 +
@@ -1984,10 +2216,10 @@ index 0000000..6ba78d8
 +}
 diff --git a/e2e/omnigent-settings-only.mjs b/e2e/omnigent-settings-only.mjs
 new file mode 100644
-index 0000000..142f994
+index 0000000..0d3a17e
 --- /dev/null
 +++ b/e2e/omnigent-settings-only.mjs
-@@ -0,0 +1,98 @@
+@@ -0,0 +1,141 @@
 +import assert from 'node:assert/strict';
 +import { spawn } from 'node:child_process';
 +import { once } from 'node:events';
@@ -2074,6 +2306,49 @@ index 0000000..142f994
 +    assert.equal(modelRequests, 0);
 +    results.push({ viewport: mobile ? 'mobile' : 'desktop', homeUnchanged: true, settingsBindingVisible: true, onboardingRequests, modelRequests });
 +    await context.close();
++  }
++
++  // Issues recorded as plugin 0.3.30 reports them. The page must show the plugin's own next step in the
++  // reader's language, with its code, and a button only for an operation the page has. A newer plugin may
++  // reword hints or pick actions, so the page is compared with what /api/omnigent returns.
++  const buttons = { relogin: 'Sign in again', verify: 'Verify conversations', retry: 'Check again' };
++  const issueCases = [
++    { phase: 'error', issue: { code: 'NEEDS_RESET_ID', message: '此 host ID 屬於另一個 Omnigent 帳號。', action: 'reset-host-id', hints: {
++      en: 'This host identity is already used by another Omnigent account. Run omnigent host reset-id --yes in a terminal, then connect again.',
++      'zh-TW': '這個主機身分已被另一個 Omnigent 帳號使用。請在終端機執行 omnigent host reset-id --yes 後再重新連線。',
++      'zh-CN': '这个主机身份已被另一个 Omnigent 账号使用。请在终端执行 omnigent host reset-id --yes 后再重新连接。' } }, views: [['en-US', 'en', false], ['zh-TW', 'zh-TW', true]] },
++    { phase: 'needs-login', issue: { code: 'NEEDS_LOGIN', message: '請登入此 Omnigent server；原有登入可能已到期。', action: 'relogin', hints: {
++      en: 'Your Omnigent sign-in is no longer accepted. Sign in again with the server URL, account and password.',
++      'zh-TW': '這個 Omnigent 登入已失效。請重新輸入伺服器網址、帳號與密碼登入。',
++      'zh-CN': '这个 Omnigent 登录已失效。请重新输入服务器网址、账号与密码登录。' } }, views: [['en-US', 'en', true]] },
++  ];
++  for (const { phase, issue: recorded, views } of issueCases) {
++    writeFileSync(join(stateDir, 'state.json'), JSON.stringify({ phase, enabled: true, loginConfirmed: false, issue: recorded }), { mode: 0o600 });
++    for (const [locale, hintLocale, mobile] of views) {
++      const context = await browser.newContext({ viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 }, locale });
++      const page = await context.newPage(); let posts = 0;
++      page.on('request', request => { if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/omnigent') posts++; });
++      const { issue } = await (await context.request.get(base + '/api/omnigent')).json();
++      assert.equal(issue?.code, recorded.code);
++      assert.equal(typeof issue.hints?.[hintLocale], 'string', `${recorded.code} has a ${hintLocale} hint`);
++      if (recorded.code === 'NEEDS_RESET_ID') assert.match(issue.hints[hintLocale], /omnigent host reset-id --yes/);
++      await page.goto(base + '/omnigent');
++      const notice = page.getByRole('status').filter({ hasText: issue.hints[hintLocale] });
++      await notice.waitFor({ state: 'visible', timeout: 15000 });
++      assert.match(await notice.innerText(), new RegExp(`\\(${recorded.code}\\)`));
++      if (phase === 'error' && hintLocale === 'en') await page.getByText('The last Omnigent step stopped with an error.', { exact: true }).waitFor({ state: 'visible' });
++      const label = buttons[issue.action];
++      assert.equal(await notice.getByRole('button').count(), label ? 1 : 0, `${issue.action} button`);
++      if (issue.action === 'relogin') {
++        await notice.getByRole('button', { name: label }).click();
++        const form = page.locator('form.omnigent-setup');
++        await form.waitFor({ state: 'visible' });
++        assert.equal(await form.locator('input[name=password]').inputValue(), '');
++      }
++      assert.equal(posts, 0, 'showing an issue or opening sign-in never posts to /api/omnigent');
++      results.push({ viewport: mobile ? 'mobile' : 'desktop', locale, issue: issue.code, action: issue.action, button: label || null });
++      await context.close();
++    }
 +  }
 +  assert.equal(readFileSync(session.getSessionFile(), 'utf8'), originalHistory, 'legacy session history remains untouched');
 +  console.log(JSON.stringify({ passed: true, mode, cases: results }));
@@ -2311,10 +2586,10 @@ index 3fe0643..330cce6 100644
  
  test("the view groups models by provider and marks custom ones", async () => {
 diff --git a/lib/i18n/messages/en.ts b/lib/i18n/messages/en.ts
-index 0bb5253..41c57eb 100644
+index 0bb5253..8e593d1 100644
 --- a/lib/i18n/messages/en.ts
 +++ b/lib/i18n/messages/en.ts
-@@ -5,6 +5,50 @@ export const enLocale: LocalePlugin = {
+@@ -5,6 +5,63 @@ export const enLocale: LocalePlugin = {
    id: "en",
    label: "English",
    messages: {
@@ -2361,15 +2636,28 @@ index 0bb5253..41c57eb 100644
 +    "omnigent.cancel": "Cancel",
 +    "omnigent.confirm": "Confirm disconnect",
 +    "omnigent.refresh": "Refresh",
++    "omnigent.needsAttention": "The last Omnigent step stopped with an error.",
++    "omnigent.signInAgain": "Sign in again",
++    "omnigent.checkAgain": "Check again",
++    "omnigent.hostService": "Host service",
++    "omnigent.hostState.running": "Running",
++    "omnigent.hostState.starting": "Starting",
++    "omnigent.hostState.waiting-login": "Waiting for Omnigent sign-in",
++    "omnigent.hostState.login-expired": "Sign-in expired or revoked",
++    "omnigent.hostState.needs-reset-id": "Host ID belongs to another account",
++    "omnigent.hostState.host-error": "Stopped after a permanent error",
++    "omnigent.hostState.duplicate-host": "Another host process uses the same data",
++    "omnigent.hostState.backoff": "Exited; waiting to restart",
++    "omnigent.hostState.stopped": "Stopped",
 +    "omnigent.getStarted": "Open Settings at the bottom, then choose Omnigent to connect this host to an Omnigent server",
      "common.ok": "OK",
      "common.language": "Language",
      "common.models": "Models",
 diff --git a/lib/i18n/messages/zh-CN.ts b/lib/i18n/messages/zh-CN.ts
-index eabdadb..f88a262 100644
+index eabdadb..a2152de 100644
 --- a/lib/i18n/messages/zh-CN.ts
 +++ b/lib/i18n/messages/zh-CN.ts
-@@ -5,6 +5,50 @@ export const zhCNLocale: LocalePlugin = {
+@@ -5,6 +5,63 @@ export const zhCNLocale: LocalePlugin = {
    id: "zh-CN",
    label: "简体中文",
    messages: {
@@ -2416,15 +2704,28 @@ index eabdadb..f88a262 100644
 +    "omnigent.cancel": "取消",
 +    "omnigent.confirm": "確認取消連線",
 +    "omnigent.refresh": "重新整理",
++    "omnigent.needsAttention": "上一个 Omnigent 步骤因错误而中止。",
++    "omnigent.signInAgain": "重新登录",
++    "omnigent.checkAgain": "重新检查",
++    "omnigent.hostService": "主机服务",
++    "omnigent.hostState.running": "运行中",
++    "omnigent.hostState.starting": "启动中",
++    "omnigent.hostState.waiting-login": "等待登录 Omnigent",
++    "omnigent.hostState.login-expired": "登录已过期或已被撤销",
++    "omnigent.hostState.needs-reset-id": "主机 ID 属于另一个账号",
++    "omnigent.hostState.host-error": "发生无法自动恢复的错误，已停止",
++    "omnigent.hostState.duplicate-host": "另一个主机进程正在使用同一份数据",
++    "omnigent.hostState.backoff": "进程已退出，等待重新启动",
++    "omnigent.hostState.stopped": "已停止",
 +    "omnigent.getStarted": "打开底部的“设置”，然后选择“Omnigent”，将这台主机连接到 Omnigent 服务器",
      "common.ok": "确定",
      "common.language": "语言",
      "common.models": "模型",
 diff --git a/lib/i18n/messages/zh-TW.ts b/lib/i18n/messages/zh-TW.ts
-index 3c18dc6..7e981d3 100644
+index 3c18dc6..4de5d1c 100644
 --- a/lib/i18n/messages/zh-TW.ts
 +++ b/lib/i18n/messages/zh-TW.ts
-@@ -5,6 +5,50 @@ export const zhTWLocale: LocalePlugin = {
+@@ -5,6 +5,63 @@ export const zhTWLocale: LocalePlugin = {
    id: "zh-TW",
    label: "繁體中文",
    messages: {
@@ -2471,6 +2772,19 @@ index 3c18dc6..7e981d3 100644
 +    "omnigent.cancel": "取消",
 +    "omnigent.confirm": "確認取消連線",
 +    "omnigent.refresh": "重新整理",
++    "omnigent.needsAttention": "上一個 Omnigent 步驟因錯誤而中止。",
++    "omnigent.signInAgain": "重新登入",
++    "omnigent.checkAgain": "重新檢查",
++    "omnigent.hostService": "主機服務",
++    "omnigent.hostState.running": "執行中",
++    "omnigent.hostState.starting": "啟動中",
++    "omnigent.hostState.waiting-login": "等待登入 Omnigent",
++    "omnigent.hostState.login-expired": "登入已過期或已被撤銷",
++    "omnigent.hostState.needs-reset-id": "主機 ID 屬於另一個帳號",
++    "omnigent.hostState.host-error": "發生無法自動恢復的錯誤，已停止",
++    "omnigent.hostState.duplicate-host": "另一個主機程序正在使用同一份資料",
++    "omnigent.hostState.backoff": "程序已結束，等待重新啟動",
++    "omnigent.hostState.stopped": "已停止",
 +    "omnigent.getStarted": "開啟底部的「設定」，然後選擇「Omnigent」，把這台主機連到 Omnigent 伺服器",
      "common.ok": "確定",
      "common.language": "語言",
@@ -2594,10 +2908,10 @@ index 0000000..20ec1fd
 +});
 diff --git a/lib/omnigent-runtime.test.mjs b/lib/omnigent-runtime.test.mjs
 new file mode 100644
-index 0000000..29a6762
+index 0000000..b082232
 --- /dev/null
 +++ b/lib/omnigent-runtime.test.mjs
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,129 @@
 +import assert from "node:assert/strict";
 +import test from "node:test";
 +import { createJiti } from "jiti";
@@ -2673,25 +2987,96 @@ index 0000000..29a6762
 +  const ctx = fixture(); ctx.plugin.lifecycle = async () => ({ active: false });
 +  ctx.plugin.runtime.status = () => assert.fail("disabled plugin must not probe a host");
 +  assert.equal((await ctx.bridge.read()).active, false);
++  assert.equal((await ctx.bridge.read()).issue, null);
 +  await assert.rejects(ctx.bridge.act({ action: "verify" }));
 +  assert.equal((await createOmnigentBridge(async () => null).read()).installed, false);
++  assert.equal((await createOmnigentBridge(async () => null).read()).issue, null);
++});
++const resetIdHints = { en: "This host identity is already used by another Omnigent account. Run omnigent host reset-id --yes in a terminal, then connect again.",
++  "zh-TW": "這個主機身分已被另一個 Omnigent 帳號使用。請在終端機執行 omnigent host reset-id --yes 後再重新連線。",
++  "zh-CN": "这个主机身份已被另一个 Omnigent 账号使用。请在终端执行 omnigent host reset-id --yes 后再重新连接。" };
++const resetIdIssue = () => ({ code: "NEEDS_RESET_ID", message: "此 host ID 屬於另一個 Omnigent 帳號。", details: ["must-never-escape"],
++  hints: { ...resetIdHints, fr: "must-never-escape" }, action: "reset-host-id", token: "must-never-escape" });
++test("a reported issue reaches the page as only its code, message, localized hints and next step", async () => {
++  const f = fixture(); f.current.phase = "error"; f.current.issue = resetIdIssue();
++  const view = await f.bridge.read();
++  assert.deepEqual(view.issue, { code: "NEEDS_RESET_ID", message: "此 host ID 屬於另一個 Omnigent 帳號。", hints: resetIdHints, action: "reset-host-id" });
++  assert.equal(JSON.stringify(view).includes("must-never-escape"), false);
++});
++test("an older plugin's issue keeps its code without inventing hints or a next step", async () => {
++  const f = fixture(); f.current.issue = { code: "NEEDS_LOGIN", message: "請登入此 Omnigent server；原有登入可能已到期。" };
++  assert.deepEqual((await f.bridge.read()).issue, { code: "NEEDS_LOGIN", message: "請登入此 Omnigent server；原有登入可能已到期。", hints: null, action: null });
++  f.current.issue = null; assert.equal((await f.bridge.read()).issue, null);
++});
++test("malformed issue fields are dropped instead of shown", async () => {
++  const f = fixture();
++  for (const code of ["needs_login", "1NEEDS_LOGIN", "A".repeat(65), 42, undefined]) {
++    f.current.issue = { code, hints: { en: "Never shown" }, action: "relogin" };
++    assert.equal((await f.bridge.read()).issue, null, String(code));
++  }
++  f.current.issue = { code: "FUTURE_CODE", message: "line\u0000\nbreak", hints: { en: " Try\u0007 again. ", "zh-TW": " ", "zh-CN": 7 }, action: "rm -rf /" };
++  assert.deepEqual((await f.bridge.read()).issue, { code: "FUTURE_CODE", message: "linebreak", hints: { en: "Try again." }, action: null });
++  f.current.issue = { code: "LONG_HINT", hints: { en: "x".repeat(4000) }, action: "verify" };
++  const long = (await f.bridge.read()).issue;
++  assert.equal(long.hints.en.length, 512); assert.equal(long.action, "verify");
++});
++test("the host supervisor's state reaches the page without process details", async () => {
++  const f = fixture();
++  Object.assign(f.current.host, { managed: true, manager: "kit", managerRunning: true, state: "login-expired", pid: 4242 });
++  assert.deepEqual((await f.bridge.read()).host, { id: "own-host", name: "Own host", connected: true,
++    managed: true, manager: "kit", managerRunning: true, state: "login-expired" });
++  Object.assign(f.current.host, { managed: 1, manager: "../kit", managerRunning: "yes", state: "Login Expired!" });
++  assert.deepEqual((await f.bridge.read()).host, { id: "own-host", name: "Own host", connected: true,
++    managed: false, manager: null, managerRunning: false, state: null });
++});
++test("a failed operation returns the issue it recorded, never its raw error message", async () => {
++  const f = fixture();
++  f.plugin.runtime.initialize = async input => {
++    f.calls.push(input); f.current.phase = "error"; f.current.issue = resetIdIssue();
++    return { ok: false, phase: "error", error: { code: "NEEDS_RESET_ID", message: "must-never-escape" } };
++  };
++  const result = await f.bridge.act({ action: "connect", server: "https://omni.example", username: "person", password: "private-password" });
++  assert.deepEqual(result.operation, { ok: false, code: "NEEDS_RESET_ID" });
++  assert.equal(result.issue.action, "reset-host-id");
++  assert.match(result.issue.hints["zh-TW"], /omnigent host reset-id --yes/);
++  for (const secret of ["must-never-escape", "private-password"]) assert.equal(JSON.stringify(result).includes(secret), false);
 +});
 diff --git a/lib/omnigent-runtime.ts b/lib/omnigent-runtime.ts
 new file mode 100644
-index 0000000..8ce303c
+index 0000000..35fdefe
 --- /dev/null
 +++ b/lib/omnigent-runtime.ts
-@@ -0,0 +1,112 @@
+@@ -0,0 +1,133 @@
 +import { existsSync, readFileSync } from "node:fs";
 +import { join, resolve } from "node:path";
 +import { pathToFileURL } from "node:url";
 +import { getAgentDir } from "@earendil-works/pi-coding-agent";
-+import type { OmnigentView } from "./omnigent-types";
++import type { Locale } from "./i18n/types";
++import type { OmnigentHost, OmnigentIssue, OmnigentIssueAction, OmnigentView } from "./omnigent-types";
 +
 +type RecordValue = Record<string, unknown>;
 +const record = (value: unknown): RecordValue => value && typeof value === "object" && !Array.isArray(value) ? value as RecordValue : {};
 +const text = (value: unknown): string | null => typeof value === "string" ? value.replace(/[\x00-\x1f\x7f]/g, "").slice(0, 256) : null;
 +const code = (value: unknown): string | null => typeof value === "string" && /^[A-Z_0-9]{1,64}$/.test(value) ? value : null;
++const sentence = (value: unknown): string | null => typeof value === "string" ? value.replace(/[\x00-\x1f\x7f]/g, "").trim().slice(0, 512) || null : null;
++const HINT_LOCALES: Locale[] = ["en", "zh-TW", "zh-CN"];
++const ISSUE_ACTIONS: OmnigentIssueAction[] = ["relogin", "retry", "reset-host-id", "repair", "verify", "contact-admin"];
++
++/** The plugin's reason code with its fixed message, localized next step and action (plugin 0.3.30+); nothing else. */
++function issueOf(value: unknown): OmnigentIssue | null {
++  const issue = record(value);
++  if (typeof issue.code !== "string" || !/^[A-Z][A-Z0-9_]{0,63}$/.test(issue.code)) return null;
++  const given = record(issue.hints);
++  const hints = Object.fromEntries(HINT_LOCALES.flatMap(locale => { const hint = sentence(given[locale]); return hint ? [[locale, hint]] : []; }));
++  return { code: issue.code, message: sentence(issue.message), hints: Object.keys(hints).length ? hints : null,
++    action: ISSUE_ACTIONS.find(action => action === issue.action) ?? null };
++}
++
++function hostOf(host: RecordValue): OmnigentHost {
++  return { id: text(host.id), name: text(host.name), connected: host.connected === true, managed: host.managed === true,
++    manager: host.manager === "kit" || host.manager === "plugin" ? host.manager : null, managerRunning: host.managerRunning === true,
++    state: typeof host.state === "string" && /^[a-z][a-z0-9-]{0,63}$/.test(host.state) ? host.state : null };
++}
 +
 +interface Runtime {
 +  status(): Promise<RecordValue>;
@@ -2729,7 +3114,7 @@ index 0000000..8ce303c
 +}
 +
 +const emptyView = (installed = false): OmnigentView => ({ installed, active: false, version: null, phase: "unavailable", server: null,
-+  loginConfirmed: false, host: { id: null, name: null, connected: false }, engines: [] });
++  loginConfirmed: false, host: hostOf({}), issue: null, engines: [] });
 +
 +/** The same operations the installed plugin exposes, projected to safe UI data. */
 +export function createOmnigentBridge(load: () => Promise<Plugin | null> = loadPlugin) {
@@ -2743,7 +3128,7 @@ index 0000000..8ce303c
 +    const engines = record(current.engines), proofs = record(current.verification);
 +    return { installed: true, active: true, version: plugin.version, phase: text(current.phase) || "unknown",
 +      server: safeServer(current.server), loginConfirmed: current.loginConfirmed === true,
-+      host: { id: text(host.id), name: text(host.name), connected: host.connected === true },
++      host: hostOf(host), issue: issueOf(current.issue),
 +      engines: ["claude", "codex", "pi"].map(key => {
 +        const engine = record(engines[key]), proof = record(proofs[key]), inventory = record(catalogEngines[key]);
 +        return { key, installed: engine.available === true, version: text(engine.version),
@@ -2789,17 +3174,20 @@ index 0000000..8ce303c
 +      if (body.action === "verify" && !operationOk && !operationCode && result.phase === "needs-verification")
 +        operationCode = "INCOMPLETE_CHAT_VERIFICATION";
 +      if (operationOk) operationCode = null;
-+      // Never project raw adapter messages, connection payloads or login inputs.
++      // Never project raw adapter messages, connection payloads or login inputs; the snapshot's
++      // issue carries only the whitelisted fields from issueOf().
 +      return { ...await snapshot(plugin), operation: { ok: operationOk, code: operationCode } };
 +    },
 +  };
 +}
 diff --git a/lib/omnigent-types.ts b/lib/omnigent-types.ts
 new file mode 100644
-index 0000000..fa015ea
+index 0000000..f24c528
 --- /dev/null
 +++ b/lib/omnigent-types.ts
-@@ -0,0 +1,22 @@
+@@ -0,0 +1,47 @@
++import type { Locale } from "./i18n/types";
++
 +export interface OmnigentEngine {
 +  key: string;
 +  installed: boolean;
@@ -2811,6 +3199,28 @@ index 0000000..fa015ea
 +  models: { id: string; label: string }[];
 +}
 +
++/** The next step a plugin suggests. The page has a button only for operations it already offers. */
++export type OmnigentIssueAction = "relogin" | "retry" | "reset-host-id" | "repair" | "verify" | "contact-admin";
++
++/** Why the plugin is not ready. Plugins before 0.3.30 send no hints or action. */
++export interface OmnigentIssue {
++  code: string;
++  message: string | null;
++  hints: Partial<Record<Locale, string>> | null;
++  action: OmnigentIssueAction | null;
++}
++
++export interface OmnigentHost {
++  id: string | null;
++  name: string | null;
++  connected: boolean;
++  managed: boolean;
++  manager: "kit" | "plugin" | null;
++  managerRunning: boolean;
++  /** The host supervisor's own state, such as login-expired or needs-reset-id. */
++  state: string | null;
++}
++
 +export interface OmnigentView {
 +  installed: boolean;
 +  active: boolean;
@@ -2818,7 +3228,8 @@ index 0000000..fa015ea
 +  phase: string;
 +  server: string | null;
 +  loginConfirmed: boolean;
-+  host: { id: string | null; name: string | null; connected: boolean };
++  host: OmnigentHost;
++  issue: OmnigentIssue | null;
 +  engines: OmnigentEngine[];
 +  operation?: { ok: boolean; code: string | null };
 +}
