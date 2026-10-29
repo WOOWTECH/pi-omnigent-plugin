@@ -10,7 +10,7 @@
 git:github.com/WOOWTECH/pi-omnigent-plugin
 ```
 
-Repository 為公開，可直接安裝，不需要 GitHub token。安裝後請至 Settings → Omnigent 輸入 Server URL、帳號與密碼；不建立設定對話。也可使用本機路徑或 npm source；本機開發目錄可用：
+Repository 為公開，可直接安裝，不需要 GitHub token。安裝後請至 Settings → Omnigent 輸入 Server URL、帳號與密碼；不建立設定對話。也可使用本機路徑或 npm source；本機開發時，在同一個欄位填入這個 repo 的絕對路徑即可（例如 `/home/me/pi-omnigent-plugin`）。
 
 商業部署請固定版本，避免不同容器在更新時取得不同程式：
 
@@ -140,7 +140,7 @@ env HOME=/data/pi-agent/home claude auth login --claudeai
 
 Codex 會顯示網址和一次性代碼，由使用者在瀏覽器完成授權；Claude Code 會顯示授權網址，授權頁回傳的代碼需貼回等待中的 CLI。其他安裝請改用其 Pi Web 主程序的實際 `HOME`。完成後用相同的 `HOME` 執行 `codex login status`、`claude auth status --json`，再於 Pi Web 執行 `/omnigent verify` 驗證實際模型回覆。授權是使用者手動完成，插件不代按供應商確認畫面。
 
-v0.2.2 支援包含原生 fallback 的 shared-runtime 啟動器，先備份再串接；未辨識的自訂啟動器仍保留。背景啟動結果寫入私有 `boot.json`。尚未完成登入時，啟動程序會重載專用設定對話一次，讓舊 runtime 的精靈重新啟動；不重載其他對話。
+v0.2.2 支援包含原生 fallback 的 shared-runtime 啟動器，先備份再串接；未辨識的自訂啟動器仍保留。背景啟動結果寫入私有 `boot.json`。（當時尚未完成登入會重載專用設定對話；v0.3.24 起已不建立、不重載任何設定對話。）
 登入設定、重新連線與 repair 預設不建立測試對話、不發送模型訊息。只有明確執行 `/omnigent verify`、verify 工具或 `acceptance --chat` 才建立 connection check 對話。啟動與背景狀態檢查不執行聊天驗證。
 
 
@@ -204,8 +204,8 @@ v0.3.8 在驗證時定期查詢插件建立的測試 session 狀態；上游 HTT
 已有舊版 Omnigent／Paseo 的環境，先升級 Omnigent，再安裝對應的 Paseo。固定版本組合不可交叉混用：
 
 ```sh
-pi install git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.14
-pi install git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.7
+pi install git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.29
+pi install git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.14
 ```
 
 Paseo 安裝器會交給 Omnigent 建立共用介面；完成後重啟 Pi Web，再到 Settings → Paseo 配對。收到 `RESTART_REQUIRED` 時，完成重啟後重新整理並驗證三種引擎對話。首次編譯建議預留至少 3 GiB 可用磁碟空間；實測不足 1 GiB 時套件安裝可能因 `ENOSPC` 失敗。官方 Paseo 的主機顯示名稱請在 Paseo App 內修改；插件的「容器備註」僅存於設定頁。

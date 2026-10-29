@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { locations, readJSON, saveJSON, normalizeServer, locked, runJSON } from './common.mjs';
 import { discover, installDependencies, runCommand, runtimeEnv } from './installer.mjs';
 import { DEFAULT_PACKAGE_NAME, ownPackageName } from './locate.mjs';
+import { describeIssue } from './issues.mjs';
 
 const ENGINES = ['claude', 'codex', 'pi'];
 const statePath = loc => path.join(loc.stateDir, 'state.json');
@@ -70,7 +71,7 @@ export async function status(options = {}) {
     enabled: state.enabled !== false, loginConfirmed: state.loginConfirmed === true, server, host,
     installedEngines: installed,
     engines: Object.fromEntries(ENGINES.map(engine => [engine, { ...dependencies[engine], ...(data.engines?.[engine] || {}) }])),
-    verification, ...(response.ok ? {} : { error: response.error }), ...(state.issue ? { issue: state.issue } : {}) };
+    verification, ...(response.ok ? {} : { error: describeIssue(response.error) ?? response.error }), ...(state.issue ? { issue: describeIssue(state.issue) } : {}) };
 }
 function nativePiLoginFingerprint(loc) {
   try {
