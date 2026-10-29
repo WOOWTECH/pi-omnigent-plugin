@@ -7,7 +7,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
-import { cleanupUi, installUi, readAdapter, runCommand, PI_WEB_BASE, PI_WEB_REPOSITORY, PI_WEB_VERSION } from '../bin/install-ui.mjs';
+import { cleanupUi, installUi, nativeSettingsPiWeb, readAdapter, runCommand, PI_WEB_BASE, PI_WEB_REPOSITORY, PI_WEB_VERSION } from '../bin/install-ui.mjs';
 
 const sha = data => createHash('sha256').update(data).digest('hex');
 function write(file, content, mode) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, content, mode ? { mode } : undefined); }
@@ -723,6 +723,19 @@ for (const [name, [version, files, evidence]] of Object.entries(nativeSettingsBu
     assert.equal(fs.existsSync(path.join(f.home, '.local/bin/pi-web')), false, 'routing must stay untouched');
   });
 }
+
+test('the prebuilt build being installed is not counted as an existing native page', t => {
+  // An image installs its own combined build with --prebuilt-root and names that build's launcher as native.
+  const f = fixture(t);
+  const image = globalPiWeb(f, path.join(f.root, 'image'), '0.10.0', nativeSettingsBuilds['root/PaaS image with the compiled combined adapter'][1]);
+  const launcher = path.join(image.pkg, 'bin/pi-web.js');
+  const options = { home: f.home, root: f.managed, env: image.env, explicit: launcher };
+  assert.equal(nativeSettingsPiWeb(options).piWeb, fs.realpathSync(image.pkg), 'without --prebuilt-root the page is found');
+  assert.equal(nativeSettingsPiWeb({ ...options, prebuilt: fs.realpathSync(image.pkg) }), null);
+  // Another Pi Web that already has the page is still refused during a prebuilt install.
+  const other = globalPiWeb(f, path.join(f.root, 'other'), '0.10.0', nativeSettingsBuilds['root/PaaS image with the compiled combined adapter'][1]);
+  assert.equal(nativeSettingsPiWeb({ ...options, env: other.env, prebuilt: fs.realpathSync(image.pkg) }).piWeb, fs.realpathSync(other.pkg));
+});
 
 test('install-ui CLI explains the native settings refusal and exits 1 without building', t => {
   const f = fixture(t);

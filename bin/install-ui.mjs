@@ -224,16 +224,18 @@ function settingsPageEvidence(dir) {
   } catch {}
   return null;
 }
-/** The Pi Web this host runs (explicit, recorded or on PATH) that already has the native page; managed builds excluded. */
-export function nativeSettingsPiWeb({ home, root, env, explicit, metadata = [] }) {
+/** The Pi Web this host runs (explicit, recorded or on PATH) that already has the native page; managed builds and the
+ *  prebuilt build being installed (--prebuilt-root, how an image installs its own combined build) are excluded. */
+export function nativeSettingsPiWeb({ home, root, env, explicit, metadata = [], prebuilt = null }) {
+  const own = candidate => within(root, candidate) || (prebuilt && (path.resolve(candidate) === prebuilt || within(prebuilt, candidate)));
   const recorded = metadata.flatMap(file => {
     try { const config = readJson(file); return [config.realWeb, config.realWebBeforeOmnigentUi]; } catch { return []; }
   });
   const onPath = (env.PATH || '').split(path.delimiter).filter(Boolean).map(dir => path.resolve(dir, 'pi-web'));
   for (const candidate of [explicit, ...recorded, ...onPath]) {
-    if (typeof candidate !== 'string' || !path.isAbsolute(candidate) || within(root, candidate) || !executable(candidate)) continue;
+    if (typeof candidate !== 'string' || !path.isAbsolute(candidate) || own(candidate) || !executable(candidate)) continue;
     const dir = piWebPackage(candidate);
-    if (!dir || within(root, dir)) continue;
+    if (!dir || own(dir)) continue;
     const evidence = settingsPageEvidence(dir);
     if (evidence) return { launcher: candidate, piWeb: dir, evidence };
   }
@@ -303,7 +305,9 @@ export async function installUi(options = {}) {
     env.PI_CODING_AGENT_DIR || env.PI_AGENT_DATA_DIR || (home.startsWith('/data/pi-agent/') ? '/data/pi-agent' : path.join(home, '.pi/agent')), 'shared-runtime/host.json');
   const omnigentHostPath = options.omnigentHostPath ?? path.join(
     env.PI_CODING_AGENT_DIR || env.PI_AGENT_DATA_DIR || (home.startsWith('/data/pi-agent/') ? '/data/pi-agent' : path.join(home, '.pi/agent')), 'omnigent-plugin/host.json');
-  const native = nativeSettingsPiWeb({ home, root, env, explicit: options.nativeLauncher || env.PI_OMNIGENT_UI_NATIVE_WEB, metadata: [sharedHostPath, omnigentHostPath] });
+  let prebuilt = null;
+  try { prebuilt = options.prebuiltRoot ? fs.realpathSync(path.resolve(options.prebuiltRoot)) : null; } catch {}
+  const native = nativeSettingsPiWeb({ home, root, env, explicit: options.nativeLauncher || env.PI_OMNIGENT_UI_NATIVE_WEB, metadata: [sharedHostPath, omnigentHostPath], prebuilt });
   if (native) {
     throw Object.assign(new UiInstallError('NATIVE_SETTINGS_PRESENT'), { piWeb: native.piWeb, evidence: native.evidence,
       reason: 'This Pi Web already has the native Settings → Omnigent page; install-ui would only add a second multi-GB Pi Web 0.10.0 build and route pi-web away from it. Keep the bundled page and update it with the image or add-on.' });
