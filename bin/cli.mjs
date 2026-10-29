@@ -68,7 +68,9 @@ try {
     process.exitCode = 2;
   }
 } catch (error) {
-  print({ phase: 'error', error: safeError(error) });
+  print({ phase: 'error', error: safeError(error),
+    // A refusal with a fixed explanation (never command output) says why.
+    ...(error instanceof UiInstallError && error.reason ? { code: error.code, reason: error.reason, piWeb: error.piWeb, evidence: error.evidence } : {}) });
   // Installation should remain available for remediation when first-run setup
   // needs credentials or the host launcher is not available in this process.
   process.exitCode = command === 'activate' && args.includes('--auto') ? 0 : 1;

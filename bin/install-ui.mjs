@@ -199,6 +199,47 @@ function findNative(home, root, env, explicit) {
   }
   return null;
 }
+// A Pi Web that already serves Settings → Omnigent is never replaced. The
+// root/PaaS image compiles the combined adapter (its build asserts these
+// routes); the HA add-on patches this section into Pi Web 0.12's compiled
+// settings list. install-ui would add a multi-GB 0.10.0 copy and route pi-web
+// away from the image's own page.
+const NATIVE_SETTINGS_FILES = ['.next/server/app/api/omnigent/route.js', '.next/server/app/omnigent/page.js', 'app/api/omnigent/route.ts'];
+const NATIVE_SETTINGS_PAGE = '.next/server/app/page.js';
+const NATIVE_SETTINGS_SECTION = '{id:"omnigent",label:"Omnigent"}';
+function piWebPackage(launcher) {
+  let dir;
+  try { dir = path.dirname(fs.realpathSync(launcher)); } catch { return null; }
+  for (let depth = 0; depth < 3; depth++, dir = path.dirname(dir)) {
+    try { if (readJson(path.join(dir, 'package.json')).name === '@agegr/pi-web') return dir; } catch {}
+  }
+  return null;
+}
+function settingsPageEvidence(dir) {
+  const found = NATIVE_SETTINGS_FILES.find(file => exists(path.join(dir, file)));
+  if (found) return found;
+  try {
+    const page = path.join(dir, NATIVE_SETTINGS_PAGE);
+    if (fs.statSync(page).size <= 64 * 1024 * 1024 && fs.readFileSync(page, 'utf8').includes(NATIVE_SETTINGS_SECTION)) return NATIVE_SETTINGS_PAGE;
+  } catch {}
+  return null;
+}
+/** The Pi Web this host runs (explicit, recorded or on PATH) that already has the native page; managed builds excluded. */
+export function nativeSettingsPiWeb({ home, root, env, explicit, metadata = [] }) {
+  const recorded = metadata.flatMap(file => {
+    try { const config = readJson(file); return [config.realWeb, config.realWebBeforeOmnigentUi]; } catch { return []; }
+  });
+  const onPath = (env.PATH || '').split(path.delimiter).filter(Boolean).map(dir => path.resolve(dir, 'pi-web'));
+  for (const candidate of [explicit, ...recorded, ...onPath]) {
+    if (typeof candidate !== 'string' || !path.isAbsolute(candidate) || within(root, candidate) || !executable(candidate)) continue;
+    const dir = piWebPackage(candidate);
+    if (!dir || within(root, dir)) continue;
+    const evidence = settingsPageEvidence(dir);
+    if (evidence) return { launcher: candidate, piWeb: dir, evidence };
+  }
+  return null;
+}
+
 function wrapper(nativeBin, fallback) {
   return `#!/usr/bin/env node\n${MARKER}\nimport fs from 'node:fs';\nimport {spawn} from 'node:child_process';\nconst adapter=${JSON.stringify(nativeBin)};\nconst fallback=${JSON.stringify(fallback)};\nconst ready=fs.existsSync(adapter)&&fs.existsSync(${JSON.stringify(path.resolve(nativeBin, '../../.next/BUILD_ID'))});\nconst child=ready?spawn(${JSON.stringify(process.execPath)},[adapter,...process.argv.slice(2)],{stdio:'inherit',env:process.env}):spawn(fallback,process.argv.slice(2),{stdio:'inherit',env:process.env});\nfor(const signal of ['SIGINT','SIGTERM','SIGHUP'])process.on(signal,()=>child.kill(signal));\nchild.on('error',()=>{process.stderr.write('Omnigent UI web launcher failed.\\n');process.exitCode=1;});\nchild.on('exit',(code,signal)=>{process.exitCode=code??(signal?1:0);});\n`;
 }
@@ -257,12 +298,17 @@ export async function installUi(options = {}) {
   const destination = path.join(root, 'pi-web');
   const meta = readAdapter(path.resolve(options.packageRoot || ROOT));
   meta.ownPatchSha256 = meta.patchSha256;
-  safeDirectory(releases, home);
   const run = options.run || runCommand;
   const sharedHostPath = options.sharedHostPath ?? env.PI_OMNIGENT_UI_SHARED_HOST_METADATA ?? path.join(
     env.PI_CODING_AGENT_DIR || env.PI_AGENT_DATA_DIR || (home.startsWith('/data/pi-agent/') ? '/data/pi-agent' : path.join(home, '.pi/agent')), 'shared-runtime/host.json');
   const omnigentHostPath = options.omnigentHostPath ?? path.join(
     env.PI_CODING_AGENT_DIR || env.PI_AGENT_DATA_DIR || (home.startsWith('/data/pi-agent/') ? '/data/pi-agent' : path.join(home, '.pi/agent')), 'omnigent-plugin/host.json');
+  const native = nativeSettingsPiWeb({ home, root, env, explicit: options.nativeLauncher || env.PI_OMNIGENT_UI_NATIVE_WEB, metadata: [sharedHostPath, omnigentHostPath] });
+  if (native) {
+    throw Object.assign(new UiInstallError('NATIVE_SETTINGS_PRESENT'), { piWeb: native.piWeb, evidence: native.evidence,
+      reason: 'This Pi Web already has the native Settings → Omnigent page; install-ui would only add a second multi-GB Pi Web 0.10.0 build and route pi-web away from it. Keep the bundled page and update it with the image or add-on.' });
+  }
+  safeDirectory(releases, home);
   const patchFiles = [meta.patchFile];
   const agentDir = env.PI_CODING_AGENT_DIR || env.PI_AGENT_DATA_DIR || path.join(home, '.pi/agent');
   const overlayRoot = options.overlayPackageRoot ?? env.PI_PASEO_PLUGIN_ROOT ?? path.join(agentDir, 'git/github.com/WOOWTECH/pi-paseo-plugin');
@@ -461,7 +507,8 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
     if (args.some((arg, i) => arg !== '--prebuilt-root' && i !== index + 1) || (index >= 0 && !args[index + 1])) fail('INVALID_ARGUMENTS');
     console.log(JSON.stringify(await installUi(index < 0 ? {} : { prebuiltRoot: args[index + 1] }), null, 2));
   } catch (error) {
-    console.error(JSON.stringify({ error: 'UiInstallError', code: error instanceof UiInstallError ? error.code : 'HOST_INSTALL_FAILED', stage: error instanceof UiInstallError ? error.stage : undefined }));
+    console.error(JSON.stringify({ error: 'UiInstallError', code: error instanceof UiInstallError ? error.code : 'HOST_INSTALL_FAILED', stage: error instanceof UiInstallError ? error.stage : undefined,
+      ...(error instanceof UiInstallError && error.reason ? { reason: error.reason, piWeb: error.piWeb, evidence: error.evidence } : {}) }));
     process.exitCode = 1;
   }
 }

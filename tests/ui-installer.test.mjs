@@ -685,6 +685,81 @@ test('prebuilt source drift fails before routing or publication', async t => {
   assert.equal(fs.existsSync(path.join(f.home, '.local/bin/pi-web')), false);
 });
 
+// An image-style global install: <prefix>/bin/pi-web -> ../lib/node_modules/@agegr/pi-web/bin/pi-web.js.
+function globalPiWeb(f, prefix, version, files) {
+  const pkg = path.join(prefix, 'lib/node_modules/@agegr/pi-web');
+  write(path.join(pkg, 'package.json'), JSON.stringify({ name: '@agegr/pi-web', version, bin: { 'pi-web': 'bin/pi-web.js' } }));
+  write(path.join(pkg, 'bin/pi-web.js'), '#!/usr/bin/env node\nconsole.log("image pi-web");\n', 0o755);
+  for (const [file, content] of Object.entries(files)) write(path.join(pkg, file), content);
+  fs.mkdirSync(path.join(prefix, 'bin'), { recursive: true });
+  fs.symlinkSync('../lib/node_modules/@agegr/pi-web/bin/pi-web.js', path.join(prefix, 'bin/pi-web'));
+  return { pkg, env: { ...f.options.env, PATH: path.join(prefix, 'bin') + path.delimiter + f.options.env.PATH } };
+}
+
+const nativeSettingsBuilds = {
+  'root/PaaS image with the compiled combined adapter': ['0.10.0', {
+    'app/api/omnigent/route.ts': '// adapter route\n',
+    '.next/server/app/api/omnigent/route.js': '// compiled route\n',
+    '.next/server/app/omnigent/page.js': '// compiled page\n',
+  }, '.next/server/app/api/omnigent/route.js'],
+  'HA Pi Web 0.12 with the patched compiled settings list': ['0.12.0', {
+    '.next/server/app/page.js': 'x=[{id:"mcp",label:k("settings.mcp")},{id:"omnigent",label:"Omnigent"},{id:"paseo",label:"Paseo"}];\n/* woow-ha-omnigent-paseo-settings-v3 */\n',
+  }, '.next/server/app/page.js'],
+};
+
+for (const [name, [version, files, evidence]] of Object.entries(nativeSettingsBuilds)) {
+  test(`install-ui refuses a Pi Web that already has the native Settings → Omnigent page (${name})`, async t => {
+    const f = fixture(t);
+    const image = globalPiWeb(f, path.join(f.root, 'image'), version, files);
+    await assert.rejects(installUi({ ...f.options, env: image.env }), error => {
+      assert.equal(error.code, 'NATIVE_SETTINGS_PRESENT');
+      assert.equal(error.piWeb, fs.realpathSync(image.pkg));
+      assert.equal(error.evidence, evidence);
+      assert.match(error.reason, /Settings → Omnigent/);
+      return true;
+    });
+    assert.equal(f.calls.length, 0, 'nothing may be fetched or built');
+    assert.equal(fs.existsSync(f.managed), false, 'no managed storage may be created');
+    assert.equal(fs.existsSync(path.join(f.home, '.local/bin/pi-web')), false, 'routing must stay untouched');
+  });
+}
+
+test('install-ui CLI explains the native settings refusal and exits 1 without building', t => {
+  const f = fixture(t);
+  const image = globalPiWeb(f, path.join(f.root, 'image'), '0.10.0', nativeSettingsBuilds['root/PaaS image with the compiled combined adapter'][1]);
+  // No git/npm on PATH: a regression fails fast instead of fetching and building.
+  const result = spawnSync(process.execPath, [path.resolve(import.meta.dirname, '../bin/cli.mjs'), 'install-ui'],
+    { encoding: 'utf8', env: { ...image.env, PATH: path.join(f.root, 'image/bin') } });
+  assert.equal(result.status, 1);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.code, 'NATIVE_SETTINGS_PRESENT');
+  assert.equal(output.piWeb, fs.realpathSync(image.pkg));
+  assert.match(output.reason, /Settings → Omnigent/);
+  assert.equal(fs.existsSync(f.managed), false);
+});
+
+test('a stock Pi Web package without the Omnigent page still gets the managed build', async t => {
+  const f = fixture(t);
+  const image = globalPiWeb(f, path.join(f.root, 'image'), '0.10.0', { '.next/server/app/page.js': 'x=[{id:"mcp",label:k("settings.mcp")}];\n' });
+  const result = await installUi({ ...f.options, env: image.env });
+  assert.equal(result.status, 'installed');
+  assert.equal(result.routing.previousNative, path.join(f.root, 'image/bin/pi-web'));
+});
+
+test('an earlier managed build recorded as realWeb is not mistaken for a native settings page', async t => {
+  const f = fixture(t), shim = path.join(f.home, '.local/bin/pi-web');
+  const metadata = path.join(f.options.env.PI_CODING_AGENT_DIR, 'omnigent-plugin/host.json');
+  write(shim, '#!/usr/bin/env node\n// pi-omnigent-plugin web launcher\n', 0o755);
+  write(metadata, JSON.stringify({ version: 1, realWeb: f.native, shim, mode: 'path-wrapper' }));
+  const first = await installUi(f.options);
+  write(path.join(first.releaseRoot, 'app/api/omnigent/route.ts'), '// managed adapter route\n');
+  assert.equal(JSON.parse(fs.readFileSync(metadata)).realWeb, first.pendingRestart);
+  nextPatch(f);
+  const next = await installUi(f.options);
+  assert.equal(next.status, 'installed');
+  assert.equal(JSON.parse(fs.readFileSync(metadata)).realWebBeforeOmnigentUi, f.native);
+});
+
 test('unmanaged adapter directory and linked storage are preserved', async t => {
   const f = fixture(t);
   const destination = path.join(f.managed, 'pi-web'); write(path.join(destination, 'user-data'), 'keep');
