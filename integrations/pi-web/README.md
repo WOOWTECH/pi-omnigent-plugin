@@ -6,7 +6,7 @@
 
 adapter-meta 固定 commit 與 patch SHA-256；install-ui 建置、私有保存及原子發佈。--prebuilt-root 會先比對所有來源檔案。已安裝 Paseo 時疊加它當下的已驗證 patch；來源不一致會停止並保留原路由。shared-runtime 的 realWebBeforeOmnigentUi 留存供回退。
 
-已驗證桌面、手機選單、中文、密碼遮罩及切換清空。Pi 7 正式安裝並重啟後，原生 Omnigent 分頁位於 MCP 右側，實際登入、取消、重連均通過且 host ID 保持相同。2026-10-25 的 Pi 7 實測已確認指定 Pi 模型可收到回覆；這是當日早期紀錄；後續 v0.3.8 三引擎已完成真實對話驗收，結果見商業部署報告。詳見 [當日實測紀錄](../../docs/evidence/pi7-omnigent-2026-10-25.json)。
+已驗證桌面、手機選單、中文、密碼遮罩及切換清空。Pi 7 正式安裝並重啟後，原生 Omnigent 分頁位於 MCP 右側，實際登入、取消、重連均通過且 host ID 保持相同。2026-10-25 的 Pi 7 實測已確認指定 Pi 模型可收到回覆；這是當日早期紀錄；後續 v0.3.8 三引擎已完成真實對話驗收，結果見商業部署報告。詳見 [當日實測紀錄](https://github.com/WOOWTECH/pi-omnigent-plugin/blob/main/docs/evidence/pi7-omnigent-2026-10-25.json)。
 
 非 root 容器可能繼承不可寫的 `/tmp/npm-cache`；v0.3.1 固定使用管理目錄內的私有 npm-cache，大小寫 npm 快取環境設定都會覆寫。啟動服務的 PATH 須優先包含 `$HOME/.local/bin`；Pi 7 實測以 deployment 的 pi-web 容器 PATH 串接，重啟後生效。
 
@@ -16,7 +16,7 @@ v0.3.3 固定更新後的 Pi Web lockfile；Next.js 16.4.3、Pi SDK 1.4.0 與相
 
 回退：同一 Unix 帳號把 shared-runtime/host.json 的 realWeb 還原為 realWebBeforeOmnigentUi，重啟 Pi Web。未知啟動器保留並回報 manual-routing-required，不直接覆蓋。
 
-[Pi 7 正式部署實測證據](../../docs/evidence/pi7-native-ui-2026-10-12.json)。[Pi 6 候選版歷史證據](../../docs/evidence/pi6-native-ui-2026-10-12.json) 保留原測試範圍；本次部署只操作 Pi 7。
+[Pi 7 正式部署實測證據](https://github.com/WOOWTECH/pi-omnigent-plugin/blob/main/docs/evidence/pi7-native-ui-2026-10-12.json)。[Pi 6 候選版歷史證據](https://github.com/WOOWTECH/pi-omnigent-plugin/blob/main/docs/evidence/pi6-native-ui-2026-10-12.json) 保留原測試範圍；本次部署只操作 Pi 7。
 
 v0.3.4 結合 Paseo v0.1.4 的固定補丁，以同一份 Pi Web 建置提供 MCP、Omnigent、Paseo 設定分頁；兩個來源及組合補丁均以 SHA-256 驗證。
 
@@ -26,6 +26,8 @@ v0.3.6 的原生 API 對單一引擎驗證回報該次測試的結果；其它�
 
 v0.3.9 增加 `/omnigent` 直達原生設定頁；獨立及 Omnigent＋Paseo 合併介面均支援。
 
+
+問題原因與下一步（配合外掛 0.3.30 起的原因碼）：`/api/omnigent` 另外只轉送 `status().issue` 的 `code`、`message`、`hints`（en／zh-TW／zh-CN）與 `action`，以及主機 supervisor 回報的 `state`、`manager`、`managed`、`managerRunning`；`details` 等其他欄位一律不轉送。Settings → Omnigent 依目前語系顯示 hint 並附原因碼；舊外掛沒有 hints 時維持原本的「操作尚未完成 (CODE)」。只有頁面本來就有的操作才有按鈕：`relogin` 打開登入表單、`verify` 送出對話驗證、`retry` 重新讀取狀態；`reset-host-id`、`repair`、`contact-admin` 只顯示文字（例如 NEEDS_RESET_ID 會提示在終端機執行 `omnigent host reset-id --yes`）。`phase` 為 `error` 時不再顯示「Server 已登入」那一句。受管主機（kit）回報的狀態顯示在「主機服務」一列，例如登入過期、主機 ID 屬於另一個帳號。
 
 v0.3.29 共用 Paseo v0.1.13 補丁：Settings → Paseo 在沒有對話也沒選專案時由伺服器自己決定的目錄載入（客戶端指定的目錄仍須在已服務根目錄內）；首頁 Get Started 增加第 3 行純文字提示 Settings → Omnigent；Paseo 分頁可在手機捲動。
 

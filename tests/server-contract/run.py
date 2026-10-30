@@ -17,12 +17,19 @@ Run it with the Python that has the pinned SDK installed:
 
 --server-omnigent starts the server from another installation (for example a newer release), while the
 adapter and the managed host keep using the SDK of the interpreter that runs this script.
+
+--server-url URL drives an existing server instead (for example a candidate server image deployed in a
+sandbox before it replaces a production one). The admin account comes from CONTRACT_ADMIN_USERNAME and
+CONTRACT_ADMIN_PASSWORD, never from argv. Account and host names get a per-run suffix, and the managed host
+may hold a connection to that server and nowhere else. --expect-host-delete adds the owner host delete
+(DELETE /v1/hosts/{id}: refused while online, removed once offline) of servers that carry it.
 """
 from __future__ import annotations
 
 import argparse
 import contextlib
 import http.server
+import ipaddress
 import json
 import os
 import re
@@ -39,6 +46,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
 ADAPTER = ROOT / 'src' / 'omnigent.py'
@@ -145,8 +153,19 @@ def loopback(address_hex):
     return raw in (bytes(15) + b'\x01', bytes(16)) or (raw[:12] == bytes(10) + b'\xff\xff' and raw[12] == 127)
 
 
-def external_sockets(pids):
-    """Sockets held by these processes whose peer is not on this machine."""
+def peer_address(field):
+    """(ip, port) of a /proc/net address field such as 0100007F:1F40."""
+    address_hex, port_hex = field.split(':')
+    raw = bytes.fromhex(address_hex)
+    raw = b''.join(raw[i:i + 4][::-1] for i in range(0, len(raw), 4))
+    address = ipaddress.ip_address(raw)
+    if address.version == 6 and address.ipv4_mapped:
+        address = address.ipv4_mapped
+    return str(address), int(port_hex, 16)
+
+
+def external_sockets(pids, allowed=frozenset()):
+    """Sockets held by these processes whose peer is not on this machine (nor one of the allowed (ip, port))."""
     inodes = set()
     for pid in pids:
         with contextlib.suppress(OSError):
@@ -160,7 +179,7 @@ def external_sockets(pids):
         with contextlib.suppress(OSError):
             for line in Path(f'/proc/net/{table}').read_text().splitlines()[1:]:
                 fields = line.split()
-                if fields[9] in inodes and not loopback(fields[2].split(':')[0]):
+                if fields[9] in inodes and not loopback(fields[2].split(':')[0]) and peer_address(fields[2]) not in allowed:
                     found.append(f'{table} peer {fields[2]}')
     return found
 
@@ -229,9 +248,26 @@ class Contract:
         self.client_python = Path(sys.executable)
         self.client_bin = self.client_python.parent / 'omnigent'
         self.server_bin = Path(args.server_omnigent) if args.server_omnigent else self.client_bin
-        for binary in (self.client_bin, self.server_bin):
+        for binary in (self.client_bin,) if args.server_url else (self.client_bin, self.server_bin):
             require(binary.is_file(), f'{binary} not found; run this with the Python that has omnigent installed')
-        self.admin_password, self.other_password = secrets.token_urlsafe(24), secrets.token_urlsafe(24)
+        self.other_password = secrets.token_urlsafe(24)
+        self.admin_user, self.other_user, self.host_name = ADMIN, OTHER, HOST_NAME
+        self.allowed_peers = frozenset()
+        if args.server_url:
+            self.admin_user = os.environ.get('CONTRACT_ADMIN_USERNAME', '')
+            self.admin_password = os.environ.get('CONTRACT_ADMIN_PASSWORD', '')
+            require(self.admin_user and self.admin_password, '--server-url needs CONTRACT_ADMIN_USERNAME and CONTRACT_ADMIN_PASSWORD')
+            # The server outlives this run and may already know earlier runs' accounts and hosts.
+            run = secrets.token_hex(3)
+            self.other_user, self.host_name = f'{OTHER}-{run}', f'{HOST_NAME}-{run}'
+            parts = urlsplit(args.server_url)
+            require(parts.scheme in ('http', 'https') and parts.hostname, f'--server-url is not an http(s) URL: {args.server_url}')
+            self.server_host = parts.hostname
+            port = parts.port or (443 if parts.scheme == 'https' else 80)
+            self.allowed_peers = frozenset((info[4][0], port) for info in socket.getaddrinfo(parts.hostname, port, proto=socket.IPPROTO_TCP))
+        else:
+            self.admin_password = secrets.token_urlsafe(24)
+            self.server_host = None
         self.sensitive = {self.admin_password, self.other_password}
         self.tripwire = Tripwire()
         self.engines = self.write_engine_stand_ins(tmp / 'engines')
@@ -260,12 +296,16 @@ class Contract:
             script.chmod(0o755)
         return directory
 
+    @property
+    def no_proxy(self):
+        return ','.join(['127.0.0.1', 'localhost', '::1'] + ([self.server_host] if self.server_host else []))
+
     def environment(self, bin_dir, home, **extra):
         proxy = self.tripwire.url
         env = {'PATH': f'{self.engines}:{bin_dir}:/usr/bin:/bin', 'HOME': str(home), 'TMPDIR': str(home / 'tmp'),
                'LANG': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1', 'NO_COLOR': '1',
                'OMNIGENT_ANALYTICS': '0', 'OMNIGENT_NO_UPDATE_CHECK': '1',
-               'NO_PROXY': '127.0.0.1,localhost,::1', 'no_proxy': '127.0.0.1,localhost,::1'}
+               'NO_PROXY': self.no_proxy, 'no_proxy': self.no_proxy}
         for name in ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy'):
             env[name] = proxy
         env.update(extra)
@@ -279,6 +319,14 @@ class Contract:
     # server ---------------------------------------------------------------------------------------------
 
     def start_server(self):
+        if self.args.server_url:
+            self.base = self.args.server_url.rstrip('/')
+            deadline = time.monotonic() + self.args.startup_timeout
+            while time.monotonic() < deadline:
+                if self.request('GET', '/health')[0] == 200:
+                    return
+                time.sleep(0.5)
+            raise ContractError(f'{self.base} never answered /health')
         home = self.tmp / 'server' / 'home'
         env = self.environment(
             self.server_bin.parent, home, OMNIGENT_AUTH_ENABLED='1', OMNIGENT_AUTH_PROVIDER='accounts',
@@ -388,14 +436,14 @@ class Contract:
     def check_host_online(self, token, account, host_id):
         mine = [row for row in self.hosts_of(token) if row.get('host_id') == host_id]
         require(len(mine) == 1, f'the server lists {len(mine)} rows for the {account.name} host')
-        require(mine[0].get('owner') == ADMIN and mine[0].get('status') == 'online', f'host row: {mine[0]}')
+        require(mine[0].get('owner') == self.admin_user and mine[0].get('status') == 'online', f'host row: {mine[0]}')
         return mine[0]
 
     def check_no_egress_sockets(self):
         trees = [self.server.pid] if self.server else []
         trees += [account.host_pid() for account in self.accounts if (account.state_dir / 'host-process.json').exists()]
         pids = {member for root in trees if alive(root) for member in (root, *descendants(root))}
-        found = external_sockets(pids)
+        found = external_sockets(pids, self.allowed_peers)
         require(not found, f'a process holds a connection to another machine: {found}')
 
     def check_no_secret_on_disk(self, account):
@@ -417,15 +465,15 @@ class Contract:
         self.versions['server'] = info.get('server_version')
         expected = self.args.expect_server_version
         require(not expected or self.versions['server'] == expected, f'server is {self.versions["server"]}, expected {expected}')
-        self.admin_token = self.login(ADMIN, self.admin_password)
+        self.admin_token = self.login(self.admin_user, self.admin_password)
 
     def step_connect(self):
         self.a = self.account('client')
-        data = self.adapter_ok(self.a, 'connect', username=ADMIN, password=self.admin_password,
-                               allowManagedHost=True, hostName=HOST_NAME)
+        data = self.adapter_ok(self.a, 'connect', username=self.admin_user, password=self.admin_password,
+                               allowManagedHost=True, hostName=self.host_name)
         host = data['host']
         require(data['server'] == self.base, 'connect answered for another server')
-        require(host['connected'] is True and host['manager'] == 'plugin' and host['name'] == HOST_NAME, f'host: {host}')
+        require(host['connected'] is True and host['manager'] == 'plugin' and host['name'] == self.host_name, f'host: {host}')
         require(isinstance(host['id'], str) and host['id'], 'connect returned no host id')
         self.host_id = host['id']
         require(set(data['engines']) == {'claude', 'codex', 'pi'}, f'engines: {sorted(data["engines"])}')
@@ -492,10 +540,12 @@ class Contract:
         # 403 for a host the caller does not own, and the adapter must neither start a host nor write anything.
         status, invite = self.request('POST', '/auth/invite', {'is_admin': False}, token=self.admin_token)
         require(status == 200 and invite.get('token'), f'/auth/invite answered {status}')
-        status, _ = self.request('POST', '/auth/register', {'invite': invite['token'], 'username': OTHER, 'password': self.other_password})
+        status, _ = self.request('POST', '/auth/register', {'invite': invite['token'], 'username': self.other_user, 'password': self.other_password})
         require(status == 200, f'/auth/register answered {status}')
         b = self.account('other')
-        own = self.adapter_ok(b, 'connect', username=OTHER, password=self.other_password, allowManagedHost=True, hostName='other-host')
+        own = self.adapter_ok(b, 'connect', username=self.other_user, password=self.other_password, allowManagedHost=True,
+                              hostName=f'other-{self.host_name}')
+        self.other_host_id = own['host']['id']
         require(own['host']['connected'] is True and own['host']['id'] != self.host_id, 'the second account did not get its own host')
         other_pid = b.host_pid()
         stop_tree(other_pid)
@@ -525,15 +575,34 @@ class Contract:
         require(not host_processes(self.a.config_home), 'a refused resume started a host')
 
     def step_reconnect(self):
-        data = self.adapter_ok(self.a, 'connect', username=ADMIN, password=self.admin_password,
-                               allowManagedHost=True, hostName=HOST_NAME)
+        data = self.adapter_ok(self.a, 'connect', username=self.admin_user, password=self.admin_password,
+                               allowManagedHost=True, hostName=self.host_name)
         require(data['host']['id'] == self.host_id and data['host']['connected'] is True, f'reconnect host: {data["host"]}')
         self.pid = self.a.host_pid()
         require(host_processes(self.a.config_home) == [self.pid], 'reconnect did not leave exactly one host')
         self.check_host_online(self.admin_token, self.a, self.host_id)
-        require(len(self.hosts_of(self.admin_token)) == 1, 'reconnect registered another host')
+        rows = self.hosts_of(self.admin_token)
+        if self.args.server_url:
+            # A server that outlives the run may list earlier runs' hosts too: count this run's only.
+            rows = [row for row in rows if row.get('name') == self.host_name or row.get('host_id') == self.host_id]
+        require(len(rows) == 1, f'reconnect registered another host: {len(rows)} rows')
         self.check_no_secret_on_disk(self.a)
         self.check_no_egress_sockets()
+
+    def step_host_delete(self):
+        status, _ = self.request('DELETE', f'/v1/hosts/{self.host_id}', token=self.admin_token)
+        require(status == 409, f'deleting an online host must answer 409, got {status}')
+        self.check_host_online(self.admin_token, self.a, self.host_id)
+        self.adapter_ok(self.a, 'disconnect')
+        self.wait_for('the stopped host to be reaped', lambda: gone(self.pid))
+        self.wait_for('the server to see the host go offline',
+                      lambda: any(row['host_id'] == self.host_id and row['status'] == 'offline' for row in self.hosts_of(self.admin_token)))
+        status, _ = self.request('DELETE', f'/v1/hosts/{self.host_id}', token=self.admin_token)
+        require(status in (200, 204), f'deleting the offline host answered {status}')
+        require(not any(row['host_id'] == self.host_id for row in self.hosts_of(self.admin_token)), 'the deleted host is still listed')
+        other_token = self.login(self.other_user, self.other_password)
+        status, _ = self.request('DELETE', f'/v1/hosts/{self.other_host_id}', token=other_token)
+        require(status in (200, 204), f'the second account deleting its own offline host answered {status}')
 
     def step_no_egress(self):
         require(not self.tripwire.attempts, f'a process tried to reach {sorted(set(self.tripwire.attempts))}')
@@ -550,6 +619,8 @@ class Contract:
             ('disconnect: login cleared, host stopped, registration kept', self.step_disconnect),
             ('resume after disconnect asks for a login', self.step_resume_after_disconnect),
             ('connect again keeps the host identity', self.step_reconnect),
+            *([('owner host delete: refused online, removed offline', self.step_host_delete)]
+              if self.args.expect_host_delete else []),
             ('nothing tried to leave the machine', self.step_no_egress),
         ]
 
@@ -608,6 +679,8 @@ def main(argv=None):
     parser.add_argument('--server-omnigent', help='omnigent executable that runs the server (default: the SDK of this interpreter)')
     parser.add_argument('--expect-server-version', help='fail unless the server reports this version')
     parser.add_argument('--expect-sdk-version', help='fail unless the adapter sees this SDK version')
+    parser.add_argument('--server-url', help='drive this existing server instead of starting one (admin from CONTRACT_ADMIN_USERNAME/_PASSWORD)')
+    parser.add_argument('--expect-host-delete', action='store_true', help='also check DELETE /v1/hosts/{id} (servers that carry it)')
     parser.add_argument('--startup-timeout', type=float, default=90.0, help='seconds to wait for the server (default 90)')
     parser.add_argument('--logs', help='copy the server and host logs (secrets removed) into this directory')
     parser.add_argument('--keep', action='store_true', help='keep the private working directory')

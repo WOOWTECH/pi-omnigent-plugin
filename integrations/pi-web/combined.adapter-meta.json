@@ -6,14 +6,15 @@
   "paseo": {
     "packageName": "@woowtech/pi-paseo",
     "packageVersion": "0.1.13",
+    "compatiblePackageVersions": ["0.1.14"],
     "adapterPatchSha256": "348f0b34118deca5a42ea47e2c98fc92a85dc9354bcaee8c5a41ac249360ed19"
   },
   "omnigent": {
     "packageName": "@woowtech/pi-omnigent-plugin",
     "packageVersion": "0.3.29",
-    "adapterPatchSha256": "b67a2cca389836462dda1dd9a85afb011ce556157e215002a2ae46373422dadd"
+    "adapterPatchSha256": "82b251162aff5a68daa6d6b1a1ad9daa0d2059888437860f7391772c6c8ee2cc"
   },
-  "patchSha256": "c5a1b94aa6547259365f2f4f49867e55722a5aef0b8e53a66f6b2b337b89d03b",
+  "patchSha256": "b204fcae4f33d841810a212b71ab757d2d2956fb6e431e2ea7997980c469ef19",
   "settingsSections": [
     "mcp",
     "omnigent",

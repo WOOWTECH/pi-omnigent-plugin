@@ -4,6 +4,7 @@ import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { canonicalRoot, locatePackage, ownPackageName } from './locate.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const launcherMarker = 'pi-omnigent-plugin web launcher';
@@ -68,24 +69,20 @@ export async function loadPiSdk(options = {}) {
 async function readNativePackageLifecycle(options, loc) {
   try {
     const sdk = await loadPiSdk(options);
-    const settings = sdk.SettingsManager.create(options.cwd || loc.home, loc.agentDir, { projectTrusted: false });
-    const manager = new sdk.DefaultPackageManager({ cwd: options.cwd || loc.home, agentDir: loc.agentDir, settingsManager: settings });
-    const configured = manager.listConfiguredPackages();
-    let packageName = '@woowtech/pi-omnigent-plugin';
-    try { packageName = JSON.parse(fs.readFileSync(path.join(loc.root, 'package.json'), 'utf8')).name || packageName; } catch {}
-    const canonical = file => { try { return fs.realpathSync(file); } catch { return path.resolve(file); } };
-    const candidates = configured.filter(entry => entry.installedPath && canonical(entry.installedPath) === canonical(loc.root)
-      || entry.source === `npm:${packageName}` || entry.source.startsWith(`npm:${packageName}@`)
-      || (!entry.source.includes(':') && canonical(path.resolve(entry.scope === 'project' ? options.cwd || loc.home : loc.agentDir, entry.source)) === canonical(loc.root)));
-    if (settings.drainErrors?.().length) return { active: false, registered: false, reason: 'package-settings-unreadable' };
-    const candidate = candidates.at(-1);
-    if (!candidate) return options.allowUnregistered === true
+    const located = locatePackage({ sdk, cwd: options.cwd || loc.home, agentDir: loc.agentDir, name: ownPackageName(loc.root) });
+    if (!located.readable) return { active: false, registered: false, reason: 'package-settings-unreadable' };
+    const { loaded } = located;
+    if (!loaded) return options.allowUnregistered === true
       ? { active: true, registered: false, reason: 'explicit-activation-window' }
       : { active: false, registered: false, reason: 'package-removed-or-unregistered' };
-    const values = candidate.scope === 'project' ? settings.getProjectSettings() : settings.getGlobalSettings();
-    const entry = (values.packages || []).find(value => (typeof value === 'string' ? value : value.source) === candidate.source);
-    const disabled = typeof entry === 'object' && Array.isArray(entry.extensions) && entry.extensions.length === 0;
-    return { active: !disabled, registered: true, source: candidate.source, scope: candidate.scope, reason: disabled ? 'native-plugin-disabled' : 'native-plugin-enabled' };
+    const known = { registered: true, source: loaded.source, scope: loaded.scope };
+    // A native disable of the copy Pi loads disables the package for every copy.
+    if (!loaded.enabled) return { active: false, ...known, reason: 'native-plugin-disabled' };
+    if (loaded.root === canonicalRoot(loc.root)) return { active: true, ...known, reason: 'native-plugin-enabled' };
+    // Pi loads another copy of this package (a git pin switched to the image
+    // bundle, or back). The package stays active; this copy defers to that one
+    // and never revokes the login from its own out-of-date view.
+    return { active: true, ...known, superseded: true, root: loaded.root, reason: 'superseded-by-registered-copy' };
   } catch { return { active: false, registered: false, reason: 'package-lifecycle-unavailable' }; }
 }
 
@@ -317,8 +314,39 @@ export function repointRealWeb(options = {}) {
   return { status: 'repointed', from: host.realWeb || null, to: chosen.realWeb, source: chosen.source, launchers, rejected: chosen.rejected };
 }
 
+// The oldest copy startup may be handed to. From 0.3.28 a copy binds only in
+// Settings → Omnigent; an older boot could reopen the retired setup conversation.
+const MIN_DELEGATE_VERSION = [0, 3, 28];
+
+function packageVersionAtLeast(root, floor) {
+  try {
+    const match = /^(\d+)\.(\d+)\.(\d+)/.exec(JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))?.version || '');
+    if (!match) return false;
+    const version = match.slice(1).map(Number);
+    const differs = version.findIndex((part, index) => part !== floor[index]);
+    return differs === -1 || version[differs] > floor[differs];
+  } catch { return false; }
+}
+
+/** Startup belongs to the copy Pi loads; a superseded copy hands over and writes nothing itself. */
+async function bootLoadedCopy(lifecycle, options) {
+  const superseded = reason => ({ initialization: { phase: 'superseded' },
+    startup: { status: 'superseded', ...(reason ? { reason } : {}) } });
+  if (!lifecycle.root || options.delegatedBoot === true) return superseded();
+  if (!packageVersionAtLeast(lifecycle.root, MIN_DELEGATE_VERSION)) return superseded('loaded-copy-too-old');
+  // The loaded copy resolves its own root, lifecycle and runtime.
+  const { root: _root, lifecycle: _lifecycle, runtime: _runtime, loc, ...rest } = options;
+  const location = loc && Object.fromEntries(Object.entries(loc).filter(([key]) => key !== 'root'));
+  try {
+    const loaded = await import(pathToFileURL(path.join(lifecycle.root, 'src/web.mjs')).href);
+    if (typeof loaded.boot !== 'function') return superseded('loaded-copy-has-no-boot');
+    return { ...await loaded.boot({ ...rest, ...(location ? { loc: location } : {}), delegatedBoot: true }), delegatedTo: lifecycle.root };
+  } catch { return superseded('loaded-copy-failed'); }
+}
+
 export async function boot(options = {}) {
   const lifecycle = await packageLifecycle(options);
+  if (lifecycle.superseded === true) return bootLoadedCopy(lifecycle, options);
   const runtime = options.runtime || await import('./runtime.mjs');
   const runtimeOptions = { loc: webLocations(options), ...(options.env ? { env: options.env } : {}) };
   await runtime.observeLifecycle?.(lifecycle, runtimeOptions);

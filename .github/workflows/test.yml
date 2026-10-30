@@ -143,6 +143,9 @@ jobs:
         paseo:
           - version: '0.1.13'
             ref: 'v0.1.13'
+          # The release images bundle; same host/adapter.patch bytes as 0.1.13 (#18).
+          - version: '0.1.14'
+            ref: 'v0.1.14'
     env:
       PLAYWRIGHT_BROWSERS_PATH: /tmp/paseo-playwright
       PASEO_REF: ${{ matrix.paseo.ref }}

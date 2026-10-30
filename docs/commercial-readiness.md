@@ -28,7 +28,7 @@ Public v0.3.16 and v0.3.17 remain immutable. Parent review, exact-head CI, publi
 
 Fresh Pi Web home visits now open the exact saved pending Omnigent setup conversation, including the initial empty Server URL prompt. A local read-only endpoint checks installed identity, native registration/enablement, readiness and saved session existence. It never creates a session or calls a host/model. A head script records interaction before hydration; the controller preserves explicit navigation, tab/workspace/terminal memory and drafts, cancels on input/selection/touch/scroll, and rechecks lifecycle before adoption. Late saved setup metadata can recover within one 30-second window with one-second spacing and at most 30 attempts.
 
-Local production builds passed on Node 22.23.3/linux-x64. Native and combined Paseo 0.1.7/0.1.8/0.1.9 each passed 21 browser cases, including zero-click desktop/mobile URL prompts, late onboarding and cancellation, prehydration input/click, disabled/removed/ready, memory and image-draft preservation. Existing session bytes remain intact; the real SDK/wizard appends its normal thinking setting and setup notice on opening. No provider credentials or model turns were used. Native 78 and combined 96 contract tests, five Paseo scroll cases, 120 plugin Node and 78 Python tests passed; dependency audit reported zero vulnerabilities. The official installer accepted one exact combined prebuilt and reused it across all three supported Paseo versions. [Sanitized local evidence](evidence/onboarding-auto-open-v0317.json).
+Local production builds passed on Node 22.23.3/linux-x64. Native and combined Paseo 0.1.7/0.1.8/0.1.9 each passed 21 browser cases, including zero-click desktop/mobile URL prompts, late onboarding and cancellation, prehydration input/click, disabled/removed/ready, memory and image-draft preservation. Existing session bytes remain intact; the real SDK/wizard appends its normal thinking setting and setup notice on opening. No provider credentials or model turns were used. Native 78 and combined 96 contract tests, five Paseo scroll cases, 120 plugin Node and 78 Python tests passed; dependency audit reported zero vulnerabilities. The official installer accepted one exact combined prebuilt and reused it across all three supported Paseo versions. [Sanitized local evidence](https://github.com/WOOWTECH/pi-omnigent-plugin/blob/main/docs/evidence/onboarding-auto-open-v0317.json).
 
 v0.3.16 was already published at 2026-10-26T11:22:33Z from 7be3420 and remains unchanged. This follow-up is v0.3.17; parent review, public CI/release, root/PaaS image QA and fleet rollout are separate gates. This adapter work does not certify provider readiness or change common host recovery / HA rootfs.
 
@@ -36,7 +36,7 @@ v0.3.16 was already published at 2026-10-26T11:22:33Z from 7be3420 and remains u
 
 An isolated HA 0.15.1 -> 0.15.2 upgrade retained the plugin's confirmed login and original host identity but lost the host process. The common `boot()` prepared dependencies and onboarding without restoring the authorized process. The candidate adds one shared runtime/adapter resume path; HA's entrypoint and UI patches remain unchanged.
 
-Resume requires the registered active plugin, explicit enable/login consent, private same-UID 0600 state and successful-connection receipts, matching server/host/workspace and installation directories, and a valid remote account owner. The current server's `/v1/me` returns `user_id`, which must match the exact host's required `owner`; a missing/invalid field fails closed. Existing legacy successful receipts are accepted only with their original workspace/server/host proof. SDK login alone never authorizes a fresh installation.
+Resume requires the registered active plugin, explicit enable/login consent, private same-UID 0600 state and successful-connection receipts, matching server/host/workspace and installation identity, and a valid remote account owner. The installation is named by a stable id and the package name, not by directories, so switching the package source (git pin, image bundle, npm) keeps consent; receipts that named the installation by its directories migrate when server, workspace and host match. The current server's `/v1/me` returns `user_id`, which must match the exact host's required `owner`; a missing/invalid field fails closed. Existing legacy successful receipts are accepted only with their original workspace/server/host proof. SDK login alone never authorizes a fresh installation.
 
 The separate Python `resume` action does not call `initialize`, `connect`, `merge_config`, model APIs, or provider synchronization. It reuses `ensure_host` and its launch lock, with full UID/server/config/data/process-incarnation validation. A stale online heartbeat plus old verification cannot bypass local recovery. Native/CLI disable and re-enable, or disconnect, still require fresh consent. A reused or unverifiable live PID fails closed and is not killed, including during disconnect; this can require manual inspection after container restart.
 
@@ -50,7 +50,7 @@ An idle required native terminal can disappear while Omnigent 0.16.0 publishes o
 
 `NATIVE_TERMINAL_REMOVED` means the main terminal resource was removed before the verification reply; it does not identify a process crash, provider quota, or authentication cause. The sanitized `terminalDiagnostic` records `phase: "before_cleanup"` independently of cleanup success. Its `exitCode` is null unless the event explicitly supplies an integer `exit_status`; Omnigent 0.16.0 does not supply one on this event. No pane output, private conversation text, or credentials are added to receipts.
 
-In an offline fake-client/fake-clock replay, a terminal created at t=0 and removed at t=4 caused the released baseline to wait 120 simulated seconds (61 item polls). The fix returned the removal diagnostic at t=6 (four polls) and still stopped its own test session. These are simulated verification waiting times, not production wall-clock measurements or an SLA; transport, the bounded status confirmation and cleanup add time. [Sanitized fixture evidence](evidence/verification-terminal-removal-v0314.json) describes the scope and lifecycle coverage.
+In an offline fake-client/fake-clock replay, a terminal created at t=0 and removed at t=4 caused the released baseline to wait 120 simulated seconds (61 item polls). The fix returned the removal diagnostic at t=6 (four polls) and still stopped its own test session. These are simulated verification waiting times, not production wall-clock measurements or an SLA; transport, the bounded status confirmation and cleanup add time. [Sanitized fixture evidence](https://github.com/WOOWTECH/pi-omnigent-plugin/blob/main/docs/evidence/verification-terminal-removal-v0314.json) describes the scope and lifecycle coverage.
 
 This release preparation makes no new live model requests and includes no fleet deployment. The original Pi3 native exit cause remains unknown, this change does not establish all engines as ready, and the standalone Omnigent SDK/server's general conversation status is unchanged. Readiness still requires an actual assistant sentinel and successful cleanup for every installed engine. Existing provider limits and prior validation boundaries remain in effect.
 
@@ -80,7 +80,7 @@ Pi3 最後一次完整驗收曾遇到 Codex `SERVER_UNREACHABLE`；其餘引擎�
 
 最後三台 `acceptance` 均回傳 exit code 0、phase ready；三引擎都有有效實際回覆回條。三個 Pod 的兩個容器皆就緒，重啟數皆為 0。
 
-三台桌面及手機共六個設定畫面均顯示 v0.3.11，無 page error。各自的選單數為 Claude 2、Codex 7、Pi 53；選單存在不等於全部模型都可用。非機密明細見 [部署驗收回條](evidence/pi234-omnigent-v0311-2026-10-25.json)。
+三台桌面及手機共六個設定畫面均顯示 v0.3.11，無 page error。各自的選單數為 Claude 2、Codex 7、Pi 53；選單存在不等於全部模型都可用。非機密明細見 [部署驗收回條](https://github.com/WOOWTECH/pi-omnigent-plugin/blob/main/docs/evidence/pi234-omnigent-v0311-2026-10-25.json)。
 
 限制：Pi 的原 DeepSeek 路由曾在原生對話收到 HTTP 402，但直接協定短／長提示成功，未確定上游的最終根因；改用已實測 GPT 路由，不宣稱修復供應商計費。Pi4 最初 Codex 啟動失敗，重啟後完整回覆與切換通過，不能據此推定上游啟動問題永不復發。Claude Code 經 DeepSeek gateway 的官方支援限制沿用下方說明。此次未驗證所有型錄模型、長時間壓力、完整工具呼叫、ARM64 或 OIDC。
 
@@ -90,7 +90,7 @@ Pi4 的 20 GiB 持久磁碟已清除可重建的下載與建置快取，仍僅�
 
 Pi7 的 host model-options API 原先回傳八個 GPT 選項，與 gateway 宣告的一個 DeepSeek 模型不一致。候選版透過 Codex 官方 model_catalog_json 設定，將已宣告的具體模型同步給 Omnigent 的 host 探測與新建 native session。沒有修改共享 Omnigent server 或 SDK。相同配置再次同步不寫入檔案；模型或 Codex binary 改變才重建。使用者自訂清單與損毀 TOML 會明確拒絕覆寫，原設定私有備份，所有同步檔案為 0600。
 
-原始失敗斷言、Pi7 隔離 native probe、正式 host API 複驗均已執行；正式 API 現在只回傳 deepseek/deepseek-v4-flash-0731。指定該模型的真實 Codex 對話回覆固定驗收文字並取得停止回條。獨立網頁選擇 Codex、送出固定測試提示、收到實際回覆與停止回條均通過；對話內模型清單也只有同一個 DeepSeek 模型。公開 v0.3.9 部署重啟後，08:00 UTC 的三引擎完整 acceptance --chat 為 ready。桌面與手機均可經 /omnigent 直達原生設定頁，選擇 Codex 後顯示正確模型且無 page error。詳見 [v0.3.9 非機密驗收回條](evidence/pi7-omnigent-v039-2026-10-25.json)。
+原始失敗斷言、Pi7 隔離 native probe、正式 host API 複驗均已執行；正式 API 現在只回傳 deepseek/deepseek-v4-flash-0731。指定該模型的真實 Codex 對話回覆固定驗收文字並取得停止回條。獨立網頁選擇 Codex、送出固定測試提示、收到實際回覆與停止回條均通過；對話內模型清單也只有同一個 DeepSeek 模型。公開 v0.3.9 部署重啟後，08:00 UTC 的三引擎完整 acceptance --chat 為 ready。桌面與手機均可經 /omnigent 直達原生設定頁，選擇 Codex 後顯示正確模型且無 page error。詳見 [v0.3.9 非機密驗收回條](https://github.com/WOOWTECH/pi-omnigent-plugin/blob/main/docs/evidence/pi7-omnigent-v039-2026-10-25.json)。
 
 原生 Pi Web 新增 /omnigent 直達設定頁。一般 Claude、Pi 及既有對話不因模型選單修正而重啟。未逐項驗證的模型、ARM64、OIDC、長時間壓力測試等既有限制仍保留。
 
@@ -98,7 +98,7 @@ Pi7 的 host model-options API 原先回傳八個 GPT 選項，與 gateway 宣�
 
 # v0.3.8 Pi 7 三引擎對話及 gateway 選模驗收（2026-10-25）
 
-正式 v0.3.8 已釘選安裝於 Pi7，使用完整共用 Pi Web 建置重新啟動；新 Pod 兩個容器就緒、重啟數皆為 0。實際瀏覽器開啟 Omnigent 與 Paseo 原生分頁，首頁和兩個 API 回 200、無 JavaScript 錯誤。Omnigent 分頁顯示版本 0.3.8、Claude／Codex／Pi 模型數 1／1／50，server 登入與 host 在線。重啟後的新一輪驗證於 07:02–07:03 UTC 讓三引擎各自取得固定正確回覆與 `cleanup: "stopped"`，整體回到 `ready`。[正式部署與容量回條](evidence/pi7-omnigent-v038-production-2026-10-25.json) 為非機密摘要。Paseo 的三種 CLI provider 要各自驗收；其 Pi Web Remote 實測見 [Paseo 驗證紀錄](https://github.com/WOOWTECH/pi-paseo-plugin/blob/main/docs/validation.md)。
+正式 v0.3.8 已釘選安裝於 Pi7，使用完整共用 Pi Web 建置重新啟動；新 Pod 兩個容器就緒、重啟數皆為 0。實際瀏覽器開啟 Omnigent 與 Paseo 原生分頁，首頁和兩個 API 回 200、無 JavaScript 錯誤。Omnigent 分頁顯示版本 0.3.8、Claude／Codex／Pi 模型數 1／1／50，server 登入與 host 在線。重啟後的新一輪驗證於 07:02–07:03 UTC 讓三引擎各自取得固定正確回覆與 `cleanup: "stopped"`，整體回到 `ready`。[正式部署與容量回條](https://github.com/WOOWTECH/pi-omnigent-plugin/blob/main/docs/evidence/pi7-omnigent-v038-production-2026-10-25.json) 為非機密摘要。Paseo 的三種 CLI provider 要各自驗收；其 Pi Web Remote 實測見 [Paseo 驗證紀錄](https://github.com/WOOWTECH/pi-paseo-plugin/blob/main/docs/validation.md)。
 
 本次完整建置後，Pi7 的 30 GB 持久磁碟達 80% 使用率；11 份共用 UI 建置合計約 19 GB。確認只有現行版本被路由引用後，保留現行版、前兩份受管回滾版及一份非受管備份，清理其餘 7 份舊受管建置。使用率降至 39%，可用空間由 6 GB 增至 19 GB，Pod 仍正常運作。清理清單留在 Pi7 私有工作目錄。安裝器目前**不會自動限制**舊建置數量，持續發佈時仍需監控與定期清理。
 
@@ -108,14 +108,14 @@ Pi 7 升級到公開 v0.3.7 並重啟後，Claude Code 與 Pi 的真實驗證通
 
 Pi 7 保留既有引擎與憑證，使用既有 LiteLLM gateway 的 Anthropic Messages 路由供 Claude Code 使用 `deepseek/deepseek-v4.1-flash`，並以 OpenAI Responses 路由供 Codex 使用 `deepseek/deepseek-v4-flash-0731`；Pi 的路由維持原樣。兩條協定先各以固定無工具短訊息取得成功回應，再用 Omnigent 原生引擎實測；配置變更前的檔案只保存在 Pi 7 私有備份目錄。Codex 指定模型即使未出現在其舊 CLI 型錄，server 仍接受明確的 `model_override`，實際回覆後也成功停止測試 session。
 
-v0.3.8 候選版在驗證中定期查詢**插件新建測試 session** 的狀態，將 HTTP 402 投射為不含原始錯誤內文的 `PROVIDER_PAYMENT_REQUIRED`，其他任務錯誤顯示安全的 `SESSION_TASK_FAILED`。Codex 使用明確設定的 gateway／key／local provider 時，Pi Web 原生 Omnigent 分頁以該 provider 宣告的模型取代不相符的 CLI 型錄；只有未設定此類 provider 時才沿用 server 模型清單。Pi 7 候選包的選單為 Claude 1、Codex 1、Pi 50 個模型；Codex 明確選取 `deepseek/deepseek-v4-flash-0731` 的對話驗證通過。完整 `acceptance --chat` 於 06:52 UTC 回傳 `ready`，Claude、Codex、Pi 三引擎逐一取得真實回覆與停止回條。[非機密驗收回條](evidence/pi7-omnigent-v038-2026-10-25.json) 不含帳密、token 或對話逐字稿。117 個 Node、47 個 Python 回歸測試、語法檢查和正式依賴 audit 均通過。
+v0.3.8 候選版在驗證中定期查詢**插件新建測試 session** 的狀態，將 HTTP 402 投射為不含原始錯誤內文的 `PROVIDER_PAYMENT_REQUIRED`，其他任務錯誤顯示安全的 `SESSION_TASK_FAILED`。Codex 使用明確設定的 gateway／key／local provider 時，Pi Web 原生 Omnigent 分頁以該 provider 宣告的模型取代不相符的 CLI 型錄；只有未設定此類 provider 時才沿用 server 模型清單。Pi 7 候選包的選單為 Claude 1、Codex 1、Pi 50 個模型；Codex 明確選取 `deepseek/deepseek-v4-flash-0731` 的對話驗證通過。完整 `acceptance --chat` 於 06:52 UTC 回傳 `ready`，Claude、Codex、Pi 三引擎逐一取得真實回覆與停止回條。[非機密驗收回條](https://github.com/WOOWTECH/pi-omnigent-plugin/blob/main/docs/evidence/pi7-omnigent-v038-2026-10-25.json) 不含帳密、token 或對話逐字稿。117 個 Node、47 個 Python 回歸測試、語法檢查和正式依賴 audit 均通過。
 
 Omnigent **獨立 Web 介面**的 Codex 預建對話模型選單仍由 Codex CLI 探測，可能列出原本的 8 個 GPT 模型；v0.3.8 修正的是 Pi Web 插件分頁的型錄與明確選模。Pi 的 `omnigent/apporo/gpt-5.6-sol` 曾回傳 `RUNTIMEERROR`；每個新增模型仍須個別驗證，不把一個可用模型的成功擴張成全型錄可用保證。
 # v0.3.7 Pi 7 正式部署及轉入 v0.3.8 驗收（2026-10-25）
 
 公開 [v0.3.7](https://github.com/WOOWTECH/pi-omnigent-plugin/tree/v0.3.7) 的 [正式 CI](https://github.com/WOOWTECH/pi-omnigent-plugin/actions/runs/40168982980) 四個工作均通過。Pi 7 的 Pi package 來源改為單一 v0.3.7 釘選，Paseo 保持 v0.1.4；共用 Pi Web 使用來源核對後的既有建置，回條 `prebuilt: true`、設定列 `MCP → Omnigent → Paseo`。重新啟動後新 Pod 兩個容器均就緒、重啟數皆為 0。實際瀏覽器開啟兩個設定分頁，首頁與兩個原生 API 都回 200，沒有 JavaScript 錯誤。
 
-Omnigent server 登入與 host 連線正常。v0.3.7 重啟初期 Codex 驗收遇到啟動驗證持有操作鎖；後續預設與指定 `gpt-5.6-sol` 的 Codex 驗收曾回覆超時，前一筆測試取得停止回條。一筆 server session 的 `last_task_error.code` 是 `codex_reauth_required`；另一個同時進行的排查在失敗回合找到上游 HTTP 402，並使用既有 gateway 配置完成上方 v0.3.8 候選版驗收。06:51–06:52 UTC 的 Claude、Codex、Pi 成功回條屬於後續候選版與新路由，不能倒推 v0.3.7 的 Codex 已穩定通過。Omnigent 的 server／原生引擎驗收與 Paseo 包裝的 Claude、Codex CLI 是兩個獨立驗收結果。[非機密部署回條](evidence/pi7-omnigent-v037-2026-10-25.json) 不含登入資料或對話內容。
+Omnigent server 登入與 host 連線正常。v0.3.7 重啟初期 Codex 驗收遇到啟動驗證持有操作鎖；後續預設與指定 `gpt-5.6-sol` 的 Codex 驗收曾回覆超時，前一筆測試取得停止回條。一筆 server session 的 `last_task_error.code` 是 `codex_reauth_required`；另一個同時進行的排查在失敗回合找到上游 HTTP 402，並使用既有 gateway 配置完成上方 v0.3.8 候選版驗收。06:51–06:52 UTC 的 Claude、Codex、Pi 成功回條屬於後續候選版與新路由，不能倒推 v0.3.7 的 Codex 已穩定通過。Omnigent 的 server／原生引擎驗收與 Paseo 包裝的 Claude、Codex CLI 是兩個獨立驗收結果。[非機密部署回條](https://github.com/WOOWTECH/pi-omnigent-plugin/blob/main/docs/evidence/pi7-omnigent-v037-2026-10-25.json) 不含登入資料或對話內容。
 
 # v0.3.7 驗收 session 停止事件重試（2026-10-25）
 
@@ -127,11 +127,11 @@ Omnigent server 登入與 host 連線正常。v0.3.7 重啟初期 Codex 驗收�
 
 # Pi 7 Omnigent Codex 後續複驗（2026-10-25）
 
-在公開 v0.3.6 的 Pi 7 容器，Omnigent server 登入已確認且 host 在線。Codex 模型目錄列出 8 個選項；原生 Codex 引擎實際回傳固定驗收文字。第一次測試的停止事件未取得成功回執，測試 session 後來呈 idle；針對該 session 重送停止事件時伺服器回覆已排入處理。單一 Codex 複驗再次收到正確回覆，且取得 `cleanup: "stopped"`。第一次停止失敗的根因尚未確認，不據此宣稱已修復。整體狀態仍為 `needs-verification`，因 Claude Code 在此容器仍需官方帳號登入與實際回覆。[後續非機密回條](evidence/pi7-omnigent-codex-2026-10-25.json) 不含憑證或對話內容。
+在公開 v0.3.6 的 Pi 7 容器，Omnigent server 登入已確認且 host 在線。Codex 模型目錄列出 8 個選項；原生 Codex 引擎實際回傳固定驗收文字。第一次測試的停止事件未取得成功回執，測試 session 後來呈 idle；針對該 session 重送停止事件時伺服器回覆已排入處理。單一 Codex 複驗再次收到正確回覆，且取得 `cleanup: "stopped"`。第一次停止失敗的根因尚未確認，不據此宣稱已修復。整體狀態仍為 `needs-verification`，因 Claude Code 在此容器仍需官方帳號登入與實際回覆。[後續非機密回條](https://github.com/WOOWTECH/pi-omnigent-plugin/blob/main/docs/evidence/pi7-omnigent-codex-2026-10-25.json) 不含憑證或對話內容。
 
 # v0.3.6 Pi 7 選模與原生操作結果（2026-10-25）
 
-Pi 7 已安裝 Omnigent 0.16.0、當次測試的插件 0.3.4、Paseo 0.1.4，重新登入後 host 在線。原生設定列為 MCP → Omnigent → Paseo。Pi 可列出 53 個模型，`omnigent/deepseek/deepseek-v4.1-flash` 的指定模型短對話收到固定回覆並成功停止；`omnigent/apporo/gpt-5.6-sol` 實測回傳 `RUNTIMEERROR`，驗證對話也已停止。當次 Claude 顯示 `needs-auth`，Codex 尚未收到對話回覆，因此整體保持 `needs-verification`；Codex 後續複驗見上方。公開選單是可選模型清單，不是模型逐項健康保證。[初次實測紀錄](evidence/pi7-omnigent-2026-10-25.json) 僅存非機密狀態與回條，不存對話內容。
+Pi 7 已安裝 Omnigent 0.16.0、當次測試的插件 0.3.4、Paseo 0.1.4，重新登入後 host 在線。原生設定列為 MCP → Omnigent → Paseo。Pi 可列出 53 個模型，`omnigent/deepseek/deepseek-v4.1-flash` 的指定模型短對話收到固定回覆並成功停止；`omnigent/apporo/gpt-5.6-sol` 實測回傳 `RUNTIMEERROR`，驗證對話也已停止。當次 Claude 顯示 `needs-auth`，Codex 尚未收到對話回覆，因此整體保持 `needs-verification`；Codex 後續複驗見上方。公開選單是可選模型清單，不是模型逐項健康保證。[初次實測紀錄](https://github.com/WOOWTECH/pi-omnigent-plugin/blob/main/docs/evidence/pi7-omnigent-2026-10-25.json) 僅存非機密狀態與回條，不存對話內容。
 
 原生 UI 先前將單一 Pi 成功驗證顯示成「操作失敗」，因為插件的 `ok` 代表所有引擎都驗證完成。v0.3.6 在原生 API 針對本次指定引擎檢查固定回覆、停止回條與指定模型一致性，操作按鈕顯示該次結果；總體 `ready` 規則不變。失敗時僅投射白名單錯誤代碼。獨立與 Omnigent＋Paseo 合併 UI 都包含相同修正，並保留 v0.3.5 的 Paseo 分頁標籤修正。
 
@@ -161,7 +161,7 @@ Pi 7 的服務 PATH 原本不包含 $HOME/.local/bin；更新 pi-web 容器的�
 
 實際 acceptance --chat 顯示 server 已核准、host 在線、模型／模組目錄可查；三種 Agent 模組存在。Claude Code 2.1.296 與 Codex 0.162.1 缺少供應商登入，聊天驗收回傳 ENGINE_NOT_READY；Pi 1.0.0 沒有可用模型，回傳 MODELS_UNAVAILABLE。三個模型數皆為 0，最終維持 needs-verification，不能宣稱 Pi 7 完整模型對話已通過。授權來源待操作人指定，完成後需重新執行驗收。
 
-本輪只操作 Pi 7；Pi 6 候選版證據與 Pi 5 成功對話證據各自保留，不能代替 Pi 7 的模型驗收。見 [Pi 7 原始證據](evidence/pi7-native-ui-2026-10-12.json)。
+本輪只操作 Pi 7；Pi 6 候選版證據與 Pi 5 成功對話證據各自保留，不能代替 Pi 7 的模型驗收。見 [Pi 7 原始證據](https://github.com/WOOWTECH/pi-omnigent-plugin/blob/main/docs/evidence/pi7-native-ui-2026-10-12.json)。
 
 # v0.2.2 Pi 6 安裝與設定修正
 
@@ -203,13 +203,13 @@ CI 固定 action commit，測試 Node 22.19.0 與 22.23.3，執行語法檢查�
 
 指定模型測試為 v0.2.0 的首輪證據。v0.2.1 再用各原生引擎預設設定驗證：Claude 連續三次通過（15.2、12.7、13.8 秒），Codex 18.6 秒、Pi 18.8 秒，五次驗收均完成。
 
-另有一個 Claude 指定模型測試實際觸發跨行草稿恢復，回條為 `nativeSubmitRecovered: true`，24.6 秒收到真實回覆並停止。預設與恢復證據見 [v0.2.1 實測](evidence/pi5-2026-10-11-default.json)。瀏覽器可打開 Pi 5 專屬對話，展開 Claude 模型子選單；沒有 page error。
+另有一個 Claude 指定模型測試實際觸發跨行草稿恢復，回條為 `nativeSubmitRecovered: true`，24.6 秒收到真實回覆並停止。預設與恢復證據見 [v0.2.1 實測](https://github.com/WOOWTECH/pi-omnigent-plugin/blob/main/docs/evidence/pi5-2026-10-11-default.json)。瀏覽器可打開 Pi 5 專屬對話，展開 Claude 模型子選單；沒有 page error。
 
 本機 host 在線；可用模型數為 Claude 4、Codex 7、Pi 9，三種原生 Agent 模組均可用。最終狀態為 `ready`。驗證提示不使用工具。
 
 狀態查詢在同一容器交錯執行各五次，中位數從 v0.1.2 的 2142 ms 降至候選版 457 ms，減少 78.7%，包含候選版的首次冷啟動。原始樣本：舊版 `[2065,2624,2394,1999,2142]`，新版 `[1700,467,257,245,457]` ms。這是單機量測，沒有壓力測試或 SLA 保證。
 
-原始驗收資料見 [Pi 5 實測證據](evidence/pi5-2026-10-11.json)。
+原始驗收資料見 [Pi 5 實測證據](https://github.com/WOOWTECH/pi-omnigent-plugin/blob/main/docs/evidence/pi5-2026-10-11.json)。
 
 ## 支援邊界與維運
 
