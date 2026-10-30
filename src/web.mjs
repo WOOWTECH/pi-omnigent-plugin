@@ -211,18 +211,34 @@ export async function uninstallHost(options = {}) {
   return { status };
 }
 
+// The oldest copy startup may be handed to. From 0.3.28 a copy binds only in
+// Settings → Omnigent; an older boot could reopen the retired setup conversation.
+const MIN_DELEGATE_VERSION = [0, 3, 28];
+
+function packageVersionAtLeast(root, floor) {
+  try {
+    const match = /^(\d+)\.(\d+)\.(\d+)/.exec(JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))?.version || '');
+    if (!match) return false;
+    const version = match.slice(1).map(Number);
+    const differs = version.findIndex((part, index) => part !== floor[index]);
+    return differs === -1 || version[differs] > floor[differs];
+  } catch { return false; }
+}
+
 /** Startup belongs to the copy Pi loads; a superseded copy hands over and writes nothing itself. */
 async function bootLoadedCopy(lifecycle, options) {
-  const superseded = { initialization: { phase: 'superseded' }, startup: { status: 'superseded' } };
-  if (!lifecycle.root || options.delegatedBoot === true) return superseded;
+  const superseded = reason => ({ initialization: { phase: 'superseded' },
+    startup: { status: 'superseded', ...(reason ? { reason } : {}) } });
+  if (!lifecycle.root || options.delegatedBoot === true) return superseded();
+  if (!packageVersionAtLeast(lifecycle.root, MIN_DELEGATE_VERSION)) return superseded('loaded-copy-too-old');
   // The loaded copy resolves its own root, lifecycle and runtime.
   const { root: _root, lifecycle: _lifecycle, runtime: _runtime, loc, ...rest } = options;
   const location = loc && Object.fromEntries(Object.entries(loc).filter(([key]) => key !== 'root'));
   try {
     const loaded = await import(pathToFileURL(path.join(lifecycle.root, 'src/web.mjs')).href);
-    if (typeof loaded.boot !== 'function') return superseded;
+    if (typeof loaded.boot !== 'function') return superseded('loaded-copy-has-no-boot');
     return { ...await loaded.boot({ ...rest, ...(location ? { loc: location } : {}), delegatedBoot: true }), delegatedTo: lifecycle.root };
-  } catch { return superseded; }
+  } catch { return superseded('loaded-copy-failed'); }
 }
 
 export async function boot(options = {}) {

@@ -90,7 +90,7 @@ v0.3.13 將供應商錯誤分成 `PROVIDER_PAYMENT_REQUIRED`（付款或餘額�
 
 v0.3.14 在插件自己建立的驗證對話中，若 Pi／Claude 主終端的最新刪除事件持續兩次輪詢、至少兩秒，會提早回報 `NATIVE_TERMINAL_REMOVED` 並清理該測試對話。此代碼表示「取得驗證回覆前，主終端資源已移除」，不代表已查明崩潰、登入或額度問題。較新的終端建立事件會取消判定；成功回覆與明確的供應商錯誤優先處理，Codex 輔助終端不套用此判定。
 
-回條的 `terminalDiagnostic.phase: "before_cleanup"` 區分清理前已移除與停止測試時的正常退出，`exitCode` 只接受明確提供的整數；SDK 0.16.0 刪除事件未提供退出碼時保留 `null`。離線假時鐘回放中，終端於第 4 秒移除，驗證由原版等待 120 秒縮短為第 6 秒結束；這不是正式環境耗時保證，實際仍包含傳輸與清理時間。Pi3 原始退出原因仍未查明，本版沒有證明所有引擎 ready，也未更改 Omnigent SDK 或一般對話狀態。詳見 [離線驗證證據](docs/evidence/verification-terminal-removal-v0314.json)。
+回條的 `terminalDiagnostic.phase: "before_cleanup"` 區分清理前已移除與停止測試時的正常退出，`exitCode` 只接受明確提供的整數；SDK 0.16.0 刪除事件未提供退出碼時保留 `null`。離線假時鐘回放中，終端於第 4 秒移除，驗證由原版等待 120 秒縮短為第 6 秒結束；這不是正式環境耗時保證，實際仍包含傳輸與清理時間。Pi3 原始退出原因仍未查明，本版沒有證明所有引擎 ready，也未更改 Omnigent SDK 或一般對話狀態。詳見 [離線驗證證據](https://github.com/WOOWTECH/pi-omnigent-plugin/blob/main/docs/evidence/verification-terminal-removal-v0314.json)。
 
 ## 執行環境
 
@@ -126,7 +126,7 @@ Pi Web Plugins 的停用／移除操作會停止插件自動處理；移除套�
 
 原生 Plugins 設定由啟動介接器與已載入的插件監看，約 500 ms 後生效。重新啟用會重新要求 server、帳號及遮罩密碼。既有版本升級保留已核准的連線，但 CLI 版本改變會要求重新驗證。
 
-同一套件換來源（git 釘選、映像內建的 `/opt/woow/pi-omnigent-plugin`、npm）視為升級而非移除：插件依套件名稱判斷 Pi 實際載入哪一份（`src/locate.mjs`），被取代的舊副本不寫任何狀態、不恢復 host，啟動交給載入中的那份，已核准的登入與驗證回條都保留。只有所有同名來源都移除，或 Pi 載入的那份被明確停用，才要求重新登入。連線回條以安裝 ID 與套件名稱識別安裝，不以檔案路徑識別；舊版以路徑記錄的回條在 server、工作區與 host 都相符時自動轉換，Omnigent 端仍核對 token 與 host 擁有者。
+同一套件換來源（git 釘選、映像內建的 `/opt/woow/pi-omnigent-plugin`、npm）視為升級而非移除：插件依套件名稱判斷 Pi 實際載入哪一份（`src/locate.mjs`），被取代的舊副本不寫任何狀態、不恢復 host，啟動交給載入中的那份，已核准的登入與驗證回條都保留。只有所有同名來源都移除，或 Pi 載入的那份被明確停用，才要求重新登入。連線回條以安裝 ID 與套件名稱識別安裝，不以檔案路徑識別；舊版回條（只記 home、configHome、dataDir）在 server、工作區與 host 都相符時接受並轉換。真正的身分邊界在 adapter：resume 先比對本機設定的 host ID 與 server，再確認 `/v1/me` 是 host 的擁有者，另一個帳號拿不到這台主機。換來源請在 Pi Web 停止時進行（映像開機時的釘選搬遷就是如此）：Pi Web 執行中時，離開的那份若是 0.3.29 以前的版本，它仍以路徑判斷，會要求重新登入。尚未安裝的 git 來源只有指向官方 repository（`github.com/WOOWTECH/pi-omnigent-plugin`）才算同一套件，同名 fork 不能壓住移除時的撤銷。
 
 
 Omnigent server 帳密與模型供應商授權分開。新容器即使已登入 server、host 已在線，每個引擎仍需可用的模型來源：Claude Code／Codex 可使用各自的官方登入，或由 Omnigent 設定相容的 gateway；Pi 也需設定可用模型。插件會指出尚未可用的引擎；完成後使用 `/omnigent verify`，不必重新輸入 server 帳密。如需更新連線，請在 Settings → Omnigent 填寫新資料；`/omnigent setup` 僅提示前往 Settings → Omnigent。

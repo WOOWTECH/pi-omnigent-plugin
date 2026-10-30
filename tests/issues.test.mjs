@@ -69,6 +69,8 @@ test('each code has an action and one next step in English, Taiwan Chinese and S
     assert.ok(described.action === null || ACTIONS.includes(described.action), `${code}: ${described.action}`);
     assert.deepEqual(Object.keys(described.hints), ['en', 'zh-TW', 'zh-CN']);
     for (const text of Object.values(described.hints)) assert.ok(typeof text === 'string' && text.length > 10, code);
+    // Every page shows hints as plain text, so Markdown would appear verbatim.
+    for (const text of Object.values(described.hints)) assert.doesNotMatch(text, /`/, `${code}: plain text, no Markdown code marks`);
     const { 'zh-TW': taiwan, 'zh-CN': mainland } = described.hints;
     assert.equal([...taiwan].filter(c => SIMPLIFIED_ONLY.includes(c)).join(''), '', `${code} zh-TW uses Simplified characters`);
     assert.equal([...mainland].filter(c => TRADITIONAL_ONLY.includes(c)).join(''), '', `${code} zh-CN uses Traditional characters`);
@@ -76,14 +78,19 @@ test('each code has an action and one next step in English, Taiwan Chinese and S
   }
 });
 
-test('NEEDS_RESET_ID says the host identity belongs to another account and how to reset it', () => {
+test('NEEDS_RESET_ID keeps the host identity first: sign in with the owning account, reset-id only as a last resort', () => {
   const described = describeIssue({ code: 'NEEDS_RESET_ID', message: '此 host ID 屬於另一個 Omnigent 帳號。' });
-  assert.equal(described.action, 'reset-host-id');
+  // reset-id cannot be undone and strands the old host under the original account
+  // (2026-10-28, pi3); agents also read these hints, so signing in comes first.
+  assert.equal(described.action, 'relogin');
   assert.equal(described.message, '此 host ID 屬於另一個 Omnigent 帳號。');
-  for (const text of Object.values(described.hints)) assert.match(text, /omnigent host reset-id --yes/);
-  assert.match(described.hints.en, /another account/);
-  assert.match(described.hints['zh-TW'], /已被另一個帳號使用.*終端機.*重新連線/);
-  assert.match(described.hints['zh-CN'], /已被另一个账号使用.*终端.*重新连接/);
+  for (const text of Object.values(described.hints)) {
+    assert.match(text, /omnigent host reset-id --yes/);
+    assert.ok(text.indexOf('Omnigent') < text.indexOf('reset-id'), 'the identity-keeping sign-in is named before the reset');
+  }
+  assert.match(described.hints.en, /account that owns it.*Only if that account will not be used again.*reset-id --yes.*new host identity.*old one stays offline/);
+  assert.match(described.hints['zh-TW'], /擁有它的帳號登入.*只有確定不再使用原帳號時.*reset-id --yes.*新的主機身分.*舊的.*離線/);
+  assert.match(described.hints['zh-CN'], /拥有它的账号登录.*只有确定不再使用原账号时.*reset-id --yes.*新的主机身份.*旧的.*离线/);
 });
 
 test('unknown, malformed and absent codes stay safe', () => {
@@ -122,8 +129,8 @@ test('runtime status returns the issue with hints and action', async t => {
   const { issue } = await status(options);
   assert.equal(issue.code, 'NEEDS_RESET_ID');
   assert.equal(issue.message, '此 host ID 屬於另一個 Omnigent 帳號。');
-  assert.equal(issue.action, 'reset-host-id');
-  assert.match(issue.hints['zh-TW'], /omnigent host reset-id --yes/);
+  assert.equal(issue.action, 'relogin');
+  assert.match(issue.hints['zh-TW'], /擁有它的帳號登入.*omnigent host reset-id --yes/);
   saveJSON(path.join(loc.stateDir, 'state.json'), { enabled: true, phase: 'ready', issue: null });
   assert.equal('issue' in await status(options), false);
 });

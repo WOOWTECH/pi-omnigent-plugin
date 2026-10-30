@@ -128,6 +128,23 @@ test('a replaced copy neither resumes the host nor boots on its own view', async
   assert.deepEqual(f.snapshot(), before);
 });
 
+test('startup is never handed to a copy older than settings-only binding, and a failed hand-over says why', async t => {
+  const f = await fixture(t);
+  // The copy Pi loads is a 0.3.23 checkout: its boot could reopen the retired setup conversation.
+  const stub = body => { fs.mkdirSync(path.join(f.gitRoot, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(f.gitRoot, 'src/web.mjs'), body); };
+  fs.writeFileSync(path.join(f.gitRoot, 'package.json'), JSON.stringify({ name: NAME, version: '0.3.23' }));
+  stub('export async function boot() { throw new Error("an old boot must not run"); }\n');
+  await f.use([f.bundleRoot, GIT]);
+  const options = { ...f.loc, root: f.bundleRoot, cwd: f.home, env: { HOME: f.home, PATH: '' }, sdk: f.sdk,
+    runtime: { status: () => assert.fail('a replaced copy must not inspect the adapter') } };
+  assert.deepEqual((await boot(options)).startup, { status: 'superseded', reason: 'loaded-copy-too-old' });
+  // A current copy whose boot throws is reported with a reason, not as a silent hand-over.
+  fs.writeFileSync(path.join(f.gitRoot, 'package.json'), JSON.stringify({ name: NAME, version: '0.3.30' }));
+  stub('export async function boot() { throw new Error("broken"); }\n// changed\n');
+  assert.deepEqual((await boot(options)).startup, { status: 'superseded', reason: 'loaded-copy-failed' });
+});
+
 test('a copy replaced by a git source that is not cloned yet stays inert', async t => {
   const f = await fixture(t);
   await f.use([f.bundleRoot]); await f.login(f.bundleRoot);

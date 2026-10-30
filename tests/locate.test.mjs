@@ -64,6 +64,23 @@ test('sources Pi has not installed yet count by npm name or git repository; a mi
   assert.equal(f.locate().loaded, null);
 });
 
+test('a pending git source counts only when it is the official repository', async t => {
+  const f = await fixture(t);
+  // Every spelling of the official repository is the package.
+  for (const source of ['git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.30', 'github:WOOWTECH/pi-omnigent-plugin',
+    'https://github.com/woowtech/pi-omnigent-plugin.git#v0.3.30', 'ssh://git@github.com/WOOWTECH/pi-omnigent-plugin.git']) {
+    await f.use([source]);
+    assert.equal(f.locate().copies.length, 1, source);
+  }
+  // A same-named fork or another host is not: while nothing is installed it would
+  // otherwise mark every running copy as replaced and hold back the revocation.
+  for (const source of ['git:github.com/evil/pi-omnigent-plugin', 'https://gitlab.example/anyone/PI-OMNIGENT-PLUGIN.git',
+    'git:github.com/WOOWTECH/pi-omnigent-plugin-fork@v0.3.30']) {
+    await f.use([source]);
+    assert.equal(f.locate().loaded, null, source);
+  }
+});
+
 test('an installed copy wins over one still waiting for install', async t => {
   const f = await fixture(t);
   const bundle = f.copy(path.join(f.home, 'opt/woow/pi-omnigent-plugin'));

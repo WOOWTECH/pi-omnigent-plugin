@@ -29,14 +29,27 @@ export function ownPackageName(root = ROOT) {
   return readPackageName(root) || DEFAULT_PACKAGE_NAME;
 }
 
+// Pending git sources count only when they name the package's official
+// repository. A same-named fork or another host must not stand in for the real
+// package: while nothing is installed it would mark every running copy as
+// superseded, so removing the real copy would no longer revoke the login.
+const OFFICIAL_REPOSITORIES = new Map([[DEFAULT_PACKAGE_NAME, ['github.com/woowtech/pi-omnigent-plugin']]]);
+
+/** host/owner/repo of a git source, lower-cased; ref, fragment, user and `.git` dropped. */
+function repositoryOf(source) {
+  let repository = source.replace(/#.*$/, '').trim();
+  if (repository.startsWith('github:')) repository = `github.com/${repository.slice('github:'.length)}`;
+  repository = repository.replace(/^git:/, '').replace(/^(?:https?|ssh):\/\//, '').replace(/^[^@/]+@/, '');
+  return repository.replace(/@[^/@:]*$/, '').replace(/\/+$/, '').replace(/\.git$/i, '').toLowerCase();
+}
+
 // A configured source Pi has not installed yet has no package.json to read:
-// npm:<name>[@range] names its package, a git source is matched by repository
-// name, and a missing local path is nothing Pi can load.
+// npm:<name>[@range] names its package, a git source must be the official
+// repository, and a missing local path is nothing Pi can load.
 function namesPackage(source, name) {
   if (source.startsWith('npm:')) return source.slice(4).trim().match(/^(@?[^@]+(?:\/[^@]+)?)/)?.[1] === name;
   if (!REMOTE_SOURCE.test(source)) return false;
-  const repository = source.replace(/#.*$/, '').replace(/@[^/@:]*$/, '').replace(/\/+$/, '').replace(/\.git$/i, '');
-  return repository.split(/[/:]/).pop().toLowerCase() === name.split('/').pop().toLowerCase();
+  return (OFFICIAL_REPOSITORIES.get(name) || []).includes(repositoryOf(source));
 }
 
 /**
