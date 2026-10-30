@@ -2216,10 +2216,10 @@ index 0000000..6ba78d8
 +}
 diff --git a/e2e/omnigent-settings-only.mjs b/e2e/omnigent-settings-only.mjs
 new file mode 100644
-index 0000000..0d3a17e
+index 0000000..4e30d6b
 --- /dev/null
 +++ b/e2e/omnigent-settings-only.mjs
-@@ -0,0 +1,141 @@
+@@ -0,0 +1,142 @@
 +import assert from 'node:assert/strict';
 +import { spawn } from 'node:child_process';
 +import { once } from 'node:events';
@@ -2313,10 +2313,10 @@ index 0000000..0d3a17e
 +  // reword hints or pick actions, so the page is compared with what /api/omnigent returns.
 +  const buttons = { relogin: 'Sign in again', verify: 'Verify conversations', retry: 'Check again' };
 +  const issueCases = [
-+    { phase: 'error', issue: { code: 'NEEDS_RESET_ID', message: '此 host ID 屬於另一個 Omnigent 帳號。', action: 'reset-host-id', hints: {
-+      en: 'This host identity is already used by another Omnigent account. Run omnigent host reset-id --yes in a terminal, then connect again.',
-+      'zh-TW': '這個主機身分已被另一個 Omnigent 帳號使用。請在終端機執行 omnigent host reset-id --yes 後再重新連線。',
-+      'zh-CN': '这个主机身份已被另一个 Omnigent 账号使用。请在终端执行 omnigent host reset-id --yes 后再重新连接。' } }, views: [['en-US', 'en', false], ['zh-TW', 'zh-TW', true]] },
++    { phase: 'error', issue: { code: 'NEEDS_RESET_ID', message: '此 host ID 屬於另一個 Omnigent 帳號。', action: 'relogin', hints: {
++      en: 'This host belongs to another Omnigent account. To keep its identity, sign in again in Settings → Omnigent with the account that owns it. Only if that account will not be used again, run omnigent host reset-id --yes in the terminal: it creates a new host identity and the old one stays offline under the original account.',
++      'zh-TW': '這台主機屬於另一個 Omnigent 帳號。要保留主機身分，請到 設定 → Omnigent 改用擁有它的帳號登入。只有確定不再使用原帳號時，才在終端機執行 omnigent host reset-id --yes：這會建立新的主機身分，舊的會留在原帳號下顯示離線。',
++      'zh-CN': '这台主机属于另一个 Omnigent 账号。要保留主机身份，请到 设置 → Omnigent 改用拥有它的账号登录。只有确定不再使用原账号时，才在终端执行 omnigent host reset-id --yes：这会创建新的主机身份，旧的会留在原账号下显示离线。' } }, views: [['en-US', 'en', false], ['zh-TW', 'zh-TW', true]] },
 +    { phase: 'needs-login', issue: { code: 'NEEDS_LOGIN', message: '請登入此 Omnigent server；原有登入可能已到期。', action: 'relogin', hints: {
 +      en: 'Your Omnigent sign-in is no longer accepted. Sign in again with the server URL, account and password.',
 +      'zh-TW': '這個 Omnigent 登入已失效。請重新輸入伺服器網址、帳號與密碼登入。',
@@ -2340,7 +2340,8 @@ index 0000000..0d3a17e
 +      const label = buttons[issue.action];
 +      assert.equal(await notice.getByRole('button').count(), label ? 1 : 0, `${issue.action} button`);
 +      if (issue.action === 'relogin') {
-+        await notice.getByRole('button', { name: label }).click();
++        // The label is translated; name it where the page is English, else press the notice's only button.
++        await (hintLocale === 'en' ? notice.getByRole('button', { name: label }) : notice.getByRole('button')).click();
 +        const form = page.locator('form.omnigent-setup');
 +        await form.waitFor({ state: 'visible' });
 +        assert.equal(await form.locator('input[name=password]').inputValue(), '');
