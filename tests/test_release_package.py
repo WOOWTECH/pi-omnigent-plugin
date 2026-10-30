@@ -1,6 +1,7 @@
 """Release packaging checks without network: a throw-away git repository stands in for the tag."""
 from __future__ import annotations
 
+import gzip
 import hashlib
 import importlib.util
 import io
@@ -58,9 +59,13 @@ def make_repo(directory, version='1.2.3'):
 
 
 def make_archive(files, *, extra=()):
-    """An npm-shaped archive of {path: bytes}; extra is a list of ready TarInfo, data pairs."""
+    """An npm-shaped archive of {path: bytes}; extra is a list of ready TarInfo, data pairs.
+
+    Reproducible like `npm pack`: the gzip header carries no timestamp, so the same files packed twice
+    (in setUp and again inside publish) give the same bytes even when the two calls straddle a second.
+    """
     buffer = io.BytesIO()
-    with tarfile.open(fileobj=buffer, mode='w:gz') as tar:
+    with gzip.GzipFile(fileobj=buffer, mode='wb', mtime=0) as compressed, tarfile.open(fileobj=compressed, mode='w') as tar:
         for relative, data in files.items():
             info = tarfile.TarInfo(f'package/{relative}')
             info.size = len(data)
