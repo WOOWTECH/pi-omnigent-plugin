@@ -122,7 +122,11 @@ async function probe(name, command, env, { run, now, cacheMs }) {
 }
 
 /** Read-only CLI discovery. No login state or account configuration is opened. */
-export async function discover(env = process.env, { run = runCommand, now = Date.now, cacheMs = 15_000 } = {}) {
+// The cache key already carries the binary's identity, so a replaced or removed
+// engine is noticed immediately; the time limit only bounds wrapper scripts whose
+// target changes underneath them. `pi --version` alone costs about 1.3 s, and
+// Settings → Omnigent used to pay it on almost every open with a 15 s limit.
+export async function discover(env = process.env, { run = runCommand, now = Date.now, cacheMs = 600_000 } = {}) {
   env = environment(env);
   const home = env.HOME || homedir();
   const stateDir = env.PI_OMNIGENT_STATE_DIR || defaultStateDir(env, home);

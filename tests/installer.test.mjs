@@ -50,6 +50,22 @@ test('coalesces version probes, expires them, and detects replaced or removed bi
   assert.equal((await discover(env, options)).claude.available, false);
 });
 
+test('keeps an unchanged binary\'s version for ten minutes by default', async t => {
+  const directory = await isolated(t);
+  const binary = path.join(directory, 'pi');
+  await writeFile(binary, 'pi', { mode: 0o700 });
+  let clock = 0, probes = 0;
+  const run = async command => { if (command === binary) probes++; return { code: 0, stdout: '0.70.0', stderr: '' }; };
+  const env = { HOME: directory, PATH: directory, PI_OMNIGENT_BIN: path.join(directory, 'missing') };
+  const options = { run, now: () => clock };
+  await discover(env, options); assert.equal(probes, 1);
+  clock = 60_000; await discover(env, options); assert.equal(probes, 1);
+  clock = 599_999; await discover(env, options); assert.equal(probes, 1);
+  clock = 600_001; await discover(env, options); assert.equal(probes, 2);
+  await writeFile(binary, 'an updated pi is a different size');
+  await discover(env, options); assert.equal(probes, 3);
+});
+
 test('preserves all existing image/global CLIs even when update is requested', async t => {
   const directory = await isolated(t);
   let runs = 0;

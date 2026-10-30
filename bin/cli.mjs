@@ -35,7 +35,7 @@ function print(value) {
   if (['acceptance', 'catalog', 'verify', 'initialize', 'repair', 'disconnect', 'install-dependencies', 'enable', 'disable', 'connect', 'doctor'].includes(command) && value?.ok === false) process.exitCode = 1;
 }
 try {
-  if (command === 'status') print(await status());
+  if (command === 'status') print(await status({ prefetchCatalog: false }));
   else if (command === 'acceptance') {
     const result = await acceptance({ chat: args.includes('--chat'), engine: option('--engine'), model: option('--model') });
     saveJSON(path.join(loc.stateDir, 'acceptance.json'), result); print(result);

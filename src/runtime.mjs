@@ -52,8 +52,11 @@ async function operation(ctx, callback) {
   return result?.busy ? { ok: false, busy: true, phase: 'busy', error: { code: 'OPERATION_BUSY', message: '另一個 Omnigent 操作正在執行，請稍後重試。' } } : result;
 }
 export async function status(options = {}) {
-  const { loc, call, dependencies } = await context(options);
+  const ctx = await context(options); const { loc, call, dependencies } = ctx;
   const state = stateOf(loc);
+  // A signed-in Settings page asks for the catalog right after this; start it
+  // now so the two server round trips overlap instead of adding up.
+  if (options.prefetchCatalog !== false && state.enabled !== false && state.loginConfirmed === true) startCatalog(ctx, state, options);
   const response = await call('status', { ...(state.server ? { server: state.server } : {}) });
   const data = response.ok ? response.data : {};
   const server = state.server || data.server;
@@ -85,7 +88,7 @@ function nativePiLoginFingerprint(loc) {
   } catch { return null; }
 }
 
-async function queryCatalog(ctx, state) {
+async function queryCatalog(ctx, state, options = {}) {
   const input = { ...(state.server ? { server: state.server } : {}) };
   const response = await ctx.call('catalog', input);
   const pi = response.data?.engines?.pi;
@@ -100,26 +103,48 @@ async function queryCatalog(ctx, state) {
     return last.login === login && Number.isFinite(last.at) && Date.now() - last.at < 15 * 60_000;
   };
   if (recent()) return response;
-  let refreshed;
-  try {
-    refreshed = await locked(path.join(ctx.loc.stateDir, 'pi-model-refresh.lock'), async () => {
-      if (recent()) return null;
-      saveJSON(marker, { login, at: Date.now() });
-      const env = { ...ctx.env, HOME: ctx.loc.home, PI_CODING_AGENT_DIR: ctx.loc.agentDir };
-      const result = ctx.runPiModelRefresh
-        ? await ctx.runPiModelRefresh(ctx.dependencies.pi.path, env)
-        : await runCommand(ctx.dependencies.pi.path, ['update', '--models'], { env, timeoutMs: 30_000 });
-      return result?.code === 0 ? await ctx.call('catalog', input) : null;
-    });
-  } catch { return response; }
+  const refresh = locked(path.join(ctx.loc.stateDir, 'pi-model-refresh.lock'), async () => {
+    if (recent()) return null;
+    saveJSON(marker, { login, at: Date.now() });
+    const env = { ...ctx.env, HOME: ctx.loc.home, PI_CODING_AGENT_DIR: ctx.loc.agentDir };
+    const result = ctx.runPiModelRefresh
+      ? await ctx.runPiModelRefresh(ctx.dependencies.pi.path, env)
+      : await runCommand(ctx.dependencies.pi.path, ['update', '--models'], { env, timeoutMs: 30_000 });
+    return result?.code === 0 ? await ctx.call('catalog', input) : null;
+  }).catch(() => null);
+  // `pi update --models` can take up to 30 s. Wait a few seconds for it; past
+  // that the page gets the current catalog and the next read shows the models.
+  let timer;
+  const waited = new Promise(resolve => { timer = setTimeout(resolve, options.piRefreshWaitMs ?? 5_000, null); timer.unref?.(); });
+  const refreshed = await Promise.race([refresh, waited]);
+  clearTimeout(timer);
   return refreshed?.ok === true ? refreshed : response;
+}
+
+// Settings → Omnigent calls status() and then catalog(). status() starts the
+// catalog read early (startCatalog), and catalog() takes over a read that is
+// still running or finished within CATALOG_REUSE_MS; anything older is read again.
+const CATALOG_REUSE_MS = 10_000;
+const catalogReads = new Map();
+const catalogKey = state => JSON.stringify([state.server || null, state.loginConfirmed === true]);
+async function readCatalog(ctx, state, options) {
+  const response = await queryCatalog(ctx, state, options);
+  if (response.ok) saveJSON(path.join(ctx.loc.stateDir, 'catalog.json'), response.data);
+  return response;
+}
+function startCatalog(ctx, state, options) {
+  const promise = readCatalog(ctx, state, options).catch(() => ({ ok: false,
+    error: { code: 'ADAPTER_FAILED', message: 'Omnigent 程序未完成；請查看狀態並重試修復。' } }));
+  catalogReads.set(ctx.loc.stateDir, { key: catalogKey(state), at: (options.now || Date.now)(), promise });
+  return promise;
 }
 
 export async function catalog(options = {}) {
   const ctx = await context(options); const { loc } = ctx; const state = stateOf(loc);
-  const response = await queryCatalog(ctx, state);
-  if (response.ok) saveJSON(path.join(loc.stateDir, 'catalog.json'), response.data);
-  return response;
+  const started = catalogReads.get(loc.stateDir);
+  catalogReads.delete(loc.stateDir);
+  if (started && started.key === catalogKey(state) && (options.now || Date.now)() - started.at < CATALOG_REUSE_MS) return started.promise;
+  return readCatalog(ctx, state, options);
 }
 // The installation is named by a random id kept in state.json and the package
 // name, so moving the plugin (git pin <-> image bundle) or its paths changes

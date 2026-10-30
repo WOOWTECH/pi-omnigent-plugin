@@ -31,7 +31,7 @@ export async function acceptance(options = {}) {
             ...(receipt?.nativeSubmitRecovered ? { nativeSubmitRecovered: true } : {}),
             ...(receipt?.reason || result.error?.code ? { error: receipt?.reason || result.error?.code } : {}) });
       }
-      current = await runtime.status(options);
+      current = await runtime.status({ ...options, prefetchCatalog: false });
     }
   }
   check('ready', current.phase === 'ready');

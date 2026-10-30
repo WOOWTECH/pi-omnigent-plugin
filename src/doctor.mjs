@@ -82,7 +82,8 @@ export async function doctor(options = {}) {
   const lifecycle = await packageLifecycle(scope);
   let chain = null, current = null, failure = null;
   try { chain = inspectLaunchChain(scope); } catch {}
-  try { current = await status(scope); } catch (error) { failure = isCode(error?.code) ? error.code : 'STATUS_UNAVAILABLE'; }
+  // doctor writes nothing, so it never starts the Settings page's early catalog read.
+  try { current = await status({ ...scope, prefetchCatalog: false }); } catch (error) { failure = isCode(error?.code) ? error.code : 'STATUS_UNAVAILABLE'; }
   const checks = { registration: registrationCheck(lifecycle), realWeb: realWebCheck(chain), host: hostCheck(current),
     login: loginCheck(current), issue: issueCheck(current, failure) };
   const problems = Object.values(checks).filter(item => item.status === 'warn' || item.status === 'fail');
