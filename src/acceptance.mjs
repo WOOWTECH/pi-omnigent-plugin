@@ -1,4 +1,4 @@
-import { status, catalog, verify } from './runtime.mjs';
+import { status, catalog, verify, FULL_CATALOG_WAIT_MS } from './runtime.mjs';
 
 /** Explicit chat checks create bounded sessions; default checks never send prompts. */
 export async function acceptance(options = {}) {
@@ -12,7 +12,7 @@ export async function acceptance(options = {}) {
   check('installed-engines', current.installedEngines?.length > 0, { engines: current.installedEngines || [] });
   let inventory;
   if (current.loginConfirmed && current.enabled) {
-    const result = await runtime.catalog(options);
+    const result = await runtime.catalog({ ...options, piRefreshWaitMs: FULL_CATALOG_WAIT_MS });
     if (result.ok) inventory = result.data;
     check('catalog-access', result.ok, result.ok ? {} : { error: result.error?.code || 'CATALOG_FAILED' });
     for (const name of current.installedEngines || []) {
@@ -31,7 +31,7 @@ export async function acceptance(options = {}) {
             ...(receipt?.nativeSubmitRecovered ? { nativeSubmitRecovered: true } : {}),
             ...(receipt?.reason || result.error?.code ? { error: receipt?.reason || result.error?.code } : {}) });
       }
-      current = await runtime.status(options);
+      current = await runtime.status({ ...options, prefetchCatalog: false });
     }
   }
   check('ready', current.phase === 'ready');

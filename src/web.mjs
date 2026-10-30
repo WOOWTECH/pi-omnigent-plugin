@@ -351,7 +351,8 @@ export async function boot(options = {}) {
   const runtimeOptions = { loc: webLocations(options), ...(options.env ? { env: options.env } : {}) };
   await runtime.observeLifecycle?.(lifecycle, runtimeOptions);
   if (!lifecycle.active) return { initialization: { phase: 'inactive' }, startup: { status: 'inactive', reason: lifecycle.reason } };
-  let current = await runtime.status(runtimeOptions);
+  // Boot only reads status, so it never starts the Settings page's early catalog read.
+  let current = await runtime.status({ ...runtimeOptions, prefetchCatalog: false });
   if (current.phase === 'disabled') return { initialization: { phase: 'disabled' }, startup: { status: 'disabled' } };
   let initialization;
   try { initialization = current.phase === 'ready' ? { phase: 'ready', checked: true }
@@ -364,7 +365,7 @@ export async function boot(options = {}) {
     try { resumption = await runtime.resumeAuthorizedHost({ ...runtimeOptions, lifecycle: () => packageLifecycle(options) }); }
     catch { resumption = { ok: false, resumed: false, error: { code: 'RESUME_FAILED' } }; }
   }
-  current = await runtime.status(runtimeOptions);
+  current = await runtime.status({ ...runtimeOptions, prefetchCatalog: false });
   // A retained server heartbeat and prior model receipt cannot prove that the
   // local host process survived container replacement. Resume verifies it first.
   const ready = current.phase === 'ready' && (!resumption || resumption.resumed === true);

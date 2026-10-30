@@ -346,3 +346,185 @@ test('ordinary setup and repair never create chat verification sessions', async 
   await repair(ctx);
   assert.equal(ctx.calls.some(c => c.action === 'verify'), false);
 });
+
+test('a signed-in status starts the catalog read and catalog() takes it over', async t => {
+  const ctx = fixture(t);
+  saveJSON(path.join(ctx.loc.stateDir, 'state.json'), { server: 'https://omni.test', enabled: true, loginConfirmed: true });
+  let catalogStarted, catalogCalls = 0;
+  const started = new Promise(resolve => { catalogStarted = resolve; });
+  ctx.callAdapter = async input => {
+    ctx.calls.push(input);
+    if (input.action === 'catalog') { catalogCalls++; catalogStarted(); return { ok: true, data: { host: { id: 'host-1', connected: true }, engines: {} } }; }
+    // The status read only finishes once the catalog read is running: sequential code would time out here.
+    await Promise.race([started, new Promise((_, reject) => setTimeout(() => reject(new Error('catalog did not start alongside status')), 2_000))]);
+    return { ok: true, data: { server: 'https://omni.test', host: { connected: true, id: 'host-1' }, engines: {} } };
+  };
+  const current = await status(ctx);
+  assert.equal(current.host.connected, true);
+  const result = await catalog(ctx);
+  assert.equal(result.ok, true);
+  assert.equal(catalogCalls, 1);
+  assert.ok(fs.existsSync(path.join(ctx.loc.stateDir, 'catalog.json')));
+  await catalog(ctx);
+  assert.equal(catalogCalls, 2, 'a taken-over read is used once');
+});
+
+test('status starts no catalog read when signed out, disabled or asked not to', async t => {
+  for (const [state, extra] of [[{ server: 'https://omni.test', enabled: true }, {}],
+    [{ server: 'https://omni.test', enabled: false, loginConfirmed: true }, {}],
+    [{ server: 'https://omni.test', enabled: true, loginConfirmed: true }, { prefetchCatalog: false }]]) {
+    const ctx = fixture(t);
+    saveJSON(path.join(ctx.loc.stateDir, 'state.json'), state);
+    await status({ ...ctx, ...extra });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(ctx.calls.filter(c => c.action === 'catalog').length, 0, JSON.stringify(state));
+  }
+});
+
+test('catalog() reads again when the early read is stale or the login changed', async t => {
+  const ctx = fixture(t);
+  const statePath = path.join(ctx.loc.stateDir, 'state.json');
+  saveJSON(statePath, { server: 'https://omni.test', enabled: true, loginConfirmed: true });
+  let clock = 1_000;
+  ctx.now = () => clock;
+  await status(ctx);
+  clock += 10_001;
+  await catalog(ctx);
+  assert.equal(ctx.calls.filter(c => c.action === 'catalog').length, 2);
+  await status(ctx);
+  saveJSON(statePath, { server: 'https://other.test', enabled: true, loginConfirmed: true });
+  await catalog(ctx);
+  const servers = ctx.calls.filter(c => c.action === 'catalog').map(c => c.server);
+  assert.deepEqual(servers, ['https://omni.test', 'https://omni.test', 'https://omni.test', 'https://other.test']);
+});
+
+test('a slow Pi model refresh no longer holds the catalog for its full run', async t => {
+  const ctx = fixture(t);
+  ctx.dependencies.pi.path = '/fake/pi';
+  saveJSON(path.join(ctx.loc.stateDir, 'state.json'), { server: 'https://omni.test', enabled: true, loginConfirmed: true });
+  saveJSON(path.join(ctx.loc.agentDir, 'auth.json'), { 'openai-codex': { type: 'oauth' } });
+  let release, finish, refreshCount = 0, refreshed = false;
+  const gate = new Promise(resolve => { release = resolve; });
+  const finished = new Promise(resolve => { finish = resolve; });
+  ctx.piRefreshWaitMs = 20;
+  ctx.runPiModelRefresh = async () => { refreshCount++; await gate; refreshed = true; finish(); return { code: 0 }; };
+  ctx.callAdapter = async input => input.action === 'catalog' ? { ok: true, data: {
+    host: { id: 'host-1', connected: true },
+    engines: { pi: { installed: true, configured: true, ready: refreshed, models: refreshed ? [{ id: 'openai-codex/gpt-6.1-sol' }] : [] } },
+  } } : { ok: true, data: {} };
+  const started = Date.now();
+  const first = await Promise.race([catalog(ctx), new Promise((_, reject) => setTimeout(() => reject(new Error('catalog waited for the whole refresh')), 2_000))]);
+  assert.ok(Date.now() - started < 2_000);
+  assert.equal(first.data.engines.pi.models.length, 0);
+  release();
+  // The refresh keeps running after the first read returned; wait for it, not for a fixed time.
+  await finished;
+  const second = await catalog(ctx);
+  assert.equal(second.data.engines.pi.models.length, 1);
+  assert.equal(refreshCount, 1);
+});
+
+test('verify waits for a Pi model refresh that the Settings page started', async t => {
+  const ctx = fixture(t);
+  ctx.dependencies = { ok: true, omnigent: { available: true, python: '/fake/python', path: '/fake/omnigent' },
+    claude: { available: false }, codex: { available: false }, pi: { available: true, path: '/fake/pi' } };
+  saveJSON(path.join(ctx.loc.stateDir, 'state.json'), { server: 'https://omni.test', enabled: true, loginConfirmed: true });
+  saveJSON(path.join(ctx.loc.agentDir, 'auth.json'), { 'openai-codex': { type: 'oauth' } });
+  let release, refreshCount = 0, refreshed = false;
+  const gate = new Promise(resolve => { release = resolve; });
+  ctx.runPiModelRefresh = async () => { refreshCount++; await gate; refreshed = true; return { code: 0 }; };
+  ctx.callAdapter = async input => {
+    if (input.action === 'catalog') return { ok: true, data: { host: { id: 'host-1', connected: true },
+      engines: { pi: { installed: true, configured: true, ready: refreshed, models: refreshed ? [{ id: 'openai-codex/gpt-6.1-sol' }] : [] } } } };
+    if (input.action === 'verify') return { ok: true, data: refreshed
+      ? { engine: 'pi', ok: true, reply: 'OMNIGENT_CONNECTION_OK', sessionId: 'test-pi', cleanup: 'stopped' }
+      : { engine: 'pi', ok: false, reason: 'MODELS_UNAVAILABLE', cleanup: 'stopped' } };
+    return { ok: true, data: {} };
+  };
+  const page = await catalog({ ...ctx, piRefreshWaitMs: 20 });
+  assert.equal(page.data.engines.pi.models.length, 0);
+  setTimeout(release, 50);
+  const result = await verify({ ...ctx, engine: 'pi' });
+  assert.equal(result.verification.pi.ok, true, JSON.stringify(result.verification.pi));
+  assert.equal(result.phase, 'ready');
+  assert.equal(refreshCount, 1);
+});
+
+test('an early catalog read that fails with nobody taking it over is not an unhandled rejection', async t => {
+  const ctx = fixture(t);
+  saveJSON(path.join(ctx.loc.stateDir, 'state.json'), { server: 'https://omni.test', enabled: true, loginConfirmed: true });
+  fs.mkdirSync(path.join(ctx.loc.stateDir, 'catalog.json'));
+  const unhandled = [];
+  const listener = reason => unhandled.push(reason);
+  process.on('unhandledRejection', listener);
+  t.after(() => process.off('unhandledRejection', listener));
+  ctx.callAdapter = async input => input.action === 'catalog'
+    ? { ok: true, data: { host: { id: 'host-1', connected: true }, engines: {} } }
+    : { ok: true, data: { server: 'https://omni.test', host: { connected: false, id: 'host-1' }, engines: {} } };
+  await status(ctx);
+  await new Promise(resolve => setTimeout(resolve, 50));
+  assert.deepEqual(unhandled, []);
+});
+
+test('an early catalog read that ends after a disconnect does not write the catalog back', async t => {
+  const ctx = fixture(t);
+  const statePath = path.join(ctx.loc.stateDir, 'state.json');
+  saveJSON(statePath, { server: 'https://omni.test', enabled: true, loginConfirmed: true });
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  let finished;
+  const done = new Promise(resolve => { finished = resolve; });
+  ctx.callAdapter = async input => {
+    if (input.action !== 'catalog') return { ok: true, data: { server: 'https://omni.test', host: { connected: false, id: 'host-1' }, engines: {} } };
+    await gate;
+    setImmediate(finished);
+    return { ok: true, data: { host: { id: 'host-1', connected: true }, engines: {} } };
+  };
+  await status(ctx);
+  saveJSON(statePath, { server: 'https://omni.test', enabled: true, loginConfirmed: false });
+  release();
+  await done;
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(fs.existsSync(path.join(ctx.loc.stateDir, 'catalog.json')), false);
+});
+
+test('status reads started together share one early catalog read', async t => {
+  const ctx = fixture(t);
+  saveJSON(path.join(ctx.loc.stateDir, 'state.json'), { server: 'https://omni.test', enabled: true, loginConfirmed: true });
+  await Promise.all([status(ctx), status(ctx), status(ctx)]);
+  await catalog(ctx);
+  assert.equal(ctx.calls.filter(c => c.action === 'catalog').length, 1);
+});
+
+test('acceptance skips the early read on its last status and waits for a whole catalog', async () => {
+  const { acceptance } = await import('../src/acceptance.mjs');
+  const seen = [];
+  const runtime = {
+    status: async options => { seen.push(['status', options.prefetchCatalog]); return { enabled: true, loginConfirmed: true, phase: 'ready', host: { connected: true }, installedEngines: ['pi'] }; },
+    catalog: async options => { seen.push(['catalog', options.piRefreshWaitMs]); return { ok: true, data: { host: { connected: true }, engines: { pi: { ready: true, agentId: 'a', models: [{ id: 'm' }] } } } }; },
+    verify: async () => ({ verification: { pi: { ok: true, reply: 'OMNIGENT_CONNECTION_OK', cleanup: 'stopped' } } }),
+  };
+  await acceptance({ runtime, chat: true });
+  assert.deepEqual(seen, [['status', undefined], ['catalog', 35_000], ['status', false]]);
+});
+
+test('verify waits past the Settings page budget for a Pi model refresh it started', async t => {
+  // Takes about 5.5 s on purpose: the Settings page gives up after 5 s, verify must not.
+  const ctx = fixture(t);
+  ctx.dependencies = { ok: true, omnigent: { available: true, python: '/fake/python', path: '/fake/omnigent' },
+    claude: { available: false }, codex: { available: false }, pi: { available: true, path: '/fake/pi' } };
+  saveJSON(path.join(ctx.loc.stateDir, 'state.json'), { server: 'https://omni.test', enabled: true, loginConfirmed: true });
+  saveJSON(path.join(ctx.loc.agentDir, 'auth.json'), { 'openai-codex': { type: 'oauth' } });
+  let refreshed = false;
+  ctx.runPiModelRefresh = async () => { await new Promise(resolve => setTimeout(resolve, 5_500)); refreshed = true; return { code: 0 }; };
+  ctx.callAdapter = async input => {
+    if (input.action === 'catalog') return { ok: true, data: { host: { id: 'host-1', connected: true },
+      engines: { pi: { installed: true, configured: true, ready: refreshed, models: refreshed ? [{ id: 'openai-codex/gpt-6.1-sol' }] : [] } } } };
+    if (input.action === 'verify') return { ok: true, data: refreshed
+      ? { engine: 'pi', ok: true, reply: 'OMNIGENT_CONNECTION_OK', sessionId: 'test-pi', cleanup: 'stopped' }
+      : { engine: 'pi', ok: false, reason: 'MODELS_UNAVAILABLE', cleanup: 'stopped' } };
+    return { ok: true, data: {} };
+  };
+  const result = await verify({ ...ctx, engine: 'pi' });
+  assert.equal(result.verification.pi.ok, true, JSON.stringify(result.verification.pi));
+});

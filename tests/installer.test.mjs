@@ -50,6 +50,38 @@ test('coalesces version probes, expires them, and detects replaced or removed bi
   assert.equal((await discover(env, options)).claude.available, false);
 });
 
+test('keeps an unchanged binary\'s version for ten minutes by default', async t => {
+  const directory = await isolated(t);
+  const binary = path.join(directory, 'pi');
+  await writeFile(binary, 'pi', { mode: 0o700 });
+  let clock = 0, probes = 0;
+  const run = async command => { if (command === binary) probes++; return { code: 0, stdout: '0.70.0', stderr: '' }; };
+  const env = { HOME: directory, PATH: directory, PI_OMNIGENT_BIN: path.join(directory, 'missing') };
+  const options = { run, now: () => clock };
+  await discover(env, options); assert.equal(probes, 1);
+  clock = 60_000; await discover(env, options); assert.equal(probes, 1);
+  clock = 599_999; await discover(env, options); assert.equal(probes, 1);
+  clock = 600_001; await discover(env, options); assert.equal(probes, 2);
+  await writeFile(binary, 'an updated pi is a different size');
+  await discover(env, options); assert.equal(probes, 3);
+});
+
+test('a fresh discovery probes again inside the cache window and refreshes the cache', async t => {
+  const directory = await isolated(t);
+  const binary = path.join(directory, 'pi');
+  await writeFile(binary, '#!/bin/sh\n# wrapper whose target is upgraded in place', { mode: 0o700 });
+  let version = '0.70.0', probes = 0;
+  const run = async command => { if (command === binary) probes++; return { code: 0, stdout: version, stderr: '' }; };
+  const env = { HOME: directory, PATH: directory, PI_OMNIGENT_BIN: path.join(directory, 'missing') };
+  const options = { run, now: () => 0 };
+  assert.equal((await discover(env, options)).pi.version, '0.70.0');
+  version = '0.71.0';
+  assert.equal((await discover(env, options)).pi.version, '0.70.0', 'a wrapper keeps its identity, so reads use the cache');
+  assert.equal((await discover(env, { ...options, fresh: true })).pi.version, '0.71.0');
+  assert.equal((await discover(env, options)).pi.version, '0.71.0', 'the fresh probe also updates the cache');
+  assert.equal(probes, 2);
+});
+
 test('preserves all existing image/global CLIs even when update is requested', async t => {
   const directory = await isolated(t);
   let runs = 0;

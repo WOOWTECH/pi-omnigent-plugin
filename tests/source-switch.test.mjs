@@ -59,7 +59,8 @@ async function assertLoginKept(f, root) {
   assert.equal(current.verification.pi?.ok, true, 'switching the package source must keep the chat receipts');
   const resumed = await runtime.resumeAuthorizedHost({ ...f.ctx(root), lifecycle: () => f.lifecycleOf(root) });
   assert.equal(resumed.resumed, true, 'the copy Pi now loads resumes the approved host without a password');
-  assert.deepEqual(f.calls.filter(action => action !== 'status'), ['resume'], 'no password login and no chat');
+  // status() may start the read-only catalog early; only a login or a chat would matter here.
+  assert.deepEqual(f.calls.filter(action => !['status', 'catalog'].includes(action)), ['resume'], 'no password login and no chat');
 }
 
 test('git pin switched to the image bundle keeps the approved login and chat receipts', async t => {

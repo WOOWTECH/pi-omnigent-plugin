@@ -15,8 +15,10 @@ Repository 為公開，可直接安裝，不需要 GitHub token。安裝後請�
 商業部署請固定版本，避免不同容器在更新時取得不同程式：
 
 ```text
-git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.30
+git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.31
 ```
+
+v0.3.31 讓 Settings → Omnigent 打開更快（實測後端約 4 秒，主要卡在每次重跑引擎版本檢查與兩次依序的伺服器讀取）：①引擎版本檢查的快取由 15 秒改為 10 分鐘；換掉或移除執行檔仍會立刻重新檢查，驗證與設定一律重新檢查，回條記的是實際回覆的版本。②已登入時，讀取狀態的同時就開始讀取模型清單，兩段伺服器往返重疊進行；`pi-omnigent status`、`doctor`、開機與 `/omnigent status` 等只讀狀態的指令不做這件事，也不會多寫任何檔案。③Pi 模型清單為空時的 `pi update --models`，設定頁最多等 5 秒，超過就先回目前的清單，刷新在背景完成，下次讀取就看得到模型；驗證、acceptance 與 `catalog` 指令會等整個刷新（同一時間只跑一次）。綁定仍只在 Settings → Omnigent，不建立設定對話；登入、主機與既有回條都不變。
 
 v0.3.30 讓升級與故障更好處理，Settings → Omnigent 仍是唯一的綁定入口、不建立設定對話：①同一套件換來源（git 釘選、映像內建的 `/opt/woow/...`、npm）視為升級而非移除，已核准的登入與驗證回條都保留；外掛依套件名稱判斷 Pi 載入哪一份，尚未安裝的 git 來源只認官方 repository。②設定頁與 `omnigent_status` 會附上每個問題代碼的原因與下一步（英文、繁中、簡中）；主機被別的帳號佔用（`NEEDS_RESET_ID`）時先請你用擁有它的帳號重新登入，`reset-id` 只在確定不再使用原帳號時才做。③啟動鏈記錄的 Pi Web 失效時，自動退回可用的 pi-web；已有原生設定頁的映像（root／PaaS／HA）不需要也會拒絕 `install-ui`，Paseo 的安裝流程不受影響。④新增 `pi-omnigent doctor [--fix]` 檢查啟動鏈，以及只從 stdin 讀密碼的 `pi-omnigent connect --server URL --username NAME --password-stdin`。⑤接受 Paseo 0.1.14 與 0.1.15（與 0.1.13 相同的補丁雜湊）。發佈檔改由 CI 從 tag 打包並附 SHA256SUMS，CI 另以真的 Omnigent 伺服器（0.16.0、0.19.1）跑連線契約。
 
@@ -98,7 +100,7 @@ v0.3.14 在插件自己建立的驗證對話中，若 Pi／Claude 主終端的�
 
 需要 Node.js ≥ 22.19、Pi SDK ≥ 1.0、Python 3.12（uv 可下載）與原生引擎所需的 tmux。預設 Omnigent 版本為 0.16.0，介面合約以這個版本驗證。插件沿用已安裝的 Omnigent 版本與既有 host 身分；缺少的 Omnigent 套件裝在插件自己的資料目錄。有現成 `/etc/omnigent-host` 管理器時，直接沿用；一般容器則啟動插件管理的 host。
 
-Linux 容器須提供 util-linux 的 `flock`，插件用它避免多個設定／驗證操作同時改寫狀態。程序意外退出後，核心會釋放鎖；插件不刪除 `.flock` 檔。版本查詢可短暫重用 15 秒，執行檔變更或移除立即失效；登入與主機在線狀態每次重新查詢。
+Linux 容器須提供 util-linux 的 `flock`，插件用它避免多個設定／驗證操作同時改寫狀態。程序意外退出後，核心會釋放鎖；插件不刪除 `.flock` 檔。版本查詢可重用 10 分鐘，執行檔變更或移除立即失效（包裝腳本如 `pi`、`codex` 背後的程式就地升級時，最長 10 分鐘後才看到新版本）；驗證與設定一律重新查詢，回條記的是實際回覆的版本；登入與主機在線狀態每次重新查詢。
 
 若缺少 uv，插件會以既有 Python／pip 安裝私有的 uv，再下載 Omnigent 所需的 Python。若連 Python ≥3.8／pip 都沒有，或原生引擎缺少 tmux，會回報所需依賴。bubblewrap 的需求由引擎及伺服器既有隔離政策決定；插件不修改政策、系統套件或容器權限。實際對話驗證會反映執行結果。
 
@@ -218,7 +220,7 @@ v0.3.8 在驗證時定期查詢插件建立的測試 session 狀態；上游 HTT
 已有舊版 Omnigent／Paseo 的環境，先升級 Omnigent，再安裝對應的 Paseo。固定版本組合不可交叉混用：
 
 ```sh
-pi install git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.30
+pi install git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.31
 pi install git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.15
 ```
 

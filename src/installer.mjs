@@ -90,7 +90,7 @@ export async function runCommand(command, args, { env = process.env, cwd, timeou
 }
 
 const probeCaches = new WeakMap();
-async function probe(name, command, env, { run, now, cacheMs }) {
+async function probe(name, command, env, { run, now, cacheMs, fresh = false }) {
   if (!command) return { available: false, path: null };
   // Re-stat the binary on every lookup. Updating/removing an engine invalidates
   // the version immediately; authentication and host status are never cached.
@@ -103,7 +103,7 @@ async function probe(name, command, env, { run, now, cacheMs }) {
   if (!cache) { cache = new Map(); probeCaches.set(run, cache); }
   const key = JSON.stringify([name, command, env.HOME, env.PATH, env.PI_CODING_AGENT_DIR, identity]);
   const previous = cache.get(key);
-  if (cacheMs > 0 && previous && (previous.pending || now() < previous.expires)) return { ...await previous.promise };
+  if (!fresh && cacheMs > 0 && previous && (previous.pending || now() < previous.expires)) return { ...await previous.promise };
   const args = name === 'tmux' ? ['-V'] : ['--version'];
   const entry = { pending: true, expires: 0 };
   entry.promise = (async () => {
@@ -122,7 +122,13 @@ async function probe(name, command, env, { run, now, cacheMs }) {
 }
 
 /** Read-only CLI discovery. No login state or account configuration is opened. */
-export async function discover(env = process.env, { run = runCommand, now = Date.now, cacheMs = 15_000 } = {}) {
+// The cache key carries the identity of the file that is run, so a replaced or
+// removed engine binary is noticed at once. A wrapper script (pi, codex) keeps its
+// identity when the program behind it is upgraded in place, so reads may show the
+// old version for up to cacheMs; `fresh` re-probes (verify and setup use it, so a
+// receipt always records the version that actually answered). `pi --version` alone
+// costs about 1.3 s, and Settings → Omnigent used to pay it on almost every open.
+export async function discover(env = process.env, { run = runCommand, now = Date.now, cacheMs = 600_000, fresh = false } = {}) {
   env = environment(env);
   const home = env.HOME || homedir();
   const stateDir = env.PI_OMNIGENT_STATE_DIR || defaultStateDir(env, home);
@@ -136,7 +142,7 @@ export async function discover(env = process.env, { run = runCommand, now = Date
     if (name === 'node') return locate(name, discoveryEnv, [process.execPath]);
     return locate(name, discoveryEnv);
   }));
-  const entries = await Promise.all(DISCOVERY_NAMES.map((name, index) => probe(name, paths[index], discoveryEnv, { run, now, cacheMs })));
+  const entries = await Promise.all(DISCOVERY_NAMES.map((name, index) => probe(name, paths[index], discoveryEnv, { run, now, cacheMs, fresh })));
   const result = Object.fromEntries(DISCOVERY_NAMES.map((name, index) => [name, entries[index]]));
   if (result.omnigent.available) {
     try {
@@ -194,7 +200,7 @@ function blankDiscovery() {
  * update refreshes managed Omnigent and preserves image/global CLIs.
  * Inject run/discover in tests; neither performs shell interpolation.
  */
-export async function installDependencies({ update = false, env = process.env, home, stateDir, run = runCommand, discover: find = discover, platform = process.platform, arch = process.arch, onProgress } = {}) {
+export async function installDependencies({ update = false, env = process.env, home, stateDir, run = runCommand, discover: find = discover, platform = process.platform, arch = process.arch, onProgress, fresh = false } = {}) {
   env = environment(env);
   home = path.resolve(home || env.HOME || homedir());
   stateDir = path.resolve(stateDir || env.PI_OMNIGENT_STATE_DIR || defaultStateDir(env, home));
@@ -222,7 +228,7 @@ export async function installDependencies({ update = false, env = process.env, h
     if (!SIMPLE_SEMVER.test(versions[name])) issues.push(`${key} must be an exact version such as ${DEPENDENCY_VERSIONS[name]}.`);
   }
   if (issues.length) return result();
-  discovery = { ...blankDiscovery(), ...await find(env) };
+  discovery = { ...blankDiscovery(), ...await find(env, { fresh }) };
   const needs = name => !discovery[name]?.available || (update && isManaged(discovery[name], stateDir));
   const needsOmnigent = needs('omnigent');
   if (needsOmnigent) {
@@ -261,7 +267,7 @@ export async function installDependencies({ update = false, env = process.env, h
           report('uv', 'bootstrap', 'failed');
         } else {
           changed = true;
-          discovery = { ...blankDiscovery(), ...await find(env) };
+          discovery = { ...blankDiscovery(), ...await find(env, { fresh }) };
           if (discovery.uv?.available) {
             installed.push('uv');
             report('uv', 'bootstrap', 'completed');
@@ -300,7 +306,7 @@ export async function installDependencies({ update = false, env = process.env, h
         report('omnigent', action, 'failed');
       } else {
         changed = true;
-        discovery = { ...blankDiscovery(), ...await find(env) };
+        discovery = { ...blankDiscovery(), ...await find(env, { fresh }) };
         if (discovery.omnigent?.available) {
           installed.push('omnigent');
           report('omnigent', action, 'completed');

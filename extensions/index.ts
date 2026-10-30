@@ -3,11 +3,16 @@ import { Type } from 'typebox';
 import { packageLifecycle, watchPackageLifecycle } from '../src/web.mjs';
 
 type Backend = {
-  status(): Promise<any>;
-  catalog(): Promise<any>;
+  status(options?: { prefetchCatalog?: boolean }): Promise<any>;
+  catalog(options?: { piRefreshWaitMs?: number }): Promise<any>;
   verify(): Promise<any>;
   observeLifecycle?(lifecycle: any): Promise<any>;
 };
+
+// These commands only read status, so they skip the Settings page's early catalog
+// read; a catalog request waits for a whole Pi model refresh (FULL_CATALOG_WAIT_MS).
+const statusOnly = { prefetchCatalog: false };
+const fullCatalog = { piRefreshWaitMs: 35_000 };
 
 function jsonResult(value: any) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }], details: value };
@@ -63,11 +68,11 @@ export function registerOmnigent(pi: ExtensionAPI, backend: Backend, web: any = 
       const action = args.trim() || 'status';
       try {
         if (['setup', 'reconnect', 'disconnect', 'repair'].includes(action)) { settingsLink(); return; }
-        if (action === 'status') { const result = await backend.status(); show(result.phase === 'ready' ? 'Omnigent 連線狀態' : connectionFeedback(result), result); return; }
-        if (action === 'catalog') { show('Omnigent 模型與模組', await backend.catalog()); return; }
+        if (action === 'status') { const result = await backend.status(statusOnly); show(result.phase === 'ready' ? 'Omnigent 連線狀態' : connectionFeedback(result), result); return; }
+        if (action === 'catalog') { show('Omnigent 模型與模組', await backend.catalog(fullCatalog)); return; }
         if (action === 'verify') { show('Omnigent 對話驗證結果', await backend.verify()); return; }
         if (action === 'open') {
-          const current = await backend.status();
+          const current = await backend.status(statusOnly);
           if (!current.server) { settingsLink(); return; }
           show(`[開啟 Omnigent](${current.server})`); return;
         }
@@ -77,10 +82,10 @@ export function registerOmnigent(pi: ExtensionAPI, backend: Backend, web: any = 
   });
 
   for (const [name, label, description, operation] of [
-    ['omnigent_status', 'Omnigent 狀態', 'Read Omnigent connection, host, and engine status. Returns safe metadata only.', () => backend.status()],
-    ['omnigent_catalog', 'Omnigent 模型與模組', 'List available Omnigent engines, models, modules, and their availability.', () => backend.catalog()],
+    ['omnigent_status', 'Omnigent 狀態', 'Read Omnigent connection, host, and engine status. Returns safe metadata only.', () => backend.status(statusOnly)],
+    ['omnigent_catalog', 'Omnigent 模型與模組', 'List available Omnigent engines, models, modules, and their availability.', () => backend.catalog(fullCatalog)],
     ['omnigent_verify', 'Omnigent 對話驗證', 'Verify conversation connectivity for the currently installed engines through Omnigent.', () => backend.verify()],
-    ['omnigent_open', '開啟 Omnigent', 'Return the configured Omnigent web URL. Login secrets are never included.', async () => { const current = await backend.status(); return { phase: current.phase, url: current.server || null }; }],
+    ['omnigent_open', '開啟 Omnigent', 'Return the configured Omnigent web URL. Login secrets are never included.', async () => { const current = await backend.status(statusOnly); return { phase: current.phase, url: current.server || null }; }],
   ] as const) {
     pi.registerTool({ name, label, description, parameters: Type.Object({}),
       execute: async () => { try { return jsonResult(await operation()); } catch { return jsonResult({ phase: 'error', reason: 'Omnigent operation failed; inspect /omnigent status.' }); } },
