@@ -27,6 +27,8 @@ v0.3.6 的原生 API 對單一引擎驗證回報該次測試的結果；其它�
 v0.3.9 增加 `/omnigent` 直達原生設定頁；獨立及 Omnigent＋Paseo 合併介面均支援。
 
 
+問題原因與下一步（配合外掛 0.3.30 起的原因碼）：`/api/omnigent` 另外只轉送 `status().issue` 的 `code`、`message`、`hints`（en／zh-TW／zh-CN）與 `action`，以及主機 supervisor 回報的 `state`、`manager`、`managed`、`managerRunning`；`details` 等其他欄位一律不轉送。Settings → Omnigent 依目前語系顯示 hint 並附原因碼；舊外掛沒有 hints 時維持原本的「操作尚未完成 (CODE)」。只有頁面本來就有的操作才有按鈕：`relogin` 打開登入表單、`verify` 送出對話驗證、`retry` 重新讀取狀態；`reset-host-id`、`repair`、`contact-admin` 只顯示文字（例如 NEEDS_RESET_ID 會提示在終端機執行 `omnigent host reset-id --yes`）。`phase` 為 `error` 時不再顯示「Server 已登入」那一句。受管主機（kit）回報的狀態顯示在「主機服務」一列，例如登入過期、主機 ID 屬於另一個帳號。
+
 v0.3.29 共用 Paseo v0.1.13 補丁：Settings → Paseo 在沒有對話也沒選專案時由伺服器自己決定的目錄載入（客戶端指定的目錄仍須在已服務根目錄內）；首頁 Get Started 增加第 3 行純文字提示 Settings → Omnigent；Paseo 分頁可在手機捲動。
 
 v0.3.25 共用 Paseo v0.1.12 補丁；兩個插件都只在 Settings 處理綁定，移除 Paseo 首頁設定對話的建立與自動開啟。舊版 `/paseo/setup` 轉到 Settings → Plugins，不再顯示獨立設定頁。共用安裝器只接受此版本的精確補丁雜湊。
