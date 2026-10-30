@@ -18,11 +18,11 @@ Repository 為公開，可直接安裝，不需要 GitHub token。安裝後請�
 git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.29
 ```
 
-v0.3.29 修正全新安裝（沒有任何對話、也沒選專案）的三個問題，Settings → Omnigent 仍是唯一的綁定入口：①Omnigent＋Paseo 合併介面的 Settings → Paseo 在這種狀態下會回 404、所有狀態列顯示「尚未取得」且無法產生配對連結，現在改由伺服器自己決定的目錄（`PI_PASEO_CWD`，否則使用者家目錄；家目錄只讀全域套件）提供，客戶端指定的目錄仍必須在 Pi Web 已服務的根目錄內；②首頁「Get Started」多一行純文字提示，指向 Settings → Omnigent（不是按鈕或連結，不開啟對話）；③Settings → Paseo 分頁在手機與小視窗無法捲動、底部控制項被截斷，現在可捲動。合併補丁改為驗證 Paseo v0.1.13 的精確補丁雜湊，新增「全新安裝」瀏覽器回歸測試。既有 Pi Web 須執行 `pi-omnigent install-ui` 並重啟，或改用已內建新版 UI 的映像。
+v0.3.29 修正全新安裝（沒有任何對話、也沒選專案）的三個問題，Settings → Omnigent 仍是唯一的綁定入口：①Omnigent＋Paseo 合併介面的 Settings → Paseo 在這種狀態下會回 404、所有狀態列顯示「尚未取得」且無法產生配對連結，現在改由伺服器自己決定的目錄（`PI_PASEO_CWD`，否則使用者家目錄；家目錄只讀全域套件）提供，客戶端指定的目錄仍必須在 Pi Web 已服務的根目錄內；②首頁「Get Started」多一行純文字提示，指向 Settings → Omnigent（不是按鈕或連結，不開啟對話）；③Settings → Paseo 分頁在手機與小視窗無法捲動、底部控制項被截斷，現在可捲動。合併補丁改為驗證 Paseo v0.1.13 的精確補丁雜湊，新增「全新安裝」瀏覽器回歸測試。自行管理的 Pi Web 須執行 `pi-omnigent install-ui` 並重啟；已內建原生 Settings → Omnigent 頁面的映像（root／PaaS 映像、HA add-on）不需要 `install-ui`，命令也會拒絕執行，請直接更新映像或 add-on。
 
 v0.3.28 恢復 Settings → Omnigent 為唯一的綁定入口；安裝、啟動與重啟不建立或開啟設定對話，也不顯示舊版留下的設定對話連結。既有對話資料仍保留。v0.3.26 修正 Pi 原生登入後 Omnigent 模型選單可能為空：已授權但清單為空時，插件會執行 Pi 的模型目錄更新並重新查詢 host。失敗後 15 分鐘內不重複請求；重新登入可立即重試。這個模型清單動作不複製登入憑證。
 
-v0.3.25 與 Paseo v0.1.12 共用 Pi Web 時，兩個插件都只在 Settings 分頁處理綁定；首頁不會自動開啟設定對話，也不增加 Paseo 快捷按鈕。共用安裝器只接受 v0.1.12 的精確補丁雜湊，避免舊版 Paseo 再度建立對話。更新兩個插件後執行 `pi-omnigent install-ui` 並重啟 Pi Web；HA add-on 另由新版映像更新。
+v0.3.25 與 Paseo v0.1.12 共用 Pi Web 時，兩個插件都只在 Settings 分頁處理綁定；首頁不會自動開啟設定對話，也不增加 Paseo 快捷按鈕。共用安裝器只接受 v0.1.12 的精確補丁雜湊，避免舊版 Paseo 再度建立對話。自行管理的 Pi Web 在更新兩個插件後執行 `pi-omnigent install-ui` 並重啟；root／PaaS 映像與 HA add-on 已內建原生設定頁，`install-ui` 會拒絕執行，改由新版映像或 add-on 更新。
 
 v0.3.24 改用 Settings → Omnigent 作為唯一的綁定入口；啟動、安裝與重啟不再建立或開啟設定對話。舊版留下的設定對話不再自動選取；既有授權 host 的恢復與模型驗證仍可用。
 
@@ -34,7 +34,7 @@ v0.3.19 延伸重啟恢復到舊 PID 被不同 UID 程序重用的容器情況�
 
 v0.3.17 在原生及 Omnigent＋Paseo Pi Web 首次空白首頁，自動開啟已保存且待完成的 Omnigent 設定對話。只在沒有明確網址選擇、既有工作記憶或使用者操作時觸發；最多等待 30 秒。既有設定精靈會顯示空白的 Server URL 輸入欄位。
 
-既有 Pi Web 升級後須執行官方 `pi-omnigent install-ui` 並重啟 Pi Web，或改用已內建新版 UI 的部署映像；`pi install` 只更新插件，boot 不會重新建置已編譯的 UI。
+自行管理的 Pi Web 升級後須執行官方 `pi-omnigent install-ui` 並重啟 Pi Web；`pi install` 只更新插件，boot 不會重新建置已編譯的 UI。已內建原生 Settings → Omnigent 頁面的映像（root／PaaS 映像、HA add-on）不需要 `install-ui`：命令會回報 `NATIVE_SETTINGS_PRESENT` 與原因並以 exit code 1 結束，不下載、不建置、不更改啟動路由，介面隨映像或 add-on 更新。Paseo 安裝器把介面交給本插件時，同一情況回傳 `status: "native-settings-present"`，Paseo 安裝會照常繼續。
 
 v0.3.16 在同一安裝重啟時恢復先前明確授權的 host。必須保留插件的
 `loginConfirmed`、啟用狀態及同 server／host／工作區的成功連線回條；只有
@@ -122,6 +122,18 @@ pi-omnigent acceptance --chat --engine claude
 
 預設只查詢狀態、可用模型與模組；`--chat` 才會產生測試對話並使用既有模型額度。所有檢查都通過才回傳 exit code 0，報告存於私有的 `acceptance.json`。實測與支援邊界見 [商業部署驗收紀錄](docs/commercial-readiness.md)。
 
+維運診斷與 runbook 綁定：
+
+```sh
+pi-omnigent doctor
+pi-omnigent doctor --fix
+pi-omnigent connect --server https://omnigent.example.com --username NAME --password-stdin < /run/secrets/omnigent-password
+```
+
+`doctor` 唯讀檢查套件註冊、啟動器實際執行的 Pi Web（realWeb）、host、登入與驗證狀態及目前問題碼；`--json` 輸出完整報告，有 fail 項目時 exit code 為 1。`--fix` 只在記錄的 realWeb 已無法執行時改指向可執行的 Pi Web，不更動登入、連線與驗證狀態。`launch-web` 回報 `PI_WEB_UNAVAILABLE`（沒有可執行的 Pi Web）或 `PI_WEB_LAUNCH_LOOP`（所選的 pi-web 又啟動了 pi-web／pi-omnigent-web）時，先執行 `doctor`。啟動器以 `PI_OMNIGENT_LAUNCH_WEB` 環境變數標記自己啟動的 Pi Web；若要從該 Pi Web 內刻意再啟動另一個 Pi Web，需先移除此變數。
+
+`connect` 是 Settings → Omnigent 綁定的 runbook 版本，沿用相同的插件啟用檢查與欄位規則：先安裝或確認依賴（首次可能需要數分鐘），再登入並連線；不執行模型驗證，完成後請在設定頁或以 `/omnigent verify` 驗證。密碼只從 stdin 讀取（去掉一個結尾換行），不接受命令列參數或環境變數；stdin 是終端機時拒絕，避免密碼回顯。缺少或不合規的 `--server`／`--username` 會在讀取 stdin 前立即失敗。
+
 Pi Web Plugins 的停用／移除操作會停止插件自動處理；移除套件後仍可用原本的 Pi Web 啟動器。也可執行 `pi-omnigent disable`，或 `pi-omnigent uninstall-host` 還原啟動器。原有容器 Omnigent host 的生命週期仍由既有管理器掌控。
 
 原生 Plugins 設定由啟動介接器與已載入的插件監看，約 500 ms 後生效。重新啟用會重新要求 server、帳號及遮罩密碼。既有版本升級保留已核准的連線，但 CLI 版本改變會要求重新驗證。
@@ -152,7 +164,7 @@ Pi 一般 extension API 無法增加設定分頁，所以須安裝管理版 Pi W
 pi-omnigent install-ui
 ```
 
-這個明確安裝動作會下載固定官方 commit、驗證整合 patch，在使用者資料目錄建置並串接下次啟動。若既有 pi-paseo-plugin，驗證並保留其 native UI patch。建置完成後需重啟 Pi Web；安裝器不自動中斷運行中的對話。只實測 Linux x64、Pi Web 0.10.0。見 [整合說明](integrations/pi-web/README.md)。
+這個明確安裝動作會下載固定官方 commit、驗證整合 patch，在使用者資料目錄建置並串接下次啟動。若既有 pi-paseo-plugin，驗證並保留其 native UI patch。建置完成後需重啟 Pi Web；安裝器不自動中斷運行中的對話。只實測 Linux x64、Pi Web 0.10.0。見 [整合說明](integrations/pi-web/README.md)。若目前的 Pi Web 已有原生 Settings → Omnigent 頁面（root／PaaS 映像的合併建置、HA add-on 的 Pi Web 0.12），`install-ui` 會以 `NATIVE_SETTINGS_PRESENT` 拒絕且不建立任何檔案，該頁面隨映像或 add-on 更新。
 
 開發中的建置保留機制：只有 `install-ui` 完成啟動路由、啟用連結與回條後，才會清理 `$HOME/.local/share/pi-omnigent-web/pi-web-releases`。保留啟用中的建置與前兩個可辨識的回復版本；仍有程序使用的建置及啟動器的備援版本另外保留。每次最多移除四個更舊的受管建置，不會移除未完成安裝、失敗升級、無效或未知回條、自訂目錄、目錄捷徑，也不掃描使用者專案。
 
