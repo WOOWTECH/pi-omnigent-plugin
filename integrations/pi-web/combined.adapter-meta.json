@@ -6,6 +6,7 @@
   "paseo": {
     "packageName": "@woowtech/pi-paseo",
     "packageVersion": "0.1.13",
+    "compatiblePackageVersions": ["0.1.14"],
     "adapterPatchSha256": "348f0b34118deca5a42ea47e2c98fc92a85dc9354bcaee8c5a41ac249360ed19"
   },
   "omnigent": {

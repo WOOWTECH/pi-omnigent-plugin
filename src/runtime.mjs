@@ -1,7 +1,10 @@
 import path from 'node:path';
 import fs from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { locations, readJSON, saveJSON, normalizeServer, locked, runJSON } from './common.mjs';
 import { discover, installDependencies, runCommand, runtimeEnv } from './installer.mjs';
+import { DEFAULT_PACKAGE_NAME, ownPackageName } from './locate.mjs';
+import { describeIssue } from './issues.mjs';
 
 const ENGINES = ['claude', 'codex', 'pi'];
 const statePath = loc => path.join(loc.stateDir, 'state.json');
@@ -68,7 +71,7 @@ export async function status(options = {}) {
     enabled: state.enabled !== false, loginConfirmed: state.loginConfirmed === true, server, host,
     installedEngines: installed,
     engines: Object.fromEntries(ENGINES.map(engine => [engine, { ...dependencies[engine], ...(data.engines?.[engine] || {}) }])),
-    verification, ...(response.ok ? {} : { error: response.error }), ...(state.issue ? { issue: state.issue } : {}) };
+    verification, ...(response.ok ? {} : { error: describeIssue(response.error) ?? response.error }), ...(state.issue ? { issue: describeIssue(state.issue) } : {}) };
 }
 function nativePiLoginFingerprint(loc) {
   try {
@@ -118,8 +121,29 @@ export async function catalog(options = {}) {
   if (response.ok) saveJSON(path.join(loc.stateDir, 'catalog.json'), response.data);
   return response;
 }
-function installation(loc) {
-  return { home: path.resolve(loc.home), configHome: path.resolve(loc.omniDir), dataDir: path.resolve(loc.omniDataDir) };
+// The installation is named by a random id kept in state.json and the package
+// name, so moving the plugin (git pin <-> image bundle) or its paths changes
+// nothing. The path fields are what 0.3.16–0.3.29 compare; they stay in each
+// receipt only so a rollback can still resume, and are never compared here.
+const INSTALLATION_ID = /^[0-9a-f]{32}$/;
+const PACKAGE = ownPackageName();
+function installationId(state) {
+  return INSTALLATION_ID.test(state?.installationId || '') ? state.installationId : randomBytes(16).toString('hex');
+}
+function installation(loc, id) {
+  return { schema: 2, id, package: PACKAGE,
+    home: path.resolve(loc.home), configHome: path.resolve(loc.omniDir), dataDir: path.resolve(loc.omniDataDir) };
+}
+function sameInstallation(recorded, state) {
+  // Receipts from 0.3.16–0.3.29 (paths) and earlier (none) were written only by
+  // this package. They migrate when server, workspace and host match; the
+  // adapter still proves the token and that /v1/me is the host owner.
+  const legacy = PACKAGE === DEFAULT_PACKAGE_NAME;
+  if (recorded === undefined) return legacy;
+  if (!recorded || typeof recorded !== 'object' || Array.isArray(recorded)) return false;
+  if (recorded.schema === undefined) return legacy;
+  return recorded.schema === 2 && recorded.package === PACKAGE
+    && INSTALLATION_ID.test(recorded.id || '') && recorded.id === state.installationId;
 }
 function privateReceipt(file) {
   try {
@@ -136,20 +160,21 @@ export async function resumeAuthorizedHost(options = {}) {
     const lifecycle = typeof options.lifecycle === 'function' ? await options.lifecycle()
       : options.lifecycle || await (await import('./web.mjs')).packageLifecycle({ ...options, loc });
     const skip = reason => ({ ok: true, resumed: false, reason });
+    // The copy Pi loads resumes the host; a superseded copy stays out of it.
+    if (lifecycle.superseded === true) return skip('superseded');
     if (!lifecycle.active || lifecycle.registered !== true) return skip('inactive');
     const state = privateReceipt(statePath(loc));
     if (state?.enabled !== true || state.nativeActive === false || state.loginConfirmed !== true) return skip('fresh-login-required');
     const proof = privateReceipt(path.join(loc.stateDir, 'connection.json'));
-    const bound = installation(loc);
     const mismatch = () => {
       const error = { code: 'CONNECTION_IDENTITY_MISMATCH' };
       writeState(loc, { phase: 'error', issue: error });
       return { ok: false, resumed: false, error };
     };
-    // Legacy successful connections include workspace/server/host. Keep that
-    // upgrade path, but never manufacture consent from SDK config or a token.
+    // Server, workspace, host and installation must all match the receipt.
+    // Never manufacture consent from SDK config or a token.
     if (!proof?.host?.id || !state.server || proof.server !== state.server || proof.workspace !== loc.home
-      || (proof.installation && Object.keys(bound).some(key => proof.installation[key] !== bound[key]))) {
+      || !sameInstallation(proof.installation, state)) {
       return mismatch();
     }
     let server;
@@ -166,8 +191,9 @@ export async function resumeAuthorizedHost(options = {}) {
     if (result.data?.host?.id !== proof.host.id || result.data?.server !== server || result.data?.host?.connected !== true) {
       return mismatch();
     }
-    writeState(loc, { phase: 'needs-verification', issue: null });
-    saveJSON(path.join(loc.stateDir, 'connection.json'), { ...proof, installation: bound });
+    const id = installationId(state);
+    writeState(loc, { phase: 'needs-verification', issue: null, installationId: id });
+    saveJSON(path.join(loc.stateDir, 'connection.json'), { ...proof, installation: installation(loc, id) });
     return { ok: true, resumed: true, server, host: { id: proof.host.id, connected: true } };
   });
 }
@@ -266,9 +292,10 @@ export async function initialize(options = {}) {
       writeState(loc, { phase, issue: connected.error, ...(phase === 'needs-login' ? { loginConfirmed: false } : {}) });
       return { ok: false, phase, server: normalized, error: connected.error };
     }
-    writeState(loc, { phase: 'needs-verification', loginConfirmed: true, issue: null });
+    const id = installationId(stateOf(loc));
+    writeState(loc, { phase: 'needs-verification', loginConfirmed: true, issue: null, installationId: id });
     if (freshLogin) saveJSON(path.join(loc.stateDir, 'verification.json'), {});
-    saveJSON(path.join(loc.stateDir, 'connection.json'), { ...connected.data, installation: installation(loc) });
+    saveJSON(path.join(loc.stateDir, 'connection.json'), { ...connected.data, installation: installation(loc, id) });
     if (options.verify !== true) return { ok: true, phase: 'needs-verification', server: normalized, connection: connected.data };
     return verifyInternal(ctx);
   });
@@ -316,10 +343,13 @@ export async function setEnabled(value, options = {}) {
   });
 }
 export function enabled(options = {}) { return stateOf(options.loc || locations()).enabled !== false; }
-/** Native package visibility is independent of the explicit CLI enabled flag. */
+/** Native package visibility is independent of the explicit CLI enabled flag.
+ *  A superseded copy (Pi loads another copy of this package) records nothing:
+ *  switching the package source is not a disable, so login and receipts stay. */
 export async function observeLifecycle(lifecycle, options = {}) {
   const loc = { ...locations(options.env || process.env), ...(options.loc || {}) };
-  if (!fs.existsSync(statePath(loc)) || !['native-plugin-enabled', 'native-plugin-disabled', 'package-removed-or-unregistered'].includes(lifecycle.reason)) return lifecycle;
+  if (lifecycle.superseded === true || !fs.existsSync(statePath(loc))
+    || !['native-plugin-enabled', 'native-plugin-disabled', 'package-removed-or-unregistered'].includes(lifecycle.reason)) return lifecycle;
   return operation({ loc }, async () => {
     const state = stateOf(loc);
     const changed = state.nativeActive !== lifecycle.active;

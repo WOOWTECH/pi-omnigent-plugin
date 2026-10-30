@@ -39,14 +39,12 @@
   "files": [
     "bin/cli.mjs",
     "src/*.mjs",
-    "src/*.ts",
     "src/*.py",
     "extensions/*.ts",
     "README.md",
     "LICENSE",
     "bin/check.mjs",
     "docs/commercial-readiness.md",
-    "docs/evidence/*.json",
     "bin/install-ui.mjs",
     "integrations/pi-web/"
   ],
