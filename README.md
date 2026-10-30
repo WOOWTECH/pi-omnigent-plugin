@@ -10,7 +10,7 @@
 git:github.com/WOOWTECH/pi-omnigent-plugin
 ```
 
-Repository 為公開，可直接安裝，不需要 GitHub token。安裝後請至 Settings → Omnigent 輸入 Server URL、帳號與密碼；不建立設定對話。也可使用本機路徑或 npm source；本機開發目錄可用：
+Repository 為公開，可直接安裝，不需要 GitHub token。安裝後請至 Settings → Omnigent 輸入 Server URL、帳號與密碼；不建立設定對話。也可使用本機路徑或 npm source；本機開發時，在同一個欄位填入這個 repo 的絕對路徑即可（例如 `/home/me/pi-omnigent-plugin`）。
 
 商業部署請固定版本，避免不同容器在更新時取得不同程式：
 
@@ -90,7 +90,7 @@ v0.3.13 將供應商錯誤分成 `PROVIDER_PAYMENT_REQUIRED`（付款或餘額�
 
 v0.3.14 在插件自己建立的驗證對話中，若 Pi／Claude 主終端的最新刪除事件持續兩次輪詢、至少兩秒，會提早回報 `NATIVE_TERMINAL_REMOVED` 並清理該測試對話。此代碼表示「取得驗證回覆前，主終端資源已移除」，不代表已查明崩潰、登入或額度問題。較新的終端建立事件會取消判定；成功回覆與明確的供應商錯誤優先處理，Codex 輔助終端不套用此判定。
 
-回條的 `terminalDiagnostic.phase: "before_cleanup"` 區分清理前已移除與停止測試時的正常退出，`exitCode` 只接受明確提供的整數；SDK 0.16.0 刪除事件未提供退出碼時保留 `null`。離線假時鐘回放中，終端於第 4 秒移除，驗證由原版等待 120 秒縮短為第 6 秒結束；這不是正式環境耗時保證，實際仍包含傳輸與清理時間。Pi3 原始退出原因仍未查明，本版沒有證明所有引擎 ready，也未更改 Omnigent SDK 或一般對話狀態。詳見 [離線驗證證據](docs/evidence/verification-terminal-removal-v0314.json)。
+回條的 `terminalDiagnostic.phase: "before_cleanup"` 區分清理前已移除與停止測試時的正常退出，`exitCode` 只接受明確提供的整數；SDK 0.16.0 刪除事件未提供退出碼時保留 `null`。離線假時鐘回放中，終端於第 4 秒移除，驗證由原版等待 120 秒縮短為第 6 秒結束；這不是正式環境耗時保證，實際仍包含傳輸與清理時間。Pi3 原始退出原因仍未查明，本版沒有證明所有引擎 ready，也未更改 Omnigent SDK 或一般對話狀態。詳見 [離線驗證證據](https://github.com/WOOWTECH/pi-omnigent-plugin/blob/main/docs/evidence/verification-terminal-removal-v0314.json)。
 
 ## 執行環境
 
@@ -126,6 +126,8 @@ Pi Web Plugins 的停用／移除操作會停止插件自動處理；移除套�
 
 原生 Plugins 設定由啟動介接器與已載入的插件監看，約 500 ms 後生效。重新啟用會重新要求 server、帳號及遮罩密碼。既有版本升級保留已核准的連線，但 CLI 版本改變會要求重新驗證。
 
+同一套件換來源（git 釘選、映像內建的 `/opt/woow/pi-omnigent-plugin`、npm）視為升級而非移除：插件依套件名稱判斷 Pi 實際載入哪一份（`src/locate.mjs`），被取代的舊副本不寫任何狀態、不恢復 host，啟動交給載入中的那份，已核准的登入與驗證回條都保留。只有所有同名來源都移除，或 Pi 載入的那份被明確停用，才要求重新登入。連線回條以安裝 ID 與套件名稱識別安裝，不以檔案路徑識別；舊版回條（只記 home、configHome、dataDir）在 server、工作區與 host 都相符時接受並轉換。真正的身分邊界在 adapter：resume 先比對本機設定的 host ID 與 server，再確認 `/v1/me` 是 host 的擁有者，另一個帳號拿不到這台主機。換來源請在 Pi Web 停止時進行：Pi Web 執行中時，離開的那份若是 0.3.29 以前的版本，它仍以路徑判斷，會要求重新登入。尚未安裝的 git 來源只有指向官方 repository（`github.com/WOOWTECH/pi-omnigent-plugin`）才算同一套件，同名 fork 不能壓住移除時的撤銷。
+
 
 Omnigent server 帳密與模型供應商授權分開。新容器即使已登入 server、host 已在線，每個引擎仍需可用的模型來源：Claude Code／Codex 可使用各自的官方登入，或由 Omnigent 設定相容的 gateway；Pi 也需設定可用模型。插件會指出尚未可用的引擎；完成後使用 `/omnigent verify`，不必重新輸入 server 帳密。如需更新連線，請在 Settings → Omnigent 填寫新資料；`/omnigent setup` 僅提示前往 Settings → Omnigent。
 
@@ -138,7 +140,7 @@ env HOME=/data/pi-agent/home claude auth login --claudeai
 
 Codex 會顯示網址和一次性代碼，由使用者在瀏覽器完成授權；Claude Code 會顯示授權網址，授權頁回傳的代碼需貼回等待中的 CLI。其他安裝請改用其 Pi Web 主程序的實際 `HOME`。完成後用相同的 `HOME` 執行 `codex login status`、`claude auth status --json`，再於 Pi Web 執行 `/omnigent verify` 驗證實際模型回覆。授權是使用者手動完成，插件不代按供應商確認畫面。
 
-v0.2.2 支援包含原生 fallback 的 shared-runtime 啟動器，先備份再串接；未辨識的自訂啟動器仍保留。背景啟動結果寫入私有 `boot.json`。尚未完成登入時，啟動程序會重載專用設定對話一次，讓舊 runtime 的精靈重新啟動；不重載其他對話。
+v0.2.2 支援包含原生 fallback 的 shared-runtime 啟動器，先備份再串接；未辨識的自訂啟動器仍保留。背景啟動結果寫入私有 `boot.json`。（當時尚未完成登入會重載專用設定對話；v0.3.24 起已不建立、不重載任何設定對話。）
 登入設定、重新連線與 repair 預設不建立測試對話、不發送模型訊息。只有明確執行 `/omnigent verify`、verify 工具或 `acceptance --chat` 才建立 connection check 對話。啟動與背景狀態檢查不執行聊天驗證。
 
 
@@ -202,8 +204,8 @@ v0.3.8 在驗證時定期查詢插件建立的測試 session 狀態；上游 HTT
 已有舊版 Omnigent／Paseo 的環境，先升級 Omnigent，再安裝對應的 Paseo。固定版本組合不可交叉混用：
 
 ```sh
-pi install git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.14
-pi install git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.7
+pi install git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.29
+pi install git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.14
 ```
 
 Paseo 安裝器會交給 Omnigent 建立共用介面；完成後重啟 Pi Web，再到 Settings → Paseo 配對。收到 `RESTART_REQUIRED` 時，完成重啟後重新整理並驗證三種引擎對話。首次編譯建議預留至少 3 GiB 可用磁碟空間；實測不足 1 GiB 時套件安裝可能因 `ENOSPC` 失敗。官方 Paseo 的主機顯示名稱請在 Paseo App 內修改；插件的「容器備註」僅存於設定頁。
