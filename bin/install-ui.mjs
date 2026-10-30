@@ -216,7 +216,8 @@ function piWebPackage(launcher) {
   return null;
 }
 function settingsPageEvidence(dir) {
-  const found = NATIVE_SETTINGS_FILES.find(file => exists(path.join(dir, file)));
+  // A candidate that cannot be inspected (ENOTDIR, EACCES) is no evidence and never aborts the install.
+  const found = NATIVE_SETTINGS_FILES.find(file => { try { return exists(path.join(dir, file)); } catch { return false; } });
   if (found) return found;
   try {
     const page = path.join(dir, NATIVE_SETTINGS_PAGE);
@@ -240,6 +241,11 @@ export function nativeSettingsPiWeb({ home, root, env, explicit, metadata = [], 
     if (evidence) return { launcher: candidate, piWeb: dir, evidence };
   }
   return null;
+}
+/** The command-line forms refuse a native settings page (reason, exit 1); library callers receive it as a result. */
+export function refuseNativeSettings(result) {
+  if (result?.status !== 'native-settings-present') return result;
+  throw Object.assign(new UiInstallError(result.code), { piWeb: result.piWeb, evidence: result.evidence, reason: result.reason });
 }
 
 function wrapper(nativeBin, fallback) {
@@ -308,9 +314,12 @@ export async function installUi(options = {}) {
   let prebuilt = null;
   try { prebuilt = options.prebuiltRoot ? fs.realpathSync(path.resolve(options.prebuiltRoot)) : null; } catch {}
   const native = nativeSettingsPiWeb({ home, root, env, explicit: options.nativeLauncher || env.PI_OMNIGENT_UI_NATIVE_WEB, metadata: [sharedHostPath, omnigentHostPath], prebuilt });
+  // A result, not an error: Paseo's installHost delegates here from its postinstall and must go on to its own
+  // lifecycle step. Nothing is built, routed or written; the CLI forms turn this into a refusal.
   if (native) {
-    throw Object.assign(new UiInstallError('NATIVE_SETTINGS_PRESENT'), { piWeb: native.piWeb, evidence: native.evidence,
-      reason: 'This Pi Web already has the native Settings → Omnigent page; install-ui would only add a second multi-GB Pi Web 0.10.0 build and route pi-web away from it. Keep the bundled page and update it with the image or add-on.' });
+    return { status: 'native-settings-present', code: 'NATIVE_SETTINGS_PRESENT', piWeb: native.piWeb, evidence: native.evidence,
+      reason: 'This Pi Web already has the native Settings → Omnigent page; install-ui would only add a second multi-GB Pi Web 0.10.0 build and route pi-web away from it. Keep the bundled page and update it with the image or add-on.',
+      restartRequired: false, restarted: false };
   }
   safeDirectory(releases, home);
   const patchFiles = [meta.patchFile];
@@ -509,7 +518,7 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
     const args = process.argv.slice(2);
     const index = args.indexOf('--prebuilt-root');
     if (args.some((arg, i) => arg !== '--prebuilt-root' && i !== index + 1) || (index >= 0 && !args[index + 1])) fail('INVALID_ARGUMENTS');
-    console.log(JSON.stringify(await installUi(index < 0 ? {} : { prebuiltRoot: args[index + 1] }), null, 2));
+    console.log(JSON.stringify(refuseNativeSettings(await installUi(index < 0 ? {} : { prebuiltRoot: args[index + 1] })), null, 2));
   } catch (error) {
     console.error(JSON.stringify({ error: 'UiInstallError', code: error instanceof UiInstallError ? error.code : 'HOST_INSTALL_FAILED', stage: error instanceof UiInstallError ? error.stage : undefined,
       ...(error instanceof UiInstallError && error.reason ? { reason: error.reason, piWeb: error.piWeb, evidence: error.evidence } : {}) }));

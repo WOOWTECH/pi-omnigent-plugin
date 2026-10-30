@@ -708,21 +708,56 @@ const nativeSettingsBuilds = {
 };
 
 for (const [name, [version, files, evidence]] of Object.entries(nativeSettingsBuilds)) {
-  test(`install-ui refuses a Pi Web that already has the native Settings → Omnigent page (${name})`, async t => {
+  test(`install-ui leaves a Pi Web that already has the native Settings → Omnigent page alone (${name})`, async t => {
     const f = fixture(t);
     const image = globalPiWeb(f, path.join(f.root, 'image'), version, files);
-    await assert.rejects(installUi({ ...f.options, env: image.env }), error => {
-      assert.equal(error.code, 'NATIVE_SETTINGS_PRESENT');
-      assert.equal(error.piWeb, fs.realpathSync(image.pkg));
-      assert.equal(error.evidence, evidence);
-      assert.match(error.reason, /Settings → Omnigent/);
-      return true;
-    });
+    const result = await installUi({ ...f.options, env: image.env });
+    assert.equal(result.status, 'native-settings-present');
+    assert.equal(result.code, 'NATIVE_SETTINGS_PRESENT');
+    assert.equal(result.piWeb, fs.realpathSync(image.pkg));
+    assert.equal(result.evidence, evidence);
+    assert.equal(result.restartRequired, false);
+    assert.match(result.reason, /Settings → Omnigent/);
     assert.equal(f.calls.length, 0, 'nothing may be fetched or built');
     assert.equal(fs.existsSync(f.managed), false, 'no managed storage may be created');
     assert.equal(fs.existsSync(path.join(f.home, '.local/bin/pi-web')), false, 'routing must stay untouched');
   });
 }
+
+test('Paseo\'s installer delegation gets the native settings page as a result, so its postinstall goes on', async t => {
+  // pi-paseo-plugin v0.1.14: bin/install-host.mjs returns installUi({ ...options, home, env, packageRoot, overlayPackageRoot })
+  // whenever the Omnigent package exists; bin/cli.mjs postinstall then runs host.lifecycle({ action: 'install', ... }).
+  const f = fixture(t);
+  const image = globalPiWeb(f, path.join(f.root, 'image'), '0.12.0', nativeSettingsBuilds['HA Pi Web 0.12 with the patched compiled settings list'][1]);
+  const paseo = path.join(f.root, 'paseo');
+  write(path.join(paseo, 'package.json'), JSON.stringify({ name: '@woowtech/pi-paseo', version: '0.1.14' }));
+  // Paseo's options only: no runner, and no git/npm on PATH, so a regression fails instead of fetching and building.
+  const env = { ...image.env, PATH: path.join(f.root, 'image/bin') };
+  let installation;
+  await assert.doesNotReject(async () => {
+    installation = await installUi({ home: fs.realpathSync(f.home), env, packageRoot: f.pkg, overlayPackageRoot: paseo });
+  });
+  assert.equal(installation.status, 'native-settings-present');
+  assert.equal(installation.code, 'NATIVE_SETTINGS_PRESENT');
+  assert.equal(installation.restartRequired, false);
+  assert.equal(installation.piWeb, fs.realpathSync(image.pkg));
+  // Paseo prints it as hostInstallation in its postinstall result.
+  assert.deepEqual(JSON.parse(JSON.stringify({ hostInstallation: installation })).hostInstallation, installation);
+  assert.equal(fs.existsSync(f.managed), false, 'no managed store may be created');
+  assert.equal(fs.existsSync(path.join(f.home, '.local/bin/pi-web')), false, 'routing must stay untouched');
+});
+
+test('a Pi Web whose files cannot be inspected is skipped instead of aborting install-ui', t => {
+  const f = fixture(t);
+  // .next is a file, so every compiled-path lookup under it fails with ENOTDIR.
+  const broken = globalPiWeb(f, path.join(f.root, 'broken'), '0.10.0', { '.next': 'not a directory\n' });
+  const options = { home: f.home, root: f.managed, env: { PATH: path.join(f.root, 'broken/bin') } };
+  assert.equal(nativeSettingsPiWeb(options), null);
+  // The remaining candidates are still read: the adapter source route alone is evidence.
+  write(path.join(broken.pkg, 'app/api/omnigent/route.ts'), '// adapter route\n');
+  assert.deepEqual(nativeSettingsPiWeb(options),
+    { launcher: path.join(f.root, 'broken/bin/pi-web'), piWeb: fs.realpathSync(broken.pkg), evidence: 'app/api/omnigent/route.ts' });
+});
 
 test('the prebuilt build being installed is not counted as an existing native page', t => {
   // An image installs its own combined build with --prebuilt-root and names that build's launcher as native.
@@ -748,6 +783,15 @@ test('install-ui CLI explains the native settings refusal and exits 1 without bu
   assert.equal(output.code, 'NATIVE_SETTINGS_PRESENT');
   assert.equal(output.piWeb, fs.realpathSync(image.pkg));
   assert.match(output.reason, /Settings → Omnigent/);
+  // The installer's own entry point refuses the same way, on stderr.
+  const direct = spawnSync(process.execPath, [path.resolve(import.meta.dirname, '../bin/install-ui.mjs')],
+    { encoding: 'utf8', env: { ...image.env, PATH: path.join(f.root, 'image/bin') } });
+  assert.equal(direct.status, 1);
+  assert.equal(direct.stdout, '');
+  const refusal = JSON.parse(direct.stderr);
+  assert.equal(refusal.code, 'NATIVE_SETTINGS_PRESENT');
+  assert.equal(refusal.piWeb, fs.realpathSync(image.pkg));
+  assert.match(refusal.reason, /Settings → Omnigent/);
   assert.equal(fs.existsSync(f.managed), false);
 });
 

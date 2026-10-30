@@ -9,7 +9,7 @@ import { installDependencies } from '../src/installer.mjs';
 import { acceptance } from '../src/acceptance.mjs';
 import { doctor, formatDoctor } from '../src/doctor.mjs';
 import { connectWithPassword, readPasswordStdin } from '../src/connect.mjs';
-import { installUi, cleanupUi, UiInstallError } from './install-ui.mjs';
+import { installUi, cleanupUi, refuseNativeSettings, UiInstallError } from './install-ui.mjs';
 
 const [command = 'status', ...args] = process.argv.slice(2);
 const loc = locations();
@@ -59,7 +59,7 @@ try {
     print(await installDependencies({ home: loc.home, stateDir: loc.stateDir, update: args.includes('--update') }));
   } else if (command === 'install-host') print(await installHost({ loc }));
   else if (command === 'onboarding') print(await ensureOnboarding({ loc }));
-  else if (command === 'install-ui') print(await installUi({ ...(option('--prebuilt-root') ? { prebuiltRoot: option('--prebuilt-root') } : {}) }));
+  else if (command === 'install-ui') print(refuseNativeSettings(await installUi({ ...(option('--prebuilt-root') ? { prebuiltRoot: option('--prebuilt-root') } : {}) })));
   else if (command === 'cleanup-ui') {
     if (args.length > 1 || args.some(arg => !['--dry-run', '--apply'].includes(arg))) throw new UiInstallError('INVALID_ARGUMENTS');
     const result = await cleanupUi({ dryRun: !args.includes('--apply') });
