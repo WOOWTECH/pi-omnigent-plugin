@@ -9,6 +9,12 @@ function serverAccepted(value) {
   try { normalizeServer(value); return true; } catch { return false; }
 }
 
+/** Settings form limits for the server and user name; the server must also pass the runtime's normalization. */
+export function setupFieldsValid({ server, username } = {}) {
+  return typeof server === 'string' && !!server.trim() && server.length <= 2048 && serverAccepted(server.trim())
+    && typeof username === 'string' && !!username.trim() && username.length <= 256;
+}
+
 /**
  * Runbook form of Settings → Omnigent "connect": the same plugin lifecycle
  * gate, field rules and initialize({ verify: false }) call. The password is
@@ -16,10 +22,7 @@ function serverAccepted(value) {
  */
 export async function connectWithPassword({ server, username, password, ...options } = {}) {
   if (!(await packageLifecycle(options)).active) return failure('PLUGIN_UNAVAILABLE');
-  // Settings form limits; the server must also pass the runtime's normalization.
-  if (typeof server !== 'string' || !server.trim() || server.length > 2048 || !serverAccepted(server.trim())
-      || typeof username !== 'string' || !username.trim() || username.length > 256
-      || typeof password !== 'string' || !password || password.length > 4096) return failure('INVALID_SETUP');
+  if (!setupFieldsValid({ server, username }) || typeof password !== 'string' || !password || password.length > 4096) return failure('INVALID_SETUP');
   let result;
   try { result = await initialize({ ...options, server: server.trim(), username: username.trim(), password, verify: false }); }
   catch (error) { return failure(isCode(error?.code) ? error.code : 'OMNIGENT_FAILED'); }

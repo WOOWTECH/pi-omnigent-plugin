@@ -8,7 +8,7 @@ import { installHost, uninstallHost, packageLifecycle, boot, launchWeb, ensureOn
 import { installDependencies } from '../src/installer.mjs';
 import { acceptance } from '../src/acceptance.mjs';
 import { doctor, formatDoctor } from '../src/doctor.mjs';
-import { connectWithPassword, readPasswordStdin } from '../src/connect.mjs';
+import { connectWithPassword, readPasswordStdin, setupFieldsValid } from '../src/connect.mjs';
 import { installUi, cleanupUi, refuseNativeSettings, UiInstallError } from './install-ui.mjs';
 
 const [command = 'status', ...args] = process.argv.slice(2);
@@ -50,7 +50,12 @@ try {
     // Runbooks only: the password comes from stdin, never argv or the environment.
     const parsed = flags({ '--server': 'value', '--username': 'value', '--password-stdin': 'flag' });
     if (parsed['--password-stdin'] !== true) throw Object.assign(new Error('Use --password-stdin.'), { code: 'PASSWORD_STDIN_REQUIRED' });
-    print(await connectWithPassword({ loc, server: parsed['--server'], username: parsed['--username'], password: await readPasswordStdin(process.stdin) }));
+    // Arguments are checked before stdin is read, so a missing or invalid one fails at once.
+    if (parsed['--server'] === undefined || parsed['--username'] === undefined) throw Object.assign(new Error('Invalid arguments.'), { code: 'INVALID_ARGUMENTS' });
+    const server = parsed['--server'], username = parsed['--username'];
+    print(setupFieldsValid({ server, username })
+      ? await connectWithPassword({ loc, server, username, password: await readPasswordStdin(process.stdin) })
+      : { ok: false, error: { code: 'INVALID_SETUP' } });
   }
   else if (command === 'catalog') print(await catalog());
   else if (command === 'disconnect') print(await disconnect());

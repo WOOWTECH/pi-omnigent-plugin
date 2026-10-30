@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import { doctor, formatDoctor } from '../src/doctor.mjs';
 import { connectWithPassword, readPasswordStdin } from '../src/connect.mjs';
@@ -332,4 +333,32 @@ test('connect CLI takes the password only from stdin and never echoes it', async
   assert.deepEqual(JSON.parse(result.stdout), { ok: false, error: { code: 'INVALID_SETUP' } });
   quiet(result, 'stdin-secret-sentinel');
   assert.equal(fs.existsSync(path.join(f.loc.stateDir, 'state.json')), false);
+});
+
+test('connect CLI rejects missing or invalid arguments before it waits for stdin', async t => {
+  const f = fixture(t);
+  const env = { HOME: f.home, PI_CODING_AGENT_DIR: f.agentDir, PATH: '/usr/bin:/bin' };
+  // stdin stays open and empty: an argument error must not wait for a password that never arrives.
+  const run = async args => {
+    const child = spawn(process.execPath, [cli, 'connect', ...args], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '';
+    child.stdout.on('data', chunk => { stdout += chunk; });
+    child.stderr.resume();
+    const timer = setTimeout(() => child.kill('SIGKILL'), 20000);
+    const [code, signal] = await once(child, 'close');
+    clearTimeout(timer); child.stdin.destroy();
+    assert.equal(signal, null, `connect ${args.join(' ')} waited for stdin`);
+    return { code, stdout };
+  };
+  for (const args of [['--password-stdin'], ['--server', SERVER, '--password-stdin'], ['--username', 'admin', '--password-stdin']]) {
+    const result = await run(args);
+    assert.equal(result.code, 1);
+    assert.equal(JSON.parse(result.stdout).error, 'Operation failed (INVALID_ARGUMENTS).');
+  }
+  for (const args of [['--server', 'ftp://omni.test', '--username', 'admin', '--password-stdin'], ['--server', SERVER, '--username', ' ', '--password-stdin']]) {
+    const result = await run(args);
+    assert.equal(result.code, 1);
+    assert.deepEqual(JSON.parse(result.stdout), { ok: false, error: { code: 'INVALID_SETUP' } });
+  }
+  assert.equal(fs.existsSync(f.loc.stateDir), false);
 });
