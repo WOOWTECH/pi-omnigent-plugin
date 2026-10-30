@@ -7,6 +7,11 @@ import { DEFAULT_PACKAGE_NAME, ownPackageName } from './locate.mjs';
 import { describeIssue } from './issues.mjs';
 
 const ENGINES = ['claude', 'codex', 'pi'];
+// How long a catalog read waits for `pi update --models` when the Pi model list is
+// empty: the Settings page (the default) versus verify, acceptance and the CLI.
+const PI_REFRESH_WAIT_MS = 5_000;
+export const FULL_CATALOG_WAIT_MS = 35_000;
+const piRefreshes = new Map();
 const statePath = loc => path.join(loc.stateDir, 'state.json');
 const stateOf = loc => readJSON(statePath(loc), { phase: 'new', enabled: true });
 function writeState(loc, changes) {
@@ -25,7 +30,7 @@ async function context(options = {}) {
   const loc = { ...locations(options.env || process.env), ...(options.loc || {}) };
   const env = hostEnvironment(loc, options.env || process.env);
   env.PATH = [path.join(loc.stateDir, 'bin'), path.join(loc.stateDir, 'node', 'node_modules', '.bin'), env.PATH].filter(Boolean).join(path.delimiter);
-  const dependencies = options.dependencies || await discover(env);
+  const dependencies = options.dependencies || await discover(env, { fresh: options.freshDependencies === true });
   const execute = options.callAdapter || (async input => {
     const python = dependencies.omnigent?.python;
     if (!python) return { ok: false, error: { code: 'DEPENDENCIES_MISSING', message: 'Omnigent Python 尚未安裝；請執行設定／修復。' } };
@@ -102,20 +107,28 @@ async function queryCatalog(ctx, state, options = {}) {
     const last = readJSON(marker, {});
     return last.login === login && Number.isFinite(last.at) && Date.now() - last.at < 15 * 60_000;
   };
-  if (recent()) return response;
-  const refresh = locked(path.join(ctx.loc.stateDir, 'pi-model-refresh.lock'), async () => {
-    if (recent()) return null;
-    saveJSON(marker, { login, at: Date.now() });
-    const env = { ...ctx.env, HOME: ctx.loc.home, PI_CODING_AGENT_DIR: ctx.loc.agentDir };
-    const result = ctx.runPiModelRefresh
-      ? await ctx.runPiModelRefresh(ctx.dependencies.pi.path, env)
-      : await runCommand(ctx.dependencies.pi.path, ['update', '--models'], { env, timeoutMs: 30_000 });
-    return result?.code === 0 ? await ctx.call('catalog', input) : null;
-  }).catch(() => null);
-  // `pi update --models` can take up to 30 s. Wait a few seconds for it; past
-  // that the page gets the current catalog and the next read shows the models.
+  const dir = ctx.loc.stateDir;
+  let refresh = piRefreshes.get(dir);
+  if (!refresh) {
+    if (recent()) return response;
+    const running = locked(path.join(dir, 'pi-model-refresh.lock'), async () => {
+      if (recent()) return null;
+      saveJSON(marker, { login, at: Date.now() });
+      const env = { ...ctx.env, HOME: ctx.loc.home, PI_CODING_AGENT_DIR: ctx.loc.agentDir };
+      const result = ctx.runPiModelRefresh
+        ? await ctx.runPiModelRefresh(ctx.dependencies.pi.path, env)
+        : await runCommand(ctx.dependencies.pi.path, ['update', '--models'], { env, timeoutMs: 30_000 });
+      return result?.code === 0 ? await ctx.call('catalog', input) : null;
+    }).catch(() => null);
+    refresh = running.finally(() => { if (piRefreshes.get(dir) === refresh) piRefreshes.delete(dir); });
+    piRefreshes.set(dir, refresh);
+  }
+  // `pi update --models` can take up to 30 s. The Settings page waits a few
+  // seconds, then shows the current catalog and the next read has the models.
+  // verify, acceptance and the CLI wait for the whole refresh, and a read that
+  // finds a refresh already running waits for that one instead of returning.
   let timer;
-  const waited = new Promise(resolve => { timer = setTimeout(resolve, options.piRefreshWaitMs ?? 5_000, null); timer.unref?.(); });
+  const waited = new Promise(resolve => { timer = setTimeout(resolve, options.piRefreshWaitMs ?? PI_REFRESH_WAIT_MS, null); timer.unref?.(); });
   const refreshed = await Promise.race([refresh, waited]);
   clearTimeout(timer);
   return refreshed?.ok === true ? refreshed : response;
@@ -129,13 +142,17 @@ const catalogReads = new Map();
 const catalogKey = state => JSON.stringify([state.server || null, state.loginConfirmed === true]);
 async function readCatalog(ctx, state, options) {
   const response = await queryCatalog(ctx, state, options);
-  if (response.ok) saveJSON(path.join(ctx.loc.stateDir, 'catalog.json'), response.data);
+  // A disconnect or another login while this read ran must not get the old catalog written back.
+  if (response.ok && catalogKey(stateOf(ctx.loc)) === catalogKey(state)) saveJSON(path.join(ctx.loc.stateDir, 'catalog.json'), response.data);
   return response;
 }
 function startCatalog(ctx, state, options) {
+  const key = catalogKey(state), at = (options.now || Date.now)();
+  const running = catalogReads.get(ctx.loc.stateDir);
+  if (running && running.key === key && at - running.at < CATALOG_REUSE_MS) return running.promise;
   const promise = readCatalog(ctx, state, options).catch(() => ({ ok: false,
     error: { code: 'ADAPTER_FAILED', message: 'Omnigent 程序未完成；請查看狀態並重試修復。' } }));
-  catalogReads.set(ctx.loc.stateDir, { key: catalogKey(state), at: (options.now || Date.now)(), promise });
+  catalogReads.set(ctx.loc.stateDir, { key, at, promise });
   return promise;
 }
 
@@ -242,7 +259,7 @@ async function verifyInternal(ctx, { engine, model } = {}) {
     return { ok: false, phase: 'needs-engine', error: stateOf(loc).issue };
   }
   writeState(loc, { phase: 'verifying', issue: null });
-  const summary = await queryCatalog(ctx, state);
+  const summary = await queryCatalog(ctx, state, { piRefreshWaitMs: FULL_CATALOG_WAIT_MS });
   if (!summary.ok) {
     writeState(loc, { phase: summary.error?.code === 'NEEDS_LOGIN' ? 'needs-login' : 'error', issue: summary.error });
     return { ok: false, phase: stateOf(loc).phase, error: summary.error };
@@ -272,7 +289,8 @@ async function verifyInternal(ctx, { engine, model } = {}) {
   return { ok, phase: stateOf(loc).phase, server: state.server, installedEngines: installed, verification: receipts };
 }
 export async function verify(options = {}) {
-  const ctx = await context(options);
+  // A receipt records the CLI version that answered, so read it now, not from the cache.
+  const ctx = await context({ ...options, freshDependencies: true });
   return operation(ctx, () => verifyInternal(ctx, options));
 }
 export async function initialize(options = {}) {
@@ -289,7 +307,7 @@ export async function initialize(options = {}) {
       ...(requireFresh ? { loginConfirmed: false } : {}) });
     if (requireFresh) saveJSON(path.join(loc.stateDir, 'verification.json'), {});
     const install = options.install || installDependencies;
-    const dependencies = options.dependencies || await install({ env, home: loc.home, stateDir: loc.stateDir, update: options.update === true });
+    const dependencies = options.dependencies || await install({ env, home: loc.home, stateDir: loc.stateDir, update: options.update === true, fresh: true });
     if (dependencies.ok === false || !dependencies.omnigent?.available) {
       writeState(loc, { phase: 'error', issue: { code: 'DEPENDENCIES_MISSING', message: '依賴安裝未完成。', details: dependencies.issues || [] } });
       return { ok: false, ...stateOf(loc), dependencies };

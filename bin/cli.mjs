@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { locations, saveJSON, safeError } from '../src/common.mjs';
 import path from 'node:path';
-import { initialize, status, catalog, verify, repair, disconnect, setEnabled, enabled } from '../src/runtime.mjs';
+import { initialize, status, catalog, verify, repair, disconnect, setEnabled, enabled, FULL_CATALOG_WAIT_MS } from '../src/runtime.mjs';
 import { installHost, uninstallHost, packageLifecycle, boot, launchWeb, ensureOnboarding } from '../src/web.mjs';
 import { installDependencies } from '../src/installer.mjs';
 import { acceptance } from '../src/acceptance.mjs';
@@ -57,7 +57,7 @@ try {
       ? await connectWithPassword({ loc, server, username, password: await readPasswordStdin(process.stdin) })
       : { ok: false, error: { code: 'INVALID_SETUP' } });
   }
-  else if (command === 'catalog') print(await catalog());
+  else if (command === 'catalog') print(await catalog({ piRefreshWaitMs: FULL_CATALOG_WAIT_MS }));
   else if (command === 'disconnect') print(await disconnect());
   else if (command === 'verify') print(await verify({ engine: option('--engine'), model: option('--model') }));
   else if (command === 'initialize' || command === 'repair') {
