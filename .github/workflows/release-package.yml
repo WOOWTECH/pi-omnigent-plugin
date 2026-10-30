@@ -1,0 +1,43 @@
+name: Publish release package
+# Builds woowtech-pi-omnigent-plugin-<version>.tgz and SHA256SUMS from the exact release tag,
+# attaches them to the published release, then downloads both again without credentials and
+# checks them (.github/scripts/publish-release-package.py). Nothing is ever replaced: an asset
+# that already exists must be byte-identical, otherwise the run stops. The root image, the HA
+# add-on and the PaaS image pin the archive's sha256, so it must never change after release.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing stable release tag, such as v0.3.30
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: release-package-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: tooling
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          path: release-source
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.3'
+      - name: Verify source, publish missing assets and check anonymous downloads
+        run: python3 tooling/.github/scripts/publish-release-package.py
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          RELEASE_SOURCE: release-source
