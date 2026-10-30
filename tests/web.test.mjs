@@ -8,6 +8,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { installHost, uninstallHost, loadPiSdk, boot, launchWeb, packageLifecycle, watchPackageLifecycle, ensureOnboarding, readOnboarding } from '../src/web.mjs';
+import { describeIssue } from '../src/issues.mjs';
 
 function fixture(t) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-omnigent-web-'));
@@ -159,7 +160,7 @@ test('sibling marker with relative executable does not authorize wrapping its de
 test('launcher propagates port and terminates its supervised boot worker when Pi Web exits', async t => {
   const options = fixture(t);
   fs.mkdirSync(options.stateDir, { recursive: true });
-  fs.writeFileSync(path.join(options.stateDir, 'host.json'), JSON.stringify({ realWeb: '/fixture/pi-web' }));
+  fs.writeFileSync(path.join(options.stateDir, 'host.json'), JSON.stringify({ realWeb: executable(path.join(options.home, 'fixture/pi-web')) }));
   const calls = [], processes = [];
   const spawn = (command, args, settings) => {
     calls.push({ command, args, settings });
@@ -182,7 +183,7 @@ test('launcher propagates port and terminates its supervised boot worker when Pi
 test('launcher observes re-enable without any loaded extension and stops only its boot worker on disable', async t => {
   const options = fixture(t);
   fs.mkdirSync(options.stateDir, { recursive: true });
-  fs.writeFileSync(path.join(options.stateDir, 'host.json'), JSON.stringify({ realWeb: '/fixture/pi-web' }));
+  fs.writeFileSync(path.join(options.stateDir, 'host.json'), JSON.stringify({ realWeb: executable(path.join(options.home, 'fixture/pi-web')) }));
   const settings = path.join(options.agentDir, 'settings.json');
   fs.writeFileSync(settings, '{}');
   let active = false;
@@ -305,6 +306,249 @@ test('deleted plugin CLI falls back to captured native Pi Web executable', async
   const installed = await installHost({ ...options, root: path.join(options.home, 'removed-package'), realWeb });
   const result = await promisify(execFile)(process.execPath, [installed.shim, 'argument-preserved'], { timeout: 5000 });
   assert.equal(result.stdout.trim(), 'fallback-ok:argument-preserved');
+});
+
+function executable(file, body = '#!/bin/sh\nexit 0\n') {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, body, { mode: 0o755 });
+  return file;
+}
+
+function deletedRealWeb(options) {
+  const gone = executable(path.join(options.home, 'old-ui-copy/bin/pi-web.js'));
+  fs.rmSync(path.dirname(path.dirname(gone)), { recursive: true });
+  return gone;
+}
+
+const launchReceipt = options => JSON.parse(fs.readFileSync(path.join(options.stateDir, 'launch.json'), 'utf8'));
+
+test('install-host replaces a deleted recorded realWeb with the first healthy pi-web on PATH and records why', async t => {
+  const options = fixture(t);
+  const gone = deletedRealWeb(options);
+  fs.mkdirSync(options.stateDir, { recursive: true });
+  fs.writeFileSync(path.join(options.stateDir, 'host.json'), JSON.stringify({ version: 1, realWeb: gone, mode: 'path-wrapper' }));
+  const healthy = executable(path.join(options.home, 'image/bin/pi-web'));
+  const installed = await installHost({ ...options, env: { ...options.env, PATH: path.dirname(healthy) } });
+  assert.equal(installed.status, 'installed');
+  assert.equal(installed.realWeb, healthy);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(options.stateDir, 'host.json'))).realWeb, healthy);
+  assert.ok(fs.readFileSync(installed.shim, 'utf8').includes(`const native=${JSON.stringify(healthy)};`));
+  const receipt = launchReceipt(options);
+  assert.equal(receipt.by, 'install-host');
+  assert.equal(receipt.realWeb, healthy);
+  assert.equal(receipt.source, 'path');
+  assert.equal(receipt.recorded, gone);
+  assert.deepEqual(receipt.rejected, [{ source: 'recorded', path: gone, problem: 'missing' }]);
+});
+
+test('install-host keeps a recorded realWeb that still runs, even when PATH has another pi-web', async t => {
+  const options = fixture(t);
+  const recorded = executable(path.join(options.home, 'custom/pi-web'));
+  fs.mkdirSync(options.stateDir, { recursive: true });
+  fs.writeFileSync(path.join(options.stateDir, 'host.json'), JSON.stringify({ version: 1, realWeb: recorded, mode: 'path-wrapper' }));
+  const other = executable(path.join(options.home, 'image/bin/pi-web'));
+  const installed = await installHost({ ...options, env: { ...options.env, PATH: path.dirname(other) } });
+  assert.equal(installed.realWeb, recorded);
+  assert.equal(launchReceipt(options).source, 'recorded');
+});
+
+test('a recorded realWeb that is not executable falls back to the captured upstream launcher before PATH', async t => {
+  const options = fixture(t);
+  const shim = path.join(options.home, '.local/bin/pi-web');
+  fs.mkdirSync(path.dirname(shim), { recursive: true });
+  fs.writeFileSync(shim, '#!/usr/bin/env node\n// pi-agent-shared-runtime launcher\nimport {spawn} from "node:child_process";\nconst child=spawn("/usr/bin/node",["/workspace/pi-agent-shared-runtime/bin/cli.mjs",\'launch-web\',...process.argv.slice(2)],{stdio:"inherit"});\n', { mode: 0o755 });
+  const first = await installHost(options);
+  assert.equal(first.mode, 'chained-path-wrapper');
+  const host = path.join(options.stateDir, 'host.json');
+  const notExecutable = path.join(options.home, 'not-executable/pi-web');
+  fs.mkdirSync(path.dirname(notExecutable), { recursive: true });
+  fs.writeFileSync(notExecutable, '#!/bin/sh\n', { mode: 0o644 });
+  fs.writeFileSync(host, JSON.stringify({ ...JSON.parse(fs.readFileSync(host)), realWeb: notExecutable }));
+  const other = executable(path.join(options.home, 'image/bin/pi-web'));
+  const repaired = await installHost({ ...options, env: { ...options.env, PATH: path.dirname(other) } });
+  assert.equal(repaired.realWeb, first.backup);
+  assert.equal(repaired.mode, 'chained-path-wrapper');
+  assert.equal(repaired.backup, first.backup);
+  const receipt = launchReceipt(options);
+  assert.equal(receipt.source, 'backup');
+  assert.deepEqual(receipt.rejected, [{ source: 'recorded', path: notExecutable, problem: 'not-executable' }]);
+});
+
+test('launch-web runs the first healthy pi-web on PATH when the recorded realWeb was deleted, skipping this plugin\'s launcher', async t => {
+  const options = fixture(t);
+  const gone = deletedRealWeb(options);
+  const installed = await installHost({ ...options, realWeb: executable(path.join(options.home, 'seed/pi-web')) });
+  fs.writeFileSync(path.join(options.stateDir, 'host.json'), JSON.stringify({ ...JSON.parse(fs.readFileSync(path.join(options.stateDir, 'host.json'))), realWeb: gone }));
+  const healthy = executable(path.join(options.home, 'image/bin/pi-web'));
+  const calls = [];
+  const spawn = (command, args) => {
+    calls.push({ command, args });
+    const child = new EventEmitter(); child.kill = () => {};
+    if (calls.length === 1) setImmediate(() => child.emit('exit', 0, null));
+    return child;
+  };
+  const env = { ...options.env, PATH: [path.dirname(installed.shim), path.dirname(healthy)].join(path.delimiter) };
+  const result = await launchWeb(['--port', '30141'], { ...options, env, spawn, lifecycle: { active: false, reason: 'native-plugin-disabled' },
+    runtime: { observeLifecycle: async () => {} } });
+  assert.equal(result.code, 0);
+  assert.equal(calls[0].command, healthy);
+  assert.deepEqual(calls[0].args, ['--port', '30141']);
+  const receipt = launchReceipt(options);
+  assert.equal(receipt.by, 'launch-web');
+  assert.equal(receipt.realWeb, healthy);
+  assert.equal(receipt.source, 'path');
+  assert.deepEqual(receipt.rejected, [
+    { source: 'recorded', path: gone, problem: 'missing' },
+    { source: 'path', path: installed.shim, problem: 'launcher-path' },
+  ]);
+});
+
+test('a recorded realWeb that is this plugin\'s own launcher is never started again', async t => {
+  const options = fixture(t);
+  const installed = await installHost({ ...options, realWeb: executable(path.join(options.home, 'seed/pi-web')) });
+  const host = path.join(options.stateDir, 'host.json');
+  fs.writeFileSync(host, JSON.stringify({ ...JSON.parse(fs.readFileSync(host)), realWeb: installed.namedShim }));
+  const healthy = executable(path.join(options.home, 'image/bin/pi-web'));
+  const calls = [];
+  const spawn = command => {
+    calls.push(command);
+    const child = new EventEmitter(); child.kill = () => {};
+    setImmediate(() => child.emit('exit', 0, null));
+    return child;
+  };
+  await launchWeb([], { ...options, env: { ...options.env, PATH: path.dirname(healthy) }, spawn,
+    lifecycle: { active: false, reason: 'native-plugin-disabled' }, runtime: { observeLifecycle: async () => {} } });
+  assert.deepEqual(calls, [healthy]);
+  assert.deepEqual(launchReceipt(options).rejected, [{ source: 'recorded', path: installed.namedShim, problem: 'plugin-launcher' }]);
+});
+
+test('launch-web fails with PI_WEB_UNAVAILABLE and records every rejected candidate when nothing can run', async t => {
+  const options = fixture(t);
+  const gone = deletedRealWeb(options);
+  fs.mkdirSync(options.stateDir, { recursive: true });
+  fs.writeFileSync(path.join(options.stateDir, 'host.json'), JSON.stringify({ version: 1, realWeb: gone, mode: 'path-wrapper' }));
+  let spawned = 0;
+  await assert.rejects(launchWeb([], { ...options, spawn: () => { spawned++; }, lifecycle: { active: false, reason: 'native-plugin-disabled' },
+    runtime: { observeLifecycle: async () => {} } }), { code: 'PI_WEB_UNAVAILABLE' });
+  assert.equal(spawned, 0);
+  const receipt = launchReceipt(options);
+  assert.equal(receipt.realWeb, null);
+  assert.deepEqual(receipt.rejected, [{ source: 'recorded', path: gone, problem: 'missing' }]);
+});
+
+test('the installed pi-web wrapper starts the healthy PATH Pi Web instead of exiting with ENOENT after the recorded copy is deleted', async t => {
+  const options = fixture(t);
+  const old = executable(path.join(options.home, 'old-ui-copy/bin/pi-web.js'));
+  const installed = await installHost({ ...options, realWeb: old });
+  fs.rmSync(path.join(options.home, 'old-ui-copy'), { recursive: true });
+  const marker = path.join(options.home, 'started.txt');
+  const healthy = executable(path.join(options.home, 'image/bin/pi-web'), `#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(marker)}\n`);
+  const result = await promisify(execFile)(process.execPath, [installed.shim, '--port', '30141'], { timeout: 20000,
+    env: { HOME: options.home, PI_CODING_AGENT_DIR: options.agentDir, PATH: [path.dirname(healthy), '/usr/bin', '/bin'].join(path.delimiter) } })
+    .catch(error => error);
+  assert.equal(result.code ?? 0, 0, `wrapper failed: ${result.stdout ?? ''}`);
+  assert.equal(fs.readFileSync(marker, 'utf8'), '--port\n30141\n');
+  assert.equal(launchReceipt(options).realWeb, healthy);
+});
+
+function exitingSpawn(calls) {
+  return (command, args, settings) => {
+    calls.push({ command, settings });
+    const child = new EventEmitter(); child.kill = () => {};
+    if (calls.length === 1) setImmediate(() => child.emit('exit', 0, null));
+    return child;
+  };
+}
+const inactive = { lifecycle: { active: false, reason: 'native-plugin-disabled' }, runtime: { observeLifecycle: async () => {} } };
+
+test('launch-web never falls back to the launchers through a PATH alias of ~/.local/bin or a link to pi-omnigent-web', async t => {
+  const options = fixture(t);
+  const gone = deletedRealWeb(options);
+  fs.mkdirSync(options.stateDir, { recursive: true });
+  fs.writeFileSync(path.join(options.stateDir, 'host.json'), JSON.stringify({ version: 1, realWeb: gone, mode: 'path-wrapper' }));
+  // Foreign launchers that call back into the plugin; starting either would loop.
+  const bin = path.join(options.home, '.local/bin');
+  executable(path.join(bin, 'pi-web'), '#!/bin/sh\nexec pi-omnigent-web "$@"\n');
+  executable(path.join(bin, 'pi-omnigent-web'), '#!/bin/sh\nexec pi-web "$@"\n');
+  const alias = path.join(options.home, 'alias-bin'), links = path.join(options.home, 'links');
+  fs.symlinkSync(bin, alias);
+  fs.mkdirSync(links);
+  fs.symlinkSync(path.join(bin, 'pi-omnigent-web'), path.join(links, 'pi-web'));
+  const healthy = executable(path.join(options.home, 'image/bin/pi-web'));
+  const calls = [];
+  const env = { ...options.env, PATH: [alias, links, path.dirname(healthy)].join(path.delimiter) };
+  await launchWeb([], { ...options, ...inactive, env, spawn: exitingSpawn(calls) });
+  assert.deepEqual(calls.map(call => call.command), [healthy]);
+  assert.deepEqual(launchReceipt(options).rejected, [
+    { source: 'recorded', path: gone, problem: 'missing' },
+    { source: 'path', path: path.join(alias, 'pi-web'), problem: 'launcher-path' },
+    { source: 'path', path: path.join(links, 'pi-web'), problem: 'launcher-path' },
+  ]);
+});
+
+test('launch-web skips relative PATH entries, which name the working directory instead of an installation', async t => {
+  const options = fixture(t);
+  const gone = deletedRealWeb(options);
+  fs.mkdirSync(options.stateDir, { recursive: true });
+  fs.writeFileSync(path.join(options.stateDir, 'host.json'), JSON.stringify({ version: 1, realWeb: gone, mode: 'path-wrapper' }));
+  // PATH=node_modules/.bin:... while the launcher runs inside some project.
+  const project = executable(path.join(options.home, 'project/node_modules/.bin/pi-web'));
+  const relative = path.relative(process.cwd(), path.dirname(project));
+  assert.equal(path.isAbsolute(relative), false);
+  assert.equal(path.resolve(relative, 'pi-web'), project);
+  const healthy = executable(path.join(options.home, 'image/bin/pi-web'));
+  const calls = [];
+  const env = { ...options.env, PATH: ['', relative, path.dirname(healthy)].join(path.delimiter) };
+  await launchWeb([], { ...options, ...inactive, env, spawn: exitingSpawn(calls) });
+  assert.deepEqual(calls.map(call => call.command), [healthy]);
+  assert.deepEqual(launchReceipt(options).rejected, [{ source: 'recorded', path: gone, problem: 'missing' }]);
+});
+
+test('launch-web marks only the Pi Web it starts and refuses to run again inside it', async t => {
+  const options = fixture(t);
+  const realWeb = executable(path.join(options.home, 'image/bin/pi-web'));
+  await installHost({ ...options, realWeb });
+  const calls = [];
+  await launchWeb([], { ...options, runtime: { observeLifecycle: async () => {} }, spawn: exitingSpawn(calls) });
+  assert.equal(calls[0].command, realWeb);
+  assert.equal(calls[0].settings.env.PI_OMNIGENT_LAUNCH_WEB, String(process.pid));
+  assert.equal(Object.hasOwn(calls[1].settings.env, 'PI_OMNIGENT_LAUNCH_WEB'), false, 'the boot worker is not marked');
+  const receipt = fs.readFileSync(path.join(options.stateDir, 'launch.json'), 'utf8');
+  let spawned = 0;
+  await assert.rejects(launchWeb([], { ...options, ...inactive, env: calls[0].settings.env, spawn: () => { spawned++; } }), { code: 'PI_WEB_LAUNCH_LOOP' });
+  assert.equal(spawned, 0);
+  assert.equal(fs.readFileSync(path.join(options.stateDir, 'launch.json'), 'utf8'), receipt, 'the outer launch receipt is kept');
+});
+
+test('a chosen pi-web that runs the plugin launcher again stops after one round with PI_WEB_LAUNCH_LOOP', async t => {
+  const options = fixture(t);
+  const counter = path.join(options.home, 'rounds');
+  // A foreign wrapper that calls back into pi-web. It gives up by itself after three rounds, so a
+  // missing guard ends with exit 99 instead of recursing forever.
+  const looping = path.join(options.home, 'wrapper/pi-web');
+  const installed = await installHost({ ...options, realWeb: executable(looping) });
+  executable(looping, `#!/bin/sh\ncount=0\n[ -f ${JSON.stringify(counter)} ] && read -r count < ${JSON.stringify(counter)}\ncount=$((count + 1))\n`
+    + `echo "$count" > ${JSON.stringify(counter)}\n[ "$count" -gt 3 ] && exit 99\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(installed.shim)} "$@"\n`);
+  const result = await promisify(execFile)(process.execPath, [installed.shim], { timeout: 60000,
+    env: { HOME: options.home, PI_CODING_AGENT_DIR: options.agentDir, PATH: '' } }).catch(error => error);
+  assert.equal(result.code, 1, `launcher output: ${result.stdout ?? ''}`);
+  assert.equal(fs.readFileSync(counter, 'utf8').trim(), '1');
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.error, 'Operation failed (PI_WEB_LAUNCH_LOOP).');
+  assert.match(output.hint, /pi-omnigent doctor/);
+});
+
+test('launch-web CLI keeps a fixed doctor hint when no Pi Web can run', async t => {
+  const options = fixture(t);
+  const gone = deletedRealWeb(options);
+  fs.mkdirSync(options.stateDir, { recursive: true });
+  fs.writeFileSync(path.join(options.stateDir, 'host.json'), JSON.stringify({ version: 1, realWeb: gone, mode: 'path-wrapper' }));
+  const result = await promisify(execFile)(process.execPath, [path.join(options.root, 'bin/cli.mjs'), 'launch-web'], { timeout: 60000,
+    env: { HOME: options.home, PI_CODING_AGENT_DIR: options.agentDir, PATH: '' } }).catch(error => error);
+  assert.equal(result.code, 1);
+  assert.deepEqual(JSON.parse(result.stdout), { phase: 'error', error: 'Operation failed (PI_WEB_UNAVAILABLE).',
+    hint: describeIssue({ code: 'PI_WEB_UNAVAILABLE' }).hints.en });
+  assert.match(JSON.parse(result.stdout).hint, /pi-omnigent doctor/);
 });
 
 test('native settings watcher observes atomic disable and enable replacements and stops cleanly', async t => {

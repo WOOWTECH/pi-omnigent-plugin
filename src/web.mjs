@@ -24,11 +24,15 @@ function readJson(file) {
   catch (error) { if (error.code === 'ENOENT') return {}; throw new Error('Plugin metadata is unreadable; inspect the plugin state directory.'); }
 }
 
-function writeJson(file, value) {
+function writeJson(file, value, expected) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const temporary = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
   try {
     fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+    // A repair never overwrites a record that changed after it was inspected.
+    if (expected !== undefined && fs.readFileSync(file, 'utf8') !== expected) {
+      throw Object.assign(new Error('Launcher metadata changed; run the check again.'), { code: 'HOST_RECORD_CHANGED' });
+    }
     fs.renameSync(temporary, file);
   } finally {
     try { fs.unlinkSync(temporary); } catch {}
@@ -110,18 +114,63 @@ export function watchPackageLifecycle(onChange, options = {}) {
   return async () => { closed = true; for (const file of files) fs.unwatchFile(file, listener); await pending; };
 }
 
-function findExecutable(command, env, exclude = []) {
-  for (const directory of (env.PATH || '').split(path.delimiter)) {
-    if (!directory) continue;
-    const file = path.resolve(directory, command);
-    if (exclude.includes(file)) continue;
-    try { fs.accessSync(file, fs.constants.X_OK); if (fs.statSync(file).isFile()) return file; } catch {}
-  }
-  return null;
-}
-
 function isOwnedLauncher(file) {
   try { return fs.readFileSync(file, 'utf8').includes(launcherMarker); } catch { return false; }
+}
+
+/** Why a launcher candidate cannot be started; null when it can. */
+function launchProblem(file) {
+  if (!path.isAbsolute(file)) return 'not-absolute';
+  let stat;
+  try { stat = fs.statSync(file); }
+  catch (error) { return ['ENOENT', 'ENOTDIR', 'ELOOP'].includes(error.code) ? 'missing' : 'unreadable'; }
+  if (!stat.isFile()) return 'not-a-file';
+  try { fs.accessSync(file, fs.constants.X_OK); } catch { return 'not-executable'; }
+  // Starting this plugin's own wrapper would loop back into launch-web.
+  return isOwnedLauncher(file) ? 'plugin-launcher' : null;
+}
+
+/**
+ * Choose the Pi Web executable the launcher chain runs. A recorded realWeb can
+ * outlive its file (a deleted UI copy, a moved image path), so it is used only
+ * while it still runs; then the captured upstream launcher; then the first
+ * pi-web on PATH that is not this plugin's launcher. Rejections keep a reason.
+ */
+export function resolveRealWeb(host = {}, options = {}) {
+  const loc = webLocations(options);
+  const env = options.env || process.env;
+  // The launchers' own locations are never a fallback, whoever wrote them: a user
+  // launcher there may itself run pi-omnigent-web and would loop. Real paths, so a
+  // PATH entry that aliases ~/.local/bin (or links to a launcher) is caught too.
+  const canonical = file => { try { return fs.realpathSync(file); } catch { return path.resolve(file); } };
+  const launchers = new Set(['pi-web', 'pi-omnigent-web'].map(name => canonical(path.join(loc.home, '.local/bin', name))));
+  const rejected = [];
+  const runnable = (file, source) => {
+    const problem = launchProblem(file);
+    if (problem) rejected.push({ source, path: file, problem });
+    return !problem;
+  };
+  for (const [source, file] of [['recorded', host.realWeb], ['backup', host.backup]]) {
+    if (typeof file === 'string' && file && runnable(file, source)) return { realWeb: file, source, rejected };
+  }
+  for (const directory of (env.PATH || '').split(path.delimiter)) {
+    // Empty and relative entries depend on the working directory (node_modules/.bin), not on an installation.
+    if (!path.isAbsolute(directory)) continue;
+    const file = path.resolve(directory, 'pi-web');
+    if (!fs.existsSync(file)) continue;
+    if (launchers.has(canonical(file))) { rejected.push({ source: 'path', path: file, problem: 'launcher-path' }); continue; }
+    if (runnable(file, 'path')) return { realWeb: file, source: 'path', rejected };
+  }
+  return { realWeb: null, source: null, rejected };
+}
+
+/** Receipt of the last launcher-chain choice: what runs, from where, and why. */
+function writeLaunchReceipt(loc, by, recorded, chosen) {
+  try {
+    writeJson(path.join(loc.stateDir, 'launch.json'), { schemaVersion: 1, checkedAt: new Date().toISOString(), by,
+      realWeb: chosen.realWeb, source: chosen.source, recorded: recorded || null,
+      changed: chosen.realWeb !== (recorded || null), rejected: chosen.rejected });
+  } catch {}
 }
 
 function writeLauncher(file, pluginRoot, realWeb) {
@@ -169,8 +218,13 @@ export async function installHost(options = {}) {
   const owned = isOwnedLauncher(shim);
   const upstream = !owned && fs.existsSync(shim) ? captureKnownUpstream(shim, loc.stateDir) : null;
   const foreign = fs.existsSync(shim) && !owned && !upstream;
-  const realWeb = options.realWeb || upstream?.backup || (foreign ? shim : previous.realWeb || findExecutable('pi-web', env, [shim, namedShim]));
+  const chosen = options.realWeb ? { realWeb: options.realWeb, source: 'explicit', rejected: [] }
+    : upstream ? { realWeb: upstream.backup, source: 'captured-upstream', rejected: [] }
+    : foreign ? { realWeb: shim, source: 'foreign-launcher', rejected: [] }
+    : resolveRealWeb(previous, { loc, env });
+  const realWeb = chosen.realWeb;
   if (!realWeb || path.resolve(realWeb) === namedShim || (owned && path.resolve(realWeb) === shim)) {
+    writeLaunchReceipt(loc, 'install-host', previous.realWeb, { ...chosen, realWeb: null, source: null });
     return { status: 'host-unavailable', reason: 'Pi Web executable was not found.', launchCommand: 'pi-omnigent launch-web' };
   }
   if (fs.existsSync(namedShim) && !isOwnedLauncher(namedShim)) {
@@ -178,10 +232,13 @@ export async function installHost(options = {}) {
   }
   writeLauncher(namedShim, loc.root, realWeb);
   if (!foreign) writeLauncher(shim, loc.root, realWeb);
-  const backup = upstream || (owned && previous.backup ? { backup: previous.backup, backupHash: previous.backupHash, originalShim: previous.originalShim } : {});
+  // The captured upstream launcher stays restorable when it is what now runs.
+  const backup = upstream || ((owned || chosen.source === 'backup') && previous.backup
+    ? { backup: previous.backup, backupHash: previous.backupHash, originalShim: previous.originalShim } : {});
   const record = { version: 1, realWeb, shim: foreign ? namedShim : shim, namedShim, ...backup,
     mode: foreign ? 'named-wrapper' : backup.backup ? 'chained-path-wrapper' : 'path-wrapper', installedAt: new Date().toISOString() };
   writeJson(file, record);
+  writeLaunchReceipt(loc, 'install-host', previous.realWeb, chosen);
   return { ...record, status: foreign ? 'composable-wrapper' : 'installed', launchCommand: foreign ? 'pi-omnigent-web' : 'pi-web', ...(foreign ? { reason: 'Existing Pi Web launcher preserved; the named wrapper runs it.' } : {}) };
 }
 
@@ -209,6 +266,52 @@ export async function uninstallHost(options = {}) {
   if (isOwnedLauncher(namedShim)) fs.unlinkSync(namedShim);
   if (Object.keys(host).length) writeJson(metadata, { ...host, mode: 'uninstalled', uninstalledAt: new Date().toISOString() });
   return { status };
+}
+
+/** Read-only view of the launcher chain for pi-omnigent doctor. */
+export function inspectLaunchChain(options = {}) {
+  const loc = webLocations(options);
+  const host = readJson(path.join(loc.stateDir, 'host.json'));
+  if (!Object.keys(host).length || host.mode === 'uninstalled') return { installed: false };
+  let last = null;
+  try { last = JSON.parse(fs.readFileSync(path.join(loc.stateDir, 'launch.json'), 'utf8')); } catch {}
+  return { installed: true, mode: host.mode || null, recorded: host.realWeb || null,
+    ...resolveRealWeb(host, { loc, env: options.env || process.env }),
+    ...(last ? { lastLaunch: { checkedAt: last.checkedAt || null, by: last.by || null, realWeb: last.realWeb || null, source: last.source || null } } : {}) };
+}
+
+// Own launchers embed realWeb as their fallback for a removed plugin CLI; only
+// that literal changes, never the CLI path or node binary they start.
+function repointLauncher(file, from, to) {
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); } catch { return false; }
+  const before = `const native=${JSON.stringify(from)};`;
+  if (typeof from !== 'string' || !text.includes(launcherMarker) || text.split(before).length !== 2) return false;
+  const temporary = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+  try {
+    fs.writeFileSync(temporary, text.replace(before, () => `const native=${JSON.stringify(to)};`), { mode: 0o755, flag: 'wx' });
+    fs.renameSync(temporary, file);
+  } finally { try { fs.unlinkSync(temporary); } catch {} }
+  return true;
+}
+
+/** pi-omnigent doctor --fix: repoint a realWeb that no longer runs; login and other state stay untouched. */
+export function repointRealWeb(options = {}) {
+  const loc = webLocations(options);
+  const file = path.join(loc.stateDir, 'host.json');
+  let raw, host;
+  try { raw = fs.readFileSync(file, 'utf8'); }
+  catch (error) { if (error.code === 'ENOENT') return { status: 'skipped', code: 'LAUNCHER_NOT_INSTALLED' }; throw error; }
+  try { host = JSON.parse(raw); } catch { return { status: 'skipped', code: 'HOST_RECORD_UNREADABLE' }; }
+  if (!host || typeof host !== 'object' || Array.isArray(host) || host.mode === 'uninstalled') return { status: 'skipped', code: 'LAUNCHER_NOT_INSTALLED' };
+  const chosen = resolveRealWeb(host, { loc, env: options.env || process.env });
+  if (chosen.source === 'recorded') return { status: 'unchanged', realWeb: host.realWeb };
+  if (!chosen.realWeb) return { status: 'skipped', code: 'PI_WEB_UNAVAILABLE' };
+  writeJson(file, { ...host, realWeb: chosen.realWeb }, raw);
+  const launchers = [path.join(loc.home, '.local/bin/pi-web'), path.join(loc.home, '.local/bin/pi-omnigent-web')]
+    .filter(launcher => repointLauncher(launcher, host.realWeb, chosen.realWeb));
+  writeLaunchReceipt(loc, 'doctor-fix', host.realWeb, chosen);
+  return { status: 'repointed', from: host.realWeb || null, to: chosen.realWeb, source: chosen.source, launchers, rejected: chosen.rejected };
 }
 
 // The oldest copy startup may be handed to. From 0.3.28 a copy binds only in
@@ -269,18 +372,29 @@ export async function boot(options = {}) {
     startup: { status: ready ? 'ready' : 'settings-required' } };
 }
 
+// Set for the Pi Web this launcher starts (the launcher's PID). Seeing it on entry
+// means the chosen pi-web ran pi-web or pi-omnigent-web again, which would recurse
+// forever now that every start searches PATH.
+const LAUNCH_SENTINEL = 'PI_OMNIGENT_LAUNCH_WEB';
+
 /** Compose with any captured executable, including another plugin's Pi Web shim. */
 export async function launchWeb(args = [], options = {}) {
   const loc = webLocations(options);
+  const env = options.env || process.env;
+  if (env[LAUNCH_SENTINEL]) throw Object.assign(new Error('Pi Web started pi-web again; run pi-omnigent doctor.'), { code: 'PI_WEB_LAUNCH_LOOP' });
   const host = readJson(path.join(loc.stateDir, 'host.json'));
   if (!host.realWeb) throw new Error('Run pi-omnigent install-host before launch-web.');
   const spawnImpl = options.spawn || spawn;
-  const env = options.env || process.env;
   const lifecycle = await packageLifecycle(options);
   const runtime = options.runtime || await import('./runtime.mjs');
   const lifecycleOptions = { loc, env };
   await runtime.observeLifecycle?.(lifecycle, lifecycleOptions);
-  const child = spawnImpl(host.realWeb, args, { stdio: 'inherit', env });
+  // Never spawn a recorded path that no longer runs (Operation failed (ENOENT)).
+  const chosen = resolveRealWeb(host, { loc, env });
+  writeLaunchReceipt(loc, 'launch-web', host.realWeb, chosen);
+  if (!chosen.realWeb) throw Object.assign(new Error('No runnable Pi Web executable; run pi-omnigent doctor.'), { code: 'PI_WEB_UNAVAILABLE' });
+  // Only Pi Web's own process tree carries the sentinel; the boot worker below does not.
+  const child = spawnImpl(chosen.realWeb, args, { stdio: 'inherit', env: { ...env, [LAUNCH_SENTINEL]: String(process.pid) } });
   const parsedPort = args.findIndex(argument => argument === '--port' || argument === '-p');
   const port = parsedPort >= 0 ? args[parsedPort + 1] : args.find(argument => argument.startsWith('--port='))?.slice(7);
   const workerEnv = { ...env, PI_CODING_AGENT_DIR: loc.agentDir, PI_OMNIGENT_STATE_DIR: loc.stateDir,
