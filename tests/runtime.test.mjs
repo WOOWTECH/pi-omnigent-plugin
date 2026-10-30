@@ -403,10 +403,11 @@ test('a slow Pi model refresh no longer holds the catalog for its full run', asy
   ctx.dependencies.pi.path = '/fake/pi';
   saveJSON(path.join(ctx.loc.stateDir, 'state.json'), { server: 'https://omni.test', enabled: true, loginConfirmed: true });
   saveJSON(path.join(ctx.loc.agentDir, 'auth.json'), { 'openai-codex': { type: 'oauth' } });
-  let release, refreshCount = 0, refreshed = false;
+  let release, finish, refreshCount = 0, refreshed = false;
   const gate = new Promise(resolve => { release = resolve; });
+  const finished = new Promise(resolve => { finish = resolve; });
   ctx.piRefreshWaitMs = 20;
-  ctx.runPiModelRefresh = async () => { refreshCount++; await gate; refreshed = true; return { code: 0 }; };
+  ctx.runPiModelRefresh = async () => { refreshCount++; await gate; refreshed = true; finish(); return { code: 0 }; };
   ctx.callAdapter = async input => input.action === 'catalog' ? { ok: true, data: {
     host: { id: 'host-1', connected: true },
     engines: { pi: { installed: true, configured: true, ready: refreshed, models: refreshed ? [{ id: 'openai-codex/gpt-6.1-sol' }] : [] } },
@@ -416,7 +417,8 @@ test('a slow Pi model refresh no longer holds the catalog for its full run', asy
   assert.ok(Date.now() - started < 2_000);
   assert.equal(first.data.engines.pi.models.length, 0);
   release();
-  await new Promise(resolve => setTimeout(resolve, 20));
+  // The refresh keeps running after the first read returned; wait for it, not for a fixed time.
+  await finished;
   const second = await catalog(ctx);
   assert.equal(second.data.engines.pi.models.length, 1);
   assert.equal(refreshCount, 1);
