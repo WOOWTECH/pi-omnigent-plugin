@@ -142,9 +142,11 @@ function launchProblem(file) {
 export function resolveRealWeb(host = {}, options = {}) {
   const loc = webLocations(options);
   const env = options.env || process.env;
-  // The launcher's own location is never a fallback, whoever wrote it: a user
-  // launcher there may itself run pi-omnigent-web and would loop.
-  const launcherPath = path.join(loc.home, '.local/bin/pi-web');
+  // The launchers' own locations are never a fallback, whoever wrote them: a user
+  // launcher there may itself run pi-omnigent-web and would loop. Real paths, so a
+  // PATH entry that aliases ~/.local/bin (or links to a launcher) is caught too.
+  const canonical = file => { try { return fs.realpathSync(file); } catch { return path.resolve(file); } };
+  const launchers = new Set(['pi-web', 'pi-omnigent-web'].map(name => canonical(path.join(loc.home, '.local/bin', name))));
   const rejected = [];
   const runnable = (file, source) => {
     const problem = launchProblem(file);
@@ -155,10 +157,11 @@ export function resolveRealWeb(host = {}, options = {}) {
     if (typeof file === 'string' && file && runnable(file, source)) return { realWeb: file, source, rejected };
   }
   for (const directory of (env.PATH || '').split(path.delimiter)) {
-    if (!directory) continue;
+    // Empty and relative entries depend on the working directory (node_modules/.bin), not on an installation.
+    if (!path.isAbsolute(directory)) continue;
     const file = path.resolve(directory, 'pi-web');
     if (!fs.existsSync(file)) continue;
-    if (file === launcherPath) { rejected.push({ source: 'path', path: file, problem: 'launcher-path' }); continue; }
+    if (launchers.has(canonical(file))) { rejected.push({ source: 'path', path: file, problem: 'launcher-path' }); continue; }
     if (runnable(file, 'path')) return { realWeb: file, source: 'path', rejected };
   }
   return { realWeb: null, source: null, rejected };
@@ -341,13 +344,19 @@ export async function boot(options = {}) {
     startup: { status: ready ? 'ready' : 'settings-required' } };
 }
 
+// Set for the Pi Web this launcher starts (the launcher's PID). Seeing it on entry
+// means the chosen pi-web ran pi-web or pi-omnigent-web again, which would recurse
+// forever now that every start searches PATH.
+const LAUNCH_SENTINEL = 'PI_OMNIGENT_LAUNCH_WEB';
+
 /** Compose with any captured executable, including another plugin's Pi Web shim. */
 export async function launchWeb(args = [], options = {}) {
   const loc = webLocations(options);
+  const env = options.env || process.env;
+  if (env[LAUNCH_SENTINEL]) throw Object.assign(new Error('Pi Web started pi-web again; run pi-omnigent doctor.'), { code: 'PI_WEB_LAUNCH_LOOP' });
   const host = readJson(path.join(loc.stateDir, 'host.json'));
   if (!host.realWeb) throw new Error('Run pi-omnigent install-host before launch-web.');
   const spawnImpl = options.spawn || spawn;
-  const env = options.env || process.env;
   const lifecycle = await packageLifecycle(options);
   const runtime = options.runtime || await import('./runtime.mjs');
   const lifecycleOptions = { loc, env };
@@ -356,7 +365,8 @@ export async function launchWeb(args = [], options = {}) {
   const chosen = resolveRealWeb(host, { loc, env });
   writeLaunchReceipt(loc, 'launch-web', host.realWeb, chosen);
   if (!chosen.realWeb) throw Object.assign(new Error('No runnable Pi Web executable; run pi-omnigent doctor.'), { code: 'PI_WEB_UNAVAILABLE' });
-  const child = spawnImpl(chosen.realWeb, args, { stdio: 'inherit', env });
+  // Only Pi Web's own process tree carries the sentinel; the boot worker below does not.
+  const child = spawnImpl(chosen.realWeb, args, { stdio: 'inherit', env: { ...env, [LAUNCH_SENTINEL]: String(process.pid) } });
   const parsedPort = args.findIndex(argument => argument === '--port' || argument === '-p');
   const port = parsedPort >= 0 ? args[parsedPort + 1] : args.find(argument => argument.startsWith('--port='))?.slice(7);
   const workerEnv = { ...env, PI_CODING_AGENT_DIR: loc.agentDir, PI_OMNIGENT_STATE_DIR: loc.stateDir,

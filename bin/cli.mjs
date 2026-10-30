@@ -13,6 +13,9 @@ import { installUi, cleanupUi, refuseNativeSettings, UiInstallError } from './in
 
 const [command = 'status', ...args] = process.argv.slice(2);
 const loc = locations();
+// Errors print their code only (safeError); these codes also get a fixed next step.
+const HINTS = { PI_WEB_UNAVAILABLE: 'run pi-omnigent doctor',
+  PI_WEB_LAUNCH_LOOP: 'the pi-web this launcher started ran pi-web again; check it with pi-omnigent doctor, or unset PI_OMNIGENT_LAUNCH_WEB to start a second Pi Web on purpose' };
 function option(name) { const index = args.indexOf(name); return index < 0 ? undefined : args[index + 1]; }
 // Strict flags for operator commands: unknown, repeated or value-less flags are
 // refused, and argument values are never echoed back.
@@ -95,7 +98,7 @@ try {
     process.exitCode = 2;
   }
 } catch (error) {
-  print({ phase: 'error', error: safeError(error),
+  print({ phase: 'error', error: safeError(error), ...(HINTS[error?.code] ? { hint: HINTS[error.code] } : {}),
     // A refusal with a fixed explanation (never command output) says why.
     ...(error instanceof UiInstallError && error.reason ? { code: error.code, reason: error.reason, piWeb: error.piWeb, evidence: error.evidence } : {}) });
   // Installation should remain available for remediation when first-run setup

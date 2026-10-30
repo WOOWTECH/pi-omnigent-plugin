@@ -450,6 +450,104 @@ test('the installed pi-web wrapper starts the healthy PATH Pi Web instead of exi
   assert.equal(launchReceipt(options).realWeb, healthy);
 });
 
+function exitingSpawn(calls) {
+  return (command, args, settings) => {
+    calls.push({ command, settings });
+    const child = new EventEmitter(); child.kill = () => {};
+    if (calls.length === 1) setImmediate(() => child.emit('exit', 0, null));
+    return child;
+  };
+}
+const inactive = { lifecycle: { active: false, reason: 'native-plugin-disabled' }, runtime: { observeLifecycle: async () => {} } };
+
+test('launch-web never falls back to the launchers through a PATH alias of ~/.local/bin or a link to pi-omnigent-web', async t => {
+  const options = fixture(t);
+  const gone = deletedRealWeb(options);
+  fs.mkdirSync(options.stateDir, { recursive: true });
+  fs.writeFileSync(path.join(options.stateDir, 'host.json'), JSON.stringify({ version: 1, realWeb: gone, mode: 'path-wrapper' }));
+  // Foreign launchers that call back into the plugin; starting either would loop.
+  const bin = path.join(options.home, '.local/bin');
+  executable(path.join(bin, 'pi-web'), '#!/bin/sh\nexec pi-omnigent-web "$@"\n');
+  executable(path.join(bin, 'pi-omnigent-web'), '#!/bin/sh\nexec pi-web "$@"\n');
+  const alias = path.join(options.home, 'alias-bin'), links = path.join(options.home, 'links');
+  fs.symlinkSync(bin, alias);
+  fs.mkdirSync(links);
+  fs.symlinkSync(path.join(bin, 'pi-omnigent-web'), path.join(links, 'pi-web'));
+  const healthy = executable(path.join(options.home, 'image/bin/pi-web'));
+  const calls = [];
+  const env = { ...options.env, PATH: [alias, links, path.dirname(healthy)].join(path.delimiter) };
+  await launchWeb([], { ...options, ...inactive, env, spawn: exitingSpawn(calls) });
+  assert.deepEqual(calls.map(call => call.command), [healthy]);
+  assert.deepEqual(launchReceipt(options).rejected, [
+    { source: 'recorded', path: gone, problem: 'missing' },
+    { source: 'path', path: path.join(alias, 'pi-web'), problem: 'launcher-path' },
+    { source: 'path', path: path.join(links, 'pi-web'), problem: 'launcher-path' },
+  ]);
+});
+
+test('launch-web skips relative PATH entries, which name the working directory instead of an installation', async t => {
+  const options = fixture(t);
+  const gone = deletedRealWeb(options);
+  fs.mkdirSync(options.stateDir, { recursive: true });
+  fs.writeFileSync(path.join(options.stateDir, 'host.json'), JSON.stringify({ version: 1, realWeb: gone, mode: 'path-wrapper' }));
+  // PATH=node_modules/.bin:... while the launcher runs inside some project.
+  const project = executable(path.join(options.home, 'project/node_modules/.bin/pi-web'));
+  const relative = path.relative(process.cwd(), path.dirname(project));
+  assert.equal(path.isAbsolute(relative), false);
+  assert.equal(path.resolve(relative, 'pi-web'), project);
+  const healthy = executable(path.join(options.home, 'image/bin/pi-web'));
+  const calls = [];
+  const env = { ...options.env, PATH: ['', relative, path.dirname(healthy)].join(path.delimiter) };
+  await launchWeb([], { ...options, ...inactive, env, spawn: exitingSpawn(calls) });
+  assert.deepEqual(calls.map(call => call.command), [healthy]);
+  assert.deepEqual(launchReceipt(options).rejected, [{ source: 'recorded', path: gone, problem: 'missing' }]);
+});
+
+test('launch-web marks only the Pi Web it starts and refuses to run again inside it', async t => {
+  const options = fixture(t);
+  const realWeb = executable(path.join(options.home, 'image/bin/pi-web'));
+  await installHost({ ...options, realWeb });
+  const calls = [];
+  await launchWeb([], { ...options, runtime: { observeLifecycle: async () => {} }, spawn: exitingSpawn(calls) });
+  assert.equal(calls[0].command, realWeb);
+  assert.equal(calls[0].settings.env.PI_OMNIGENT_LAUNCH_WEB, String(process.pid));
+  assert.equal(Object.hasOwn(calls[1].settings.env, 'PI_OMNIGENT_LAUNCH_WEB'), false, 'the boot worker is not marked');
+  const receipt = fs.readFileSync(path.join(options.stateDir, 'launch.json'), 'utf8');
+  let spawned = 0;
+  await assert.rejects(launchWeb([], { ...options, ...inactive, env: calls[0].settings.env, spawn: () => { spawned++; } }), { code: 'PI_WEB_LAUNCH_LOOP' });
+  assert.equal(spawned, 0);
+  assert.equal(fs.readFileSync(path.join(options.stateDir, 'launch.json'), 'utf8'), receipt, 'the outer launch receipt is kept');
+});
+
+test('a chosen pi-web that runs the plugin launcher again stops after one round with PI_WEB_LAUNCH_LOOP', async t => {
+  const options = fixture(t);
+  const counter = path.join(options.home, 'rounds');
+  // A foreign wrapper that calls back into pi-web. It gives up by itself after three rounds, so a
+  // missing guard ends with exit 99 instead of recursing forever.
+  const looping = path.join(options.home, 'wrapper/pi-web');
+  const installed = await installHost({ ...options, realWeb: executable(looping) });
+  executable(looping, `#!/bin/sh\ncount=0\n[ -f ${JSON.stringify(counter)} ] && read -r count < ${JSON.stringify(counter)}\ncount=$((count + 1))\n`
+    + `echo "$count" > ${JSON.stringify(counter)}\n[ "$count" -gt 3 ] && exit 99\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(installed.shim)} "$@"\n`);
+  const result = await promisify(execFile)(process.execPath, [installed.shim], { timeout: 60000,
+    env: { HOME: options.home, PI_CODING_AGENT_DIR: options.agentDir, PATH: '' } }).catch(error => error);
+  assert.equal(result.code, 1, `launcher output: ${result.stdout ?? ''}`);
+  assert.equal(fs.readFileSync(counter, 'utf8').trim(), '1');
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.error, 'Operation failed (PI_WEB_LAUNCH_LOOP).');
+  assert.match(output.hint, /pi-omnigent doctor/);
+});
+
+test('launch-web CLI keeps a fixed doctor hint when no Pi Web can run', async t => {
+  const options = fixture(t);
+  const gone = deletedRealWeb(options);
+  fs.mkdirSync(options.stateDir, { recursive: true });
+  fs.writeFileSync(path.join(options.stateDir, 'host.json'), JSON.stringify({ version: 1, realWeb: gone, mode: 'path-wrapper' }));
+  const result = await promisify(execFile)(process.execPath, [path.join(options.root, 'bin/cli.mjs'), 'launch-web'], { timeout: 60000,
+    env: { HOME: options.home, PI_CODING_AGENT_DIR: options.agentDir, PATH: '' } }).catch(error => error);
+  assert.equal(result.code, 1);
+  assert.deepEqual(JSON.parse(result.stdout), { phase: 'error', error: 'Operation failed (PI_WEB_UNAVAILABLE).', hint: 'run pi-omnigent doctor' });
+});
+
 test('native settings watcher observes atomic disable and enable replacements and stops cleanly', async t => {
   const options = fixture(t); const sdk = await loadPiSdk();
   const settings = sdk.SettingsManager.create(options.home, options.agentDir, { projectTrusted: false });
