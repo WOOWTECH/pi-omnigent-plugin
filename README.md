@@ -15,8 +15,10 @@ Repository 為公開，可直接安裝，不需要 GitHub token。安裝後請�
 商業部署請固定版本，避免不同容器在更新時取得不同程式：
 
 ```text
-git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.29
+git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.30
 ```
+
+v0.3.30 讓升級與故障更好處理，Settings → Omnigent 仍是唯一的綁定入口、不建立設定對話：①同一套件換來源（git 釘選、映像內建的 `/opt/woow/...`、npm）視為升級而非移除，已核准的登入與驗證回條都保留；外掛依套件名稱判斷 Pi 載入哪一份，尚未安裝的 git 來源只認官方 repository。②設定頁與 `omnigent_status` 會附上每個問題代碼的原因與下一步（英文、繁中、簡中）；主機被別的帳號佔用（`NEEDS_RESET_ID`）時先請你用擁有它的帳號重新登入，`reset-id` 只在確定不再使用原帳號時才做。③啟動鏈記錄的 Pi Web 失效時，自動退回可用的 pi-web；已有原生設定頁的映像（root／PaaS／HA）不需要也會拒絕 `install-ui`，Paseo 的安裝流程不受影響。④新增 `pi-omnigent doctor [--fix]` 檢查啟動鏈，以及只從 stdin 讀密碼的 `pi-omnigent connect --server URL --username NAME --password-stdin`。⑤接受 Paseo 0.1.14 與 0.1.15（與 0.1.13 相同的補丁雜湊）。發佈檔改由 CI 從 tag 打包並附 SHA256SUMS，CI 另以真的 Omnigent 伺服器（0.16.0、0.19.1）跑連線契約。
 
 v0.3.29 修正全新安裝（沒有任何對話、也沒選專案）的三個問題，Settings → Omnigent 仍是唯一的綁定入口：①Omnigent＋Paseo 合併介面的 Settings → Paseo 在這種狀態下會回 404、所有狀態列顯示「尚未取得」且無法產生配對連結，現在改由伺服器自己決定的目錄（`PI_PASEO_CWD`，否則使用者家目錄；家目錄只讀全域套件）提供，客戶端指定的目錄仍必須在 Pi Web 已服務的根目錄內；②首頁「Get Started」多一行純文字提示，指向 Settings → Omnigent（不是按鈕或連結，不開啟對話）；③Settings → Paseo 分頁在手機與小視窗無法捲動、底部控制項被截斷，現在可捲動。合併補丁改為驗證 Paseo v0.1.13 的精確補丁雜湊，新增「全新安裝」瀏覽器回歸測試。自行管理的 Pi Web 須執行 `pi-omnigent install-ui` 並重啟；已內建原生 Settings → Omnigent 頁面的映像（root／PaaS 映像、HA add-on）不需要 `install-ui`，命令也會拒絕執行，請直接更新映像或 add-on。
 
@@ -216,8 +218,8 @@ v0.3.8 在驗證時定期查詢插件建立的測試 session 狀態；上游 HTT
 已有舊版 Omnigent／Paseo 的環境，先升級 Omnigent，再安裝對應的 Paseo。固定版本組合不可交叉混用：
 
 ```sh
-pi install git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.29
-pi install git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.14
+pi install git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.30
+pi install git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.15
 ```
 
 Paseo 安裝器會交給 Omnigent 建立共用介面；完成後重啟 Pi Web，再到 Settings → Paseo 配對。收到 `RESTART_REQUIRED` 時，完成重啟後重新整理並驗證三種引擎對話。首次編譯建議預留至少 3 GiB 可用磁碟空間；實測不足 1 GiB 時套件安裝可能因 `ENOSPC` 失敗。官方 Paseo 的主機顯示名稱請在 Paseo App 內修改；插件的「容器備註」僅存於設定頁。
