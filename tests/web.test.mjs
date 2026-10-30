@@ -8,6 +8,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { installHost, uninstallHost, loadPiSdk, boot, launchWeb, packageLifecycle, watchPackageLifecycle, ensureOnboarding, readOnboarding } from '../src/web.mjs';
+import { describeIssue } from '../src/issues.mjs';
 
 function fixture(t) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-omnigent-web-'));
@@ -545,7 +546,9 @@ test('launch-web CLI keeps a fixed doctor hint when no Pi Web can run', async t 
   const result = await promisify(execFile)(process.execPath, [path.join(options.root, 'bin/cli.mjs'), 'launch-web'], { timeout: 60000,
     env: { HOME: options.home, PI_CODING_AGENT_DIR: options.agentDir, PATH: '' } }).catch(error => error);
   assert.equal(result.code, 1);
-  assert.deepEqual(JSON.parse(result.stdout), { phase: 'error', error: 'Operation failed (PI_WEB_UNAVAILABLE).', hint: 'run pi-omnigent doctor' });
+  assert.deepEqual(JSON.parse(result.stdout), { phase: 'error', error: 'Operation failed (PI_WEB_UNAVAILABLE).',
+    hint: describeIssue({ code: 'PI_WEB_UNAVAILABLE' }).hints.en });
+  assert.match(JSON.parse(result.stdout).hint, /pi-omnigent doctor/);
 });
 
 test('native settings watcher observes atomic disable and enable replacements and stops cleanly', async t => {
