@@ -229,15 +229,58 @@ test('successful command without a discovered Omnigent executable is still a fai
 
 test('rejects unsupported operating systems or architectures without discovery or installations', async t => {
   const directory = await isolated(t);
-  for (const [platform, arch] of [['win32', 'x64'], ['darwin', 'arm64'], ['linux', 'ia32']]) {
+  for (const [platform, arch] of [['win32', 'x64'], ['sunos', 'x64'], ['linux', 'ia32'], ['darwin', 'ia32']]) {
     const result = await installDependencies(options(directory, {
       platform, arch,
       discover: async () => { assert.fail('unsupported platform must not probe or install'); },
       run: async () => { assert.fail('unsupported platform must not execute'); },
     }));
     assert.equal(result.ok, false);
-    assert.match(result.issues[0], /requires a Linux x64 or arm64 container/);
+    assert.match(result.issues[0], /requires Linux or macOS on x64 or arm64/);
   }
+});
+
+test('discovers and installs on macOS, where the engines run natively too', async t => {
+  // Verified on macOS 26.4 / arm64: with darwin allowed, the plugin bootstraps
+  // its own uv + omnigent and finds all three engines. The gate used to return
+  // before discovery, so every dependency reported missing and the Omnigent
+  // settings tab could never leave DEPENDENCIES_MISSING on a Mac.
+  const directory = await isolated(t);
+  const result = await installDependencies(options(directory, {
+    platform: 'darwin', arch: 'arm64',
+    discover: async () => complete(),
+    run: async () => ({ code: 0, stdout: '', stderr: '' }),
+  }));
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.issues, []);
+  assert.deepEqual(result.installedEngines, ['claude', 'codex', 'pi']);
+});
+
+test('does not ask a Mac for bubblewrap, which only exists on Linux', async t => {
+  const directory = await isolated(t);
+  const snapshot = { ...complete(), bwrap: absent() };
+  for (const [platform, expected] of [['linux', 1], ['darwin', 0]]) {
+    const result = await installDependencies(options(directory, {
+      platform, arch: 'arm64',
+      discover: async () => snapshot,
+      run: async () => ({ code: 0, stdout: '', stderr: '' }),
+    }));
+    assert.equal(result.ok, true);
+    assert.equal(result.warnings.filter(warning => /bubblewrap/.test(warning)).length, expected);
+  }
+});
+
+test('tells a Mac how to install tmux instead of pointing at a container image', async t => {
+  const directory = await isolated(t);
+  const snapshot = { ...complete(), tmux: absent() };
+  const result = await installDependencies(options(directory, {
+    platform: 'darwin', arch: 'arm64',
+    discover: async () => snapshot,
+    run: async () => ({ code: 0, stdout: '', stderr: '' }),
+  }));
+  assert.equal(result.ok, false);
+  assert.match(result.issues[0], /brew install tmux/);
+  assert.doesNotMatch(result.issues[0], /container image/);
 });
 
 test('old tmux blocks initialization while missing bwrap is reported as an optional capability', async t => {
