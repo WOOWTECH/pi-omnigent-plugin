@@ -218,8 +218,8 @@ export async function installDependencies({ update = false, env = process.env, h
     if (onProgress) onProgress(step);
   };
   const result = () => ({ ...discovery, ok: issues.length === 0, changed, issues, warnings, installed, installedEngines: ENGINE_NAMES.filter(name => discovery[name]?.available), steps });
-  if (platform !== 'linux' || !['x64', 'arm64'].includes(arch)) {
-    issues.push(`This plugin requires a Linux x64 or arm64 container (received ${platform}/${arch}).`);
+  if (!['linux', 'darwin'].includes(platform) || !['x64', 'arm64'].includes(arch)) {
+    issues.push(`This plugin requires Linux or macOS on x64 or arm64 (received ${platform}/${arch}).`);
     return result();
   }
   const versions = {};
@@ -318,9 +318,13 @@ export async function installDependencies({ update = false, env = process.env, h
     }
   }
   if (ENGINE_NAMES.some(name => discovery[name]?.available)) {
-    if (!discovery.tmux?.available) issues.push('tmux >=3.3 is required for the installed native engines. Add it to the container image, then retry.');
+    if (!discovery.tmux?.available) issues.push(platform === 'darwin'
+      ? 'tmux >=3.3 is required for the installed native engines. Install it (brew install tmux) and make sure its directory is on PATH, then retry. A non-login shell does not have Homebrew on PATH even when it is installed.'
+      : 'tmux >=3.3 is required for the installed native engines. Add it to the container image, then retry.');
     else if (!versionAtLeast(discovery.tmux.version, '3.3.0')) issues.push('tmux >=3.3 is required for the installed native engines. Upgrade tmux in the container image, then retry.');
-    if (!discovery.bwrap?.available) warnings.push('bubblewrap (bwrap) is unavailable. Sessions configured to use a bubblewrap sandbox need it in the container image with the required namespaces; native sessions can use their existing sandbox configuration.');
+    // bwrap is a Linux namespace tool: it cannot exist on macOS, so warning about
+    // it there -- and advising a container image -- is noise on a laptop.
+    if (platform !== 'darwin' && !discovery.bwrap?.available) warnings.push('bubblewrap (bwrap) is unavailable. Sessions configured to use a bubblewrap sandbox need it in the container image with the required namespaces; native sessions can use their existing sandbox configuration.');
   }
   return result();
 }
