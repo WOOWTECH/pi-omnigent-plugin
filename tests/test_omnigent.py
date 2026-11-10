@@ -513,6 +513,28 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(result["engines"]["pi"]["version"], "1.2.3")
         self.assertEqual(sum(call[1] == "/v1/hosts" for call in self.client.calls), 2)
 
+    def test_engine_version_probe_waits_30_seconds_for_a_slow_board_or_the_configured_override(self):
+        waits = []
+
+        def version(argv, **options):
+            self.assertEqual(argv[1:], ["--version"])
+            waits.append(options["timeout"])
+            return subprocess.CompletedProcess(argv, 0, stdout="2.1.296\n", stderr="")
+
+        with patch.object(adapter.shutil, "which", side_effect=lambda name: f"/usr/bin/{name}"), \
+                patch.object(adapter.subprocess, "run", side_effect=version), patch.dict(os.environ):
+            os.environ.pop("PI_OMNIGENT_PROBE_TIMEOUT_SECONDS", None)
+            engines = self.plugin().status()["engines"]
+            self.assertEqual(waits, [30, 30, 30])
+            self.assertEqual({key: engine["version"] for key, engine in engines.items()},
+                             {"claude": "2.1.296", "codex": "2.1.296", "pi": "2.1.296"})
+            os.environ["PI_OMNIGENT_PROBE_TIMEOUT_SECONDS"] = "90"
+            self.plugin().status()
+            self.assertEqual(waits[3:], [90, 90, 90])
+            for value in ("", "0", "301", "1.5", "30s", " 45", "٣٠"):
+                os.environ["PI_OMNIGENT_PROBE_TIMEOUT_SECONDS"] = value
+                self.assertEqual(adapter.probe_timeout_seconds(), 30, repr(value))
+
     def test_verify_only_fetches_selected_engine_models(self):
         result = self.plugin(engine="pi", model="real-model").verify()
         self.assertTrue(result["ok"])

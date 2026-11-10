@@ -14,6 +14,19 @@ export function locations(env = process.env) {
     omniDir: env.OMNIGENT_CONFIG_HOME || path.join(home, '.omnigent'),
     omniDataDir: env.OMNIGENT_DATA_DIR || env.OMNIGENT_CONFIG_HOME || path.join(home, '.omnigent') };
 }
+// How long a short-lived helper may take to answer: each `--version` probe in
+// installer.mjs, the lock helper below, and the adapter's engine probe
+// (PROBE_TIMEOUT_SECONDS in omnigent.py). Right after boot a slow board
+// (Allwinner H618, 2–4 GB, eMMC) can need more than the former 5 s for a cold
+// `omnigent --version` or a new Node process, so an installed Omnigent was
+// reported as DEPENDENCIES_MISSING, or the lock as LOCK_UNAVAILABLE, every boot.
+export const PROBE_TIMEOUT_MS = 30_000;
+/** PI_OMNIGENT_PROBE_TIMEOUT_SECONDS: whole seconds from 1 to 300; any other value keeps the default. */
+export function probeTimeoutMs(env = process.env) {
+  const value = env?.PI_OMNIGENT_PROBE_TIMEOUT_SECONDS;
+  const seconds = /^[0-9]{1,3}$/.test(value ?? '') ? Number(value) : 0;
+  return seconds >= 1 && seconds <= 300 ? seconds * 1_000 : PROBE_TIMEOUT_MS;
+}
 export function readJSON(file, fallback = {}) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
   catch (error) { if (error.code === 'ENOENT') return fallback; throw new Error('Plugin state could not be read; inspect or restore the state file.'); }
@@ -76,10 +89,11 @@ export async function locked(file, callback) {
     "process.stdout.write('LOCKED\\n'); process.stdin.resume();"], { stdio: ['pipe', 'pipe', 'ignore'] });
   const closed = new Promise(resolve => helper.once('close', resolve));
   helper.stdin.on('error', () => {});
+  const timeoutMs = probeTimeoutMs();
   let acquired;
   try {
     acquired = await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { helper.kill('SIGTERM'); reject(Object.assign(new Error('Lock helper timed out.'), { code: 'LOCK_UNAVAILABLE' })); }, 5000);
+      const timer = setTimeout(() => { helper.kill('SIGTERM'); reject(Object.assign(new Error('Lock helper timed out.'), { code: 'LOCK_UNAVAILABLE' })); }, timeoutMs);
       helper.once('error', error => { clearTimeout(timer); reject(error); });
       helper.stdout.once('data', chunk => { clearTimeout(timer); resolve(String(chunk).startsWith('LOCKED')); });
       helper.once('close', code => { clearTimeout(timer); code === 75 ? resolve(false) : reject(Object.assign(new Error('Lock helper failed.'), { code: 'LOCK_UNAVAILABLE' })); });

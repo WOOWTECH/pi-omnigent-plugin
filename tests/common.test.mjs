@@ -3,7 +3,53 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { locked, saveJSON, runJSON } from '../src/common.mjs';
+import { locked, saveJSON, runJSON, PROBE_TIMEOUT_MS, probeTimeoutMs } from '../src/common.mjs';
+
+function probeOverride(t, value) {
+  const saved = process.env.PI_OMNIGENT_PROBE_TIMEOUT_SECONDS;
+  const set = next => { if (next === undefined) delete process.env.PI_OMNIGENT_PROBE_TIMEOUT_SECONDS; else process.env.PI_OMNIGENT_PROBE_TIMEOUT_SECONDS = next; };
+  set(value); t.after(() => set(saved));
+  return set;
+}
+
+test('the probe wait is 30 s unless PI_OMNIGENT_PROBE_TIMEOUT_SECONDS gives whole seconds from 1 to 300', () => {
+  assert.equal(PROBE_TIMEOUT_MS, 30_000);
+  assert.equal(probeTimeoutMs({}), 30_000);
+  for (const [value, expected] of [['1', 1_000], ['90', 90_000], ['300', 300_000]]) {
+    assert.equal(probeTimeoutMs({ PI_OMNIGENT_PROBE_TIMEOUT_SECONDS: value }), expected, value);
+  }
+  for (const value of ['', '0', '301', '5000', '-5', '1.5', '30s', ' 45', '1e2', '0x1e']) {
+    assert.equal(probeTimeoutMs({ PI_OMNIGENT_PROBE_TIMEOUT_SECONDS: value }), 30_000, JSON.stringify(value));
+  }
+});
+
+test('a lock helper that is slow to start, as on a small board right after boot, still gets the lock', async t => {
+  const override = probeOverride(t, undefined);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'omnigent-lock-slow-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const lock = path.join(root, 'operation.lock');
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  // Simulated time: the helper answers just before the wait ends (the former limit was 5 s).
+  let pending = locked(lock, async () => 'entered');
+  t.mock.timers.tick(PROBE_TIMEOUT_MS - 1);
+  assert.equal(await pending, 'entered');
+  override('90');
+  pending = locked(lock, async () => 'entered with the override');
+  t.mock.timers.tick(90_000 - 1);
+  assert.equal(await pending, 'entered with the override');
+});
+
+test('a lock helper is given up once the probe wait has passed, and the lock stays free', async t => {
+  probeOverride(t, undefined);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'omnigent-lock-late-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const lock = path.join(root, 'operation.lock');
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const pending = locked(lock, async () => 'entered');
+  t.mock.timers.tick(PROBE_TIMEOUT_MS);
+  await assert.rejects(pending, { code: 'LOCK_UNAVAILABLE' });
+  assert.equal(await locked(lock, async () => 'recovered'), 'recovered');
+});
 
 test('adapter timeout kills a process that ignores SIGTERM before releasing the operation', async t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'omnigent-timeout-'));

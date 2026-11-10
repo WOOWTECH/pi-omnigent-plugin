@@ -3,6 +3,7 @@ import { access, mkdir, realpath, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { probeTimeoutMs } from './common.mjs';
 
 // Pinned releases are changed deliberately, never resolved through "latest" at runtime.
 export const DEPENDENCY_VERSIONS = Object.freeze({
@@ -108,7 +109,7 @@ async function probe(name, command, env, { run, now, cacheMs, fresh = false }) {
   const entry = { pending: true, expires: 0 };
   entry.promise = (async () => {
     try {
-      const result = await run(command, args, { env, timeoutMs: 5_000 });
+      const result = await run(command, args, { env, timeoutMs: probeTimeoutMs(env) });
       const version = `${result.stdout} ${result.stderr}`.match(VERSION)?.[1];
       if (result.code !== 0) cache.delete(key);
       return { available: result.code === 0, path: command, ...(version ? { version } : {}) };

@@ -82,6 +82,21 @@ test('a fresh discovery probes again inside the cache window and refreshes the c
   assert.equal(probes, 2);
 });
 
+test('gives each version probe 30 s, which a slow board needs right after boot, or PI_OMNIGENT_PROBE_TIMEOUT_SECONDS', async t => {
+  const directory = await isolated(t);
+  for (const name of ['omnigent', 'claude']) await writeFile(path.join(directory, name), name, { mode: 0o700 });
+  let waits = {};
+  const run = async (command, args, { timeoutMs }) => { waits[path.basename(command)] = timeoutMs; return { code: 0, stdout: '1.0.0', stderr: '' }; };
+  const env = { HOME: directory, PATH: directory, PI_OMNIGENT_BIN: path.join(directory, 'omnigent') };
+  assert.equal((await discover(env, { run, cacheMs: 0 })).omnigent.available, true);
+  assert.deepEqual(waits, { omnigent: 30_000, claude: 30_000, node: 30_000 });
+  for (const [value, expected] of [['90', 90_000], ['0', 30_000], ['forever', 30_000]]) {
+    waits = {};
+    await discover({ ...env, PI_OMNIGENT_PROBE_TIMEOUT_SECONDS: value }, { run, cacheMs: 0 });
+    assert.deepEqual(waits, { omnigent: expected, claude: expected, node: expected }, value);
+  }
+});
+
 test('preserves all existing image/global CLIs even when update is requested', async t => {
   const directory = await isolated(t);
   let runs = 0;
