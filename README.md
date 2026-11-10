@@ -102,11 +102,13 @@ v0.3.14 在插件自己建立的驗證對話中，若 Pi／Claude 主終端的�
 
 Linux 容器須提供 util-linux 的 `flock`，插件用它避免多個設定／驗證操作同時改寫狀態。程序意外退出後，核心會釋放鎖；插件不刪除 `.flock` 檔。版本查詢可重用 10 分鐘，執行檔變更或移除立即失效（包裝腳本如 `pi`、`codex` 背後的程式就地升級時，最長 10 分鐘後才看到新版本）；驗證與設定一律重新查詢，回條記的是實際回覆的版本；登入與主機在線狀態每次重新查詢。
 
+每個版本查詢（`--version`）與拿鎖時另起的輔助程序最多等 30 秒。慢的板子（例如 eMMC 上的 Allwinner H618）開機後第一次執行 `omnigent --version` 或啟動 Node 常超過 5 秒；以前只等 5 秒，已安裝的 Omnigent 會被當成沒裝（`DEPENDENCIES_MISSING`）或回報 `LOCK_UNAVAILABLE`。`PI_OMNIGENT_PROBE_TIMEOUT_SECONDS` 可改成 1–300 的整數秒，其他值一律用 30 秒。
+
 若缺少 uv，插件會以既有 Python／pip 安裝私有的 uv，再下載 Omnigent 所需的 Python。若連 Python ≥3.8／pip 都沒有，或原生引擎缺少 tmux，會回報所需依賴。bubblewrap 的需求由引擎及伺服器既有隔離政策決定；插件不修改政策、系統套件或容器權限。實際對話驗證會反映執行結果。
 
 狀態預設放在 `${PI_CODING_AGENT_DIR}/omnigent-plugin`，未設定時使用 `~/.pi/agent/omnigent-plugin`。Omnigent 設定位置遵守 `OMNIGENT_CONFIG_HOME`／`OMNIGENT_DATA_DIR`。
 
-可設定 `PI_OMNIGENT_STATE_DIR`、`PI_OMNIGENT_VERSION`、`PI_OMNIGENT_SDK_ROOT`、`PI_OMNIGENT_PI_WEB_URL`。為避免安裝包驗證時自動啟動，設定 `PI_OMNIGENT_SKIP_ACTIVATION=1`。
+可設定 `PI_OMNIGENT_STATE_DIR`、`PI_OMNIGENT_VERSION`、`PI_OMNIGENT_SDK_ROOT`、`PI_OMNIGENT_PI_WEB_URL`、`PI_OMNIGENT_PROBE_TIMEOUT_SECONDS`。為避免安裝包驗證時自動啟動，設定 `PI_OMNIGENT_SKIP_ACTIVATION=1`。
 
 若引擎更新後移動了執行檔，`/omnigent repair` 會將失效的標準 CLI 絕對路徑改成目前已安裝的位置；有效命令與自訂啟動器會保留。原生引擎啟動錯誤會立即回報安全的錯誤代碼，方便繼續修復。
 

@@ -40,6 +40,9 @@ ENGINES = {
 }
 SENTINEL = "OMNIGENT_CONNECTION_OK"
 PROBE_PROMPT = f"Reply exactly {SENTINEL}. Do not use tools or modify any files."
+# How long an engine's `--version` may take, with the same default and override as
+# PROBE_TIMEOUT_MS in common.mjs: right after boot a slow board can need more than 5 s.
+PROBE_TIMEOUT_SECONDS = 30
 
 
 class PluginError(Exception):
@@ -78,6 +81,13 @@ def safe_text(value: object, limit: int = 256) -> str | None:
     if not isinstance(value, str):
         return None
     return "".join(c for c in value if ord(c) >= 32 and ord(c) != 127)[:limit]
+
+
+def probe_timeout_seconds() -> int:
+    """PI_OMNIGENT_PROBE_TIMEOUT_SECONDS: whole seconds from 1 to 300; any other value keeps the default."""
+    value = os.environ.get("PI_OMNIGENT_PROBE_TIMEOUT_SECONDS", "")
+    seconds = int(value) if re.fullmatch(r"[0-9]{1,3}", value) else 0
+    return seconds if 1 <= seconds <= 300 else PROBE_TIMEOUT_SECONDS
 
 
 def read_json(path: Path) -> dict:
@@ -444,6 +454,7 @@ class Plugin:
             version = None
         host = self.local_host()
         engines = {}
+        probe_timeout = probe_timeout_seconds()
         for key, spec in ENGINES.items():
             inventory = self.request.get("engineInventory", {})
             entry = inventory.get(key) if isinstance(inventory, dict) else None
@@ -455,7 +466,7 @@ class Plugin:
             version_text = None
             if binary:
                 try:
-                    probe = subprocess.run([binary, "--version"], capture_output=True, text=True, timeout=5)
+                    probe = subprocess.run([binary, "--version"], capture_output=True, text=True, timeout=probe_timeout)
                     match = re.search(r"\d+\.\d+\.\d+(?:[-.][\w]+)*", probe.stdout)
                     if probe.returncode == 0 and match:
                         version_text = match.group(0)
