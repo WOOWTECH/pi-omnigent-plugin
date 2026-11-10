@@ -15,8 +15,10 @@ Repository 為公開，可直接安裝，不需要 GitHub token。安裝後請�
 商業部署請固定版本，避免不同容器在更新時取得不同程式：
 
 ```text
-git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.31
+git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.32
 ```
+
+v0.3.32 讓慢的板子開機後不再把已裝的 Omnigent 當成沒裝：`omnigent --version` 探測、拿鎖時另起的 Node、引擎的 `--version` 三處由 5 秒改為 30 秒（Allwinner H618 2–4 GB 實測冷開機要 4–7 秒，原本每次開機都報 `DEPENDENCIES_MISSING`）。環境變數 `PI_OMNIGENT_PROBE_TIMEOUT_SECONDS` 可設 1–300 秒，其他值維持 30。
 
 v0.3.31 讓 Settings → Omnigent 打開更快（實測後端約 4 秒，主要卡在每次重跑引擎版本檢查與兩次依序的伺服器讀取）：①引擎版本檢查的快取由 15 秒改為 10 分鐘；換掉或移除執行檔仍會立刻重新檢查，驗證與設定一律重新檢查，回條記的是實際回覆的版本。②已登入時，讀取狀態的同時就開始讀取模型清單，兩段伺服器往返重疊進行；`pi-omnigent status`、`doctor`、開機與 `/omnigent status` 等只讀狀態的指令不做這件事，也不會多寫任何檔案。③Pi 模型清單為空時的 `pi update --models`，設定頁最多等 5 秒，超過就先回目前的清單，刷新在背景完成，下次讀取就看得到模型；驗證、acceptance 與 `catalog` 指令會等整個刷新（同一時間只跑一次）。綁定仍只在 Settings → Omnigent，不建立設定對話；登入、主機與既有回條都不變。
 
@@ -222,7 +224,7 @@ v0.3.8 在驗證時定期查詢插件建立的測試 session 狀態；上游 HTT
 已有舊版 Omnigent／Paseo 的環境，先升級 Omnigent，再安裝對應的 Paseo。固定版本組合不可交叉混用：
 
 ```sh
-pi install git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.31
+pi install git:github.com/WOOWTECH/pi-omnigent-plugin@v0.3.32
 pi install git:github.com/WOOWTECH/pi-paseo-plugin@v0.1.15
 ```
 
