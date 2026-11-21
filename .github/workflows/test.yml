@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       paseo_ref:
-        description: 'Agent Connect source commit or tag; empty uses the manifest release tag'
+        description: 'Agent Connect source commit or tag; empty uses the frozen 0.1.20 source'
         required: false
         type: string
   push:
@@ -146,7 +146,8 @@ jobs:
     timeout-minutes: 30
     env:
       PLAYWRIGHT_BROWSERS_PATH: /tmp/paseo-playwright
-      PASEO_CANDIDATE_REF: ${{ inputs.paseo_ref }}
+      # Frozen 0.1.20 bytes are available before a separate package release/tag.
+      PASEO_CANDIDATE_REF: ${{ inputs.paseo_ref || 'aea2da4a83dbd220d8e9aa532ff91f9ac4e2c206' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -156,7 +157,7 @@ jobs:
         shell: bash
         run: |
           PASEO_VERSION="$(node -p "require('./integrations/pi-web/combined.adapter-meta.json').paseo.packageVersion")"
-          PASEO_REF="${PASEO_CANDIDATE_REF:-v$PASEO_VERSION}"
+          PASEO_REF="$PASEO_CANDIDATE_REF"
           echo "PASEO_VERSION=$PASEO_VERSION" >> "$GITHUB_ENV"
           git init /tmp/pi-paseo
           git -C /tmp/pi-paseo fetch --depth=1 https://github.com/WOOWTECH/pi-paseo-plugin.git "$PASEO_REF"
