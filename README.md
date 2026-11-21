@@ -1,6 +1,6 @@
 # Pi Omnigent Plugin
 
-原始碼候選版 0.3.33 將共用介面的 Paseo 分頁通用化為 **Agent Connect**，可選擇 Woowtech Smart、Apporo Smart 或 Paseo；需要搭配 `@woowtech/pi-paseo` 0.1.17。套件 ID 與既有設定路徑不變。候選版尚未代表各平台已發布或部署；跨 repo 驗證與五個平台的接續更新見 [Agent Connect rollout](docs/agent-connect-rollout.md)。
+原始碼候選版 0.3.34 將共用介面的 Paseo 分頁通用化為 **Agent Connect**，可選擇 Woowtech Smart、Apporo Smart 或 Paseo；需要搭配 `@woowtech/pi-paseo` 0.1.20。套件 ID 與既有設定路徑不變。候選版尚未代表各平台已發布或部署；跨 repo 驗證與五個平台的接續更新見 [Agent Connect rollout](docs/agent-connect-rollout.md)。
 
 將 Pi Agent／Pi Web 容器接到 Omnigent，並在 Pi Web 設定頁提供連線綁定與既有引擎的實際對話驗證。插件會偵測 Claude Code／Codex／Pi，當下有什麼就連結什麼，不補裝缺少的引擎。
 

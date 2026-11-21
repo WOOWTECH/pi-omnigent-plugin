@@ -12,10 +12,10 @@ const sha = data => createHash('sha256').update(data).digest('hex');
 const shipped = JSON.parse(fs.readFileSync(path.join(root, 'integrations/pi-web/combined.adapter-meta.json'), 'utf8'));
 
 // Agent Connect needs the target-aware runtime and the exact matching adapter.
-test('the combined adapter pins Agent Connect 0.1.17 without older runtime compatibility', () => {
+test('the combined adapter pins Agent Connect 0.1.20 without older runtime compatibility', () => {
   assert.equal(shipped.paseo.packageName, '@woowtech/pi-paseo');
   assert.match(shipped.paseo.adapterPatchSha256, /^[a-f0-9]{64}$/);
-  assert.equal(shipped.paseo.packageVersion, '0.1.17');
+  assert.equal(shipped.paseo.packageVersion, '0.1.20');
   assert.deepEqual(shipped.paseo.compatiblePackageVersions ?? [], []);
 });
 
@@ -44,10 +44,10 @@ function packageWithPaseo(t, version) {
     run: async () => { throw passed; } });
 }
 
-for (const version of ['0.1.17']) test(`the installer accepts Paseo ${version} with the shipped manifest`, async t => {
+for (const version of ['0.1.20']) test(`the installer accepts Paseo ${version} with the shipped manifest`, async t => {
   await assert.rejects(packageWithPaseo(t, version), { code: 'GATE_PASSED' });
 });
 
-for (const version of ['0.1.13', '0.1.14', '0.1.15', '0.1.16']) test(`the installer refuses pre-target runtime ${version} even with matching patch bytes`, async t => {
+for (const version of ['0.1.13', '0.1.14', '0.1.15', '0.1.16', '0.1.17', '0.1.18', '0.1.19']) test(`the installer refuses a runtime outside the exact combined candidate ${version} even with matching patch bytes`, async t => {
   await assert.rejects(packageWithPaseo(t, version), { code: 'COMBINED_ADAPTER_MISMATCH' });
 });

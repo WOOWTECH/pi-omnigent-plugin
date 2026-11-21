@@ -3378,7 +3378,7 @@ index 0000000..f24c528
 +}
 diff --git a/lib/paseo-name.test.mjs b/lib/paseo-name.test.mjs
 new file mode 100644
-index 0000000..ddfcffd
+index 0000000..9e535fd
 --- /dev/null
 +++ b/lib/paseo-name.test.mjs
 @@ -0,0 +1,64 @@
@@ -3407,7 +3407,7 @@ index 0000000..ddfcffd
 +  // This non-Linux VM tests display preferences, with no real official daemon.
 +  // Real patch/readiness/proof validation belongs to the plugin runtime tests.
 +  fs.writeFileSync(path.join(loc.paseoHome, ".pi-paseo-owner.json"), JSON.stringify({ installationId: "fixture", home: loc.paseoHome }));
-+  let state = { installationId: "fixture", phase: "running", desiredEnabled: true };
++  let state = { installationId: "fixture", phase: "running", desiredEnabled: true, daemonPid: 5000, daemonStartedAt: "fixture", daemonRuntimeRevision: runtimeLayout.RUNTIME_REVISION };
 +  class RuntimeError extends Error { constructor(code) { super(code); this.code = code; } }
 +  const readRecord = (file) => fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
 +  const writeRecord = (file, value) => fs.writeFileSync(file, JSON.stringify(value));
@@ -3443,7 +3443,7 @@ index 0000000..ddfcffd
 +  const runtime = load(path.join(root, "src/runtime.mjs"));
 +  await api.saveConfig({ name: "Commercial fixture" });
 +  assert.equal((await api.status()).settings.name, "Commercial fixture", "The saved name is visible in host preferences");
-+  await runtime.activate();
++  assert.equal((await runtime.activate()).phase, "running", "The display-label fixture must reach actual config reload");
 +  assert.equal(readRecord(path.join(loc.paseoHome, "config.json")).daemon?.name, undefined, "Display labels must stay outside the strict daemon configuration");
 +});
 diff --git a/lib/paseo-package.ts b/lib/paseo-package.ts
@@ -3625,10 +3625,10 @@ index 0000000..1149fd5
 +}
 diff --git a/lib/paseo-plugin.test.mjs b/lib/paseo-plugin.test.mjs
 new file mode 100644
-index 0000000..194aa6d
+index 0000000..7aa302e
 --- /dev/null
 +++ b/lib/paseo-plugin.test.mjs
-@@ -0,0 +1,359 @@
+@@ -0,0 +1,360 @@
 +import assert from "node:assert/strict";
 +import fs from "node:fs";
 +import path from "node:path";
@@ -3793,8 +3793,9 @@ index 0000000..194aa6d
 +    return loadedModule.exports;
 +  }
 +  for (const pkg of packages.filter((entry) => entry.packageName === lifecycle.PASEO_PACKAGE_NAME)) {
-+    const supervisor = loadRoot("supervisor.mjs", pkg, rootStubs);
-+    const api = loadRoot("host-api.mjs", pkg, { ...rootStubs, "./supervisor.mjs": supervisor });
++    const dependencies = { ...rootStubs, "./lifecycle-timeouts.mjs": loadRoot("lifecycle-timeouts.mjs", pkg, {}) };
++    const supervisor = loadRoot("supervisor.mjs", pkg, dependencies);
++    const api = loadRoot("host-api.mjs", pkg, { ...dependencies, "./supervisor.mjs": supervisor });
 +    apis.set(`fixture-api:${pkg.source}`, {
 +      ...api,
 +      async lifecycle(input) { calls.push({ method: "lifecycle", apiSource: pkg.source, ...input }); return api.lifecycle(input); },

@@ -4,8 +4,8 @@ This source candidate generalizes the existing Paseo integration as **Agent Conn
 
 ## Coordinated source candidates
 
-- `WOOWTECH/pi-paseo-plugin`: candidate `@woowtech/pi-paseo` **0.1.17**, including its target-aware host runtime and `host/adapter.patch`.
-- `WOOWTECH/pi-omnigent-plugin`: candidate **0.3.33**, including `integrations/pi-web/combined.adapter.patch` and an exact 0.1.17 contributor digest.
+- `WOOWTECH/pi-paseo-plugin`: candidate `@woowtech/pi-paseo` **0.1.20**, including its target-aware host runtime and `host/adapter.patch`.
+- `WOOWTECH/pi-omnigent-plugin`: candidate **0.3.34**, including `integrations/pi-web/combined.adapter.patch` and an exact 0.1.20 contributor digest.
 - The Pi Web base stays `agegr/pi-web` **0.10.0**, commit `6fcd7d44981ab51a21d6cd6eb06d361d0e3d3068`.
 
 These are source candidates, not a statement that release tags, tarballs, OS installers, or images exist. The new combined adapter intentionally rejects 0.1.13–0.1.16: those versions cannot supply the target-aware runtime contract. Upgrading the UI alone is insufficient.
@@ -39,7 +39,7 @@ The k3s GitHub repository is a **one-way mirror**, per its README. Make source c
 
 Current native pins to replace together are `PIN_OMNIGENT_PLUGIN_VERSION`, `PIN_OMNIGENT_PLUGIN_SHA256`, `PIN_OMNIGENT_UI_SHA256`, `PIN_PASEO_PLUGIN_VERSION`, and `PIN_PASEO_PLUGIN_SHA256`. Current k3s arguments are `PI_OMNIGENT_VERSION`, `PI_OMNIGENT_SHA256`, `PI_OMNIGENT_UI_SHA256`, `PI_PASEO_VERSION`, and `PI_PASEO_SHA256`. Both currently pin the combined patch digest `b204fcae4f33d841810a212b71ab757d2d2956fb6e431e2ea7997980c469ef19`.
 
-Native Omnigent patch scripts also gate versions: `rootfs/bin/omnigent-plugin-{model-options-hook,host-name-guard,darwin,session-home}-patch.mjs` currently accept only 0.3.31/0.3.32. Verify their exact source anchors against the 0.3.33 package and update the allowed versions with regression coverage. Merely bumping `lib/pins.sh` would cause installation to fail. Update smoke expectations as part of that platform change.
+Native Omnigent patch scripts also gate versions: `rootfs/bin/omnigent-plugin-{model-options-hook,host-name-guard,darwin,session-home}-patch.mjs` currently accept only 0.3.31/0.3.32. Verify their exact source anchors against the 0.3.34 package and update the allowed versions with regression coverage. Merely bumping `lib/pins.sh` would cause installation to fail. Update smoke expectations as part of that platform change.
 
 ## Release order and acceptance
 

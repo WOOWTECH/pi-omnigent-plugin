@@ -41,4 +41,4 @@ head script 在 hydration 前記錄輸入、點選、觸控及捲動。等待中
 
 隔離的 production browser 測試直接載入實際插件／SDK：desktop/mobile 零點擊開啟，既有初始設定提示與空白 URL 欄位可見，且不輸入憑證或發起模型回合。API 測試核對 session 檔案無寫入；瀏覽器核對原始紀錄位元組不變，允許既有 SDK／精靈在正常開啟時追加設定及提示紀錄。Paseo 0.1.7、0.1.8、0.1.9 共用同一份 combined 來源，仍逐版驗證 contributor digest；舊版 prebuilt 若來源不同，`--prebuilt-root` 會拒絕。
 
-0.3.33 原始碼候選版將共用設定列改為 Agent Connect，保留 `paseo` 內部識別與 Omnigent 分頁。與 `@woowtech/pi-paseo` 0.1.17 的精確補丁搭配，新增 Woowtech Smart／Apporo Smart／Paseo 標的設定、目標專屬配對及尚未重啟時的配對阻擋；先前 0.1.13–0.1.16 不再符合此共用介面的契約。使用 `node bin/verify-combined.mjs ../pi-paseo-plugin` 檢查實際來源。詳見 [跨平台更新順序](../../docs/agent-connect-rollout.md)。
+0.3.34 原始碼候選版將共用設定列改為 Agent Connect，保留 `paseo` 內部識別與 Omnigent 分頁。與 `@woowtech/pi-paseo` 0.1.20 的精確補丁搭配，新增 Woowtech Smart／Apporo Smart／Paseo 標的設定、目標專屬配對及尚未重啟時的配對阻擋；先前 0.1.13–0.1.16 不再符合此共用介面的契約。使用 `node bin/verify-combined.mjs ../pi-paseo-plugin` 檢查實際來源。詳見 [跨平台更新順序](../../docs/agent-connect-rollout.md)。
