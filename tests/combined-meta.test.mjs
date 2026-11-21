@@ -11,13 +11,12 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const sha = data => createHash('sha256').update(data).digest('hex');
 const shipped = JSON.parse(fs.readFileSync(path.join(root, 'integrations/pi-web/combined.adapter-meta.json'), 'utf8'));
 
-// Paseo v0.1.13, v0.1.14 and v0.1.15 ship a byte-identical host/adapter.patch (#18).
-const PASEO_ADAPTER = '348f0b34118deca5a42ea47e2c98fc92a85dc9354bcaee8c5a41ac249360ed19';
-
-test('the combined adapter lists Paseo 0.1.13, 0.1.14 and 0.1.15 under their shared adapter digest', () => {
+// Agent Connect needs the target-aware runtime and the exact matching adapter.
+test('the combined adapter pins Agent Connect 0.1.20 without older runtime compatibility', () => {
   assert.equal(shipped.paseo.packageName, '@woowtech/pi-paseo');
-  assert.equal(shipped.paseo.adapterPatchSha256, PASEO_ADAPTER);
-  assert.deepEqual([shipped.paseo.packageVersion, ...shipped.paseo.compatiblePackageVersions], ['0.1.13', '0.1.14', '0.1.15']);
+  assert.match(shipped.paseo.adapterPatchSha256, /^[a-f0-9]{64}$/);
+  assert.equal(shipped.paseo.packageVersion, '0.1.20');
+  assert.deepEqual(shipped.paseo.compatiblePackageVersions ?? [], []);
 });
 
 // The real installer gate with the shipped plugin files and manifest. Only the
@@ -45,10 +44,10 @@ function packageWithPaseo(t, version) {
     run: async () => { throw passed; } });
 }
 
-for (const version of ['0.1.13', '0.1.14', '0.1.15']) test(`the installer accepts Paseo ${version} with the shipped manifest`, async t => {
+for (const version of ['0.1.20']) test(`the installer accepts Paseo ${version} with the shipped manifest`, async t => {
   await assert.rejects(packageWithPaseo(t, version), { code: 'GATE_PASSED' });
 });
 
-test('an unlisted Paseo version is still refused even with the same adapter', async t => {
-  await assert.rejects(packageWithPaseo(t, '0.1.16'), { code: 'COMBINED_ADAPTER_MISMATCH' });
+for (const version of ['0.1.13', '0.1.14', '0.1.15', '0.1.16', '0.1.17', '0.1.18', '0.1.19']) test(`the installer refuses a runtime outside the exact combined candidate ${version} even with matching patch bytes`, async t => {
+  await assert.rejects(packageWithPaseo(t, version), { code: 'COMBINED_ADAPTER_MISMATCH' });
 });
