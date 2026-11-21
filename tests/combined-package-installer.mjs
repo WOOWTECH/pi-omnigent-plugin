@@ -32,7 +32,7 @@ function treeHash(root) {
 }
 const paseo = json(path.join(paseoRoot, 'package.json'));
 assert.equal(paseo.name, '@woowtech/pi-paseo');
-assert.equal(paseo.version, '0.1.13');
+assert.equal(paseo.version, json(path.join(packageRoot, 'integrations/pi-web/combined.adapter-meta.json')).paseo.packageVersion);
 const originalHash = treeHash(paseoRoot);
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-combined-package-'));
 const home = path.join(temporary, 'home');

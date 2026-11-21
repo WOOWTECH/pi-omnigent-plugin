@@ -1,5 +1,11 @@
 name: Test plugin
 on:
+  workflow_dispatch:
+    inputs:
+      paseo_ref:
+        description: 'Agent Connect source commit or tag; empty uses the manifest release tag'
+        required: false
+        type: string
   push:
   pull_request:
   schedule:
@@ -135,51 +141,27 @@ jobs:
           path: /tmp/pi-web-omnigent/settings-only-browser.json
           retention-days: 30
   combined-ui:
-    name: combined-ui (${{ matrix.paseo.version }})
+    name: combined-ui (Agent Connect)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    strategy:
-      matrix:
-        paseo:
-          - version: '0.1.13'
-            ref: 'v0.1.13'
-          # Same host/adapter.patch bytes as 0.1.13 (#18); 0.1.15 is what the next images bundle.
-          - version: '0.1.14'
-            ref: 'v0.1.14'
-          - version: '0.1.15'
-            ref: 'v0.1.15'
     env:
       PLAYWRIGHT_BROWSERS_PATH: /tmp/paseo-playwright
-      PASEO_REF: ${{ matrix.paseo.ref }}
-      PASEO_VERSION: ${{ matrix.paseo.version }}
+      PASEO_CANDIDATE_REF: ${{ inputs.paseo_ref }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22.23.3'
-      - name: Verify published contributors and combined adapter
+      - name: Resolve and verify the exact Agent Connect contributor
+        shell: bash
         run: |
+          PASEO_VERSION="$(node -p "require('./integrations/pi-web/combined.adapter-meta.json').paseo.packageVersion")"
+          PASEO_REF="${PASEO_CANDIDATE_REF:-v$PASEO_VERSION}"
+          echo "PASEO_VERSION=$PASEO_VERSION" >> "$GITHUB_ENV"
           git init /tmp/pi-paseo
           git -C /tmp/pi-paseo fetch --depth=1 https://github.com/WOOWTECH/pi-paseo-plugin.git "$PASEO_REF"
           git -C /tmp/pi-paseo checkout --detach FETCH_HEAD
-          node --input-type=module <<'JS'
-          import fs from 'node:fs';
-          import crypto from 'node:crypto';
-          const sha = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
-          const combined = JSON.parse(fs.readFileSync('integrations/pi-web/combined.adapter-meta.json'));
-          const omni = JSON.parse(fs.readFileSync('package.json'));
-          const paseo = JSON.parse(fs.readFileSync('/tmp/pi-paseo/package.json'));
-          const candidates = [combined.paseo, ...(combined.paseo.compatibleAdapters ?? [])];
-          const compatible = candidates.some(candidate =>
-            [candidate.packageVersion, ...(candidate.compatiblePackageVersions ?? [])].includes(paseo.version) &&
-            candidate.adapterPatchSha256 === sha('/tmp/pi-paseo/host/adapter.patch'));
-          if (combined.patchSha256 !== sha('integrations/pi-web/combined.adapter.patch') ||
-              combined.omnigent.adapterPatchSha256 !== sha('integrations/pi-web/adapter.patch') ||
-              !compatible ||
-              combined.omnigent.packageVersion !== omni.version ||
-              paseo.version !== process.env.PASEO_VERSION ||
-              combined.settingsSections.join(',') !== 'mcp,omnigent,paseo') process.exit(1);
-          JS
+          node bin/verify-combined.mjs /tmp/pi-paseo
           git clone https://github.com/agegr/pi-web.git /tmp/pi-web-combined
           git -C /tmp/pi-web-combined checkout --detach 6fcd7d44981ab51a21d6cd6eb06d361d0e3d3068
           git -C /tmp/pi-web-combined apply --check "$GITHUB_WORKSPACE/integrations/pi-web/combined.adapter.patch"
@@ -189,11 +171,8 @@ jobs:
         working-directory: /tmp/pi-web-combined
       - run: npm audit --audit-level=high --no-fund
         working-directory: /tmp/pi-web-combined
-      - run: node --test lib/settings-navigation.test.mjs lib/i18n/registry.test.mjs app/api/plugin-paseo/route.test.mjs app/api/omnigent/route.test.mjs components/PaseoPluginPanel.behavior.test.mjs components/SettingsPanel.test.mjs
-        working-directory: /tmp/pi-web-combined
-      - name: Actual Paseo display-preference host contract
-        if: matrix.paseo.version == '0.1.13'
-        run: node --test lib/paseo-name.test.mjs
+      - name: Combined settings, Agent Connect targets and actual host contract
+        run: node --test lib/paseo-*.test.mjs lib/settings-navigation.test.mjs lib/i18n/registry.test.mjs app/api/plugin-paseo/route.test.mjs app/api/omnigent/route.test.mjs components/PaseoPluginPanel.behavior.test.mjs components/SettingsPanel.test.mjs
         working-directory: /tmp/pi-web-combined
         env:
           PI_PASEO_PLUGIN_ROOT: /tmp/pi-paseo
@@ -206,7 +185,6 @@ jobs:
           CIRCLE_NODE_TOTAL: '3'
 
       - name: Real packed-package installer acceptance
-        if: matrix.paseo.version == '0.1.13'
         shell: bash
         run: |
           paseo_installer_dir="$RUNNER_TEMP/paseo-installer-package"
@@ -215,9 +193,9 @@ jobs:
           tar -xzf "$paseo_installer_dir/woowtech-pi-paseo-${PASEO_VERSION}.tgz" -C "$paseo_installer_dir"
           node tests/combined-package-installer.mjs /tmp/pi-web-combined "$paseo_installer_dir/package" "$RUNNER_TEMP/combined-installer.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always() && matrix.paseo.version == '0.1.13'
+        if: always()
         with:
-          name: combined-installer-${{ matrix.paseo.version }}
+          name: combined-installer-${{ env.PASEO_VERSION }}
           path: ${{ runner.temp }}/combined-installer.json
           if-no-files-found: error
           retention-days: 30
@@ -259,12 +237,12 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: fresh-install-combined-${{ matrix.paseo.version }}-browser
+          name: fresh-install-combined-${{ env.PASEO_VERSION }}-browser
           path: /tmp/pi-web-combined/fresh-install-browser.json
           retention-days: 30
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: settings-only-combined-${{ matrix.paseo.version }}-browser
+          name: settings-only-combined-${{ env.PASEO_VERSION }}-browser
           path: /tmp/pi-web-combined/settings-only-browser.json
           retention-days: 30
