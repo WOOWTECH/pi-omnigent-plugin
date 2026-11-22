@@ -134,3 +134,16 @@ test('runtime status returns the issue with hints and action', async t => {
   saveJSON(path.join(loc.stateDir, 'state.json'), { enabled: true, phase: 'ready', issue: null });
   assert.equal('issue' in await status(options), false);
 });
+
+test('maintenance preservation denial asks an administrator to review without offering repair or bypass', () => {
+  const described = describeIssue({ code: 'MAINTENANCE_PRESERVATION_REQUIRED' });
+  assert.equal(described.code, 'MAINTENANCE_PRESERVATION_REQUIRED');
+  assert.equal(described.action, 'contact-admin');
+  assert.match(described.hints.en, /history protection could not be verified/i);
+  assert.match(described.hints.en, /administrator.*review.*before/i);
+  assert.match(described.hints['zh-TW'], /無法確認.*對話紀錄.*管理員.*檢查.*再/);
+  assert.match(described.hints['zh-CN'], /无法确认.*对话记录.*管理员.*检查.*再/);
+  for (const hint of Object.values(described.hints)) {
+    assert.doesNotMatch(hint, /pi-omnigent repair|reset-id|bypass|ignore|force|略過|忽略|強制|绕过|跳过|强制/i);
+  }
+});

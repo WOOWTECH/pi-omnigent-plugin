@@ -136,6 +136,10 @@ const ISSUES = Object.freeze({
     'Omnigent 配置与工作区必须是绝对路径；请修正容器的环境变量。'),
 
   // Installation, the adapter process and local locks.
+  MAINTENANCE_PRESERVATION_REQUIRED: hint('contact-admin',
+    'Native conversation history protection could not be verified. Ask the installation administrator to review Omnigent before connecting or starting the host.',
+    '無法確認原生對話紀錄保護。請聯絡安裝管理員檢查 Omnigent 安裝，再連線或啟動主機。',
+    '无法确认原生对话记录保护。请联系安装管理员检查 Omnigent 安装，再连接或启动主机。'),
   DEPENDENCIES_MISSING: hint('repair',
     'Required components are not installed yet; run pi-omnigent repair and check the listed details.',
     '必要元件尚未安裝完成；請執行 pi-omnigent repair，並查看列出的細節。',
