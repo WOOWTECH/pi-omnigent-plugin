@@ -580,3 +580,28 @@ test('obsolete engine version override values are ignored rather than imposing i
   assert.equal(result.ok, true);
   assert.deepEqual(result.installedEngines, ['claude', 'codex', 'pi']);
 });
+
+for (const update of [false, true]) {
+  for (const ambient of [undefined, 'hardlink', 'symlink', 'clone']) {
+    test(`managed ${update ? 'force update' : 'fresh install'} isolates SDK files when ambient link mode is ${ambient}`, async t => {
+      const directory = await isolated(t), snapshot = complete(), calls = [];
+      snapshot.omnigent = update ? available('omnigent', '0.16.0', path.join(directory, 'bin')) : absent();
+      const env = { PATH: '/image/bin', ...(ambient === undefined ? {} : { UV_LINK_MODE: ambient }) };
+      const original = { ...env };
+      const result = await installDependencies(options(directory, {
+        update, env, discover: async () => structuredClone(snapshot),
+        run: async (command, args, settings) => {
+          calls.push({ command, args, settings });
+          assert.equal(settings.env.UV_LINK_MODE, 'copy');
+          snapshot.omnigent = available('omnigent', '0.16.0', path.join(directory, 'bin'));
+          return { code: 0 };
+        },
+      }));
+      assert.equal(result.ok, true);
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].command, '/image/bin/uv');
+      assert.equal(calls[0].args.includes('--force'), update);
+      assert.deepEqual(env, original, 'caller environment must remain unchanged');
+    });
+  }
+}

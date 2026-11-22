@@ -289,6 +289,8 @@ export async function installDependencies({ update = false, env = process.env, h
       const action = discovery.omnigent?.available ? 'update' : 'install';
       const installEnv = {
         ...runtimeEnv(discovery, env),
+        // Strict preservation rejects shared cache inodes; isolate fresh/force installs.
+        UV_LINK_MODE: 'copy',
         UV_CACHE_DIR: path.join(stateDir, 'uv-cache'),
         UV_TOOL_DIR: path.join(stateDir, 'uv', 'tools'),
         UV_TOOL_BIN_DIR: path.join(stateDir, 'bin'),

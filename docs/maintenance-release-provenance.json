@@ -1,8 +1,8 @@
 {
-  "schema": "maintenance-preservation-release-preparation/v1",
+  "schema": "maintenance-preservation-release-preparation/v2",
   "packageName": "@woowtech/pi-omnigent-plugin",
   "candidateVersion": "0.3.35",
-  "status": "UNPUBLISHED_RELEASE_PREPARATION",
+  "status": "UNPUBLISHED_COPY_INSTALL_FIX_PREPARATION",
   "freshMainCommit": "475e0ee1fe3fa4c2a3b78a60b2ee34df77447746",
   "reviewedV2ManifestSha256": "09e60d2c55e30b9fe295b70d4296b0d8ce94e3bdd89e6ed64882553d7e589c4b",
   "reviewedRuntimeGuardSha256": "f22a9ee62a1ee9ca51c13ad875df5ca06571033d98ecd1d0802023d7f706ee83",
@@ -16,10 +16,31 @@
     "sourceAndThreePycUnchanged": true,
     "stateDirectoryNotCreated": true
   },
-  "beforeScope": "Owned synthetic fixtures only",
+  "beforeScope": "Owned actual Omnigent0.16.0/Python3.12.14 fresh and force managed copy installs plus CI copy-install/strict-applicator seam; synthetic negative fixtures remain separate.",
   "platformAcceptanceClaimed": false,
   "alreadyLoadedCodeAttested": false,
   "productionAdmission": false,
   "published": false,
-  "maintenanceOnly": true
+  "maintenanceOnly": true,
+  "priorReleasePreparationManifestSha256": "3d3d081ff771ee884209bce6bf8d0e5cb2f9e459d25ac4911d6900209ba509d0",
+  "basePrHead": "fe0bae4e10486b3b1046cdc439e471c8391dab49",
+  "ownedActualBeforeAcceptance": {
+    "installer": {
+      "receipt": "actual-owned-installer-short2-acceptance.json",
+      "sha256": "3a46bc89f736e3ea16dca79c41ea79bd92e0e10eec6ce935b4263b6cc2aab0a4"
+    },
+    "ciClient": {
+      "receipt": "actual-ci-copy-acceptance.json",
+      "sha256": "74a1e73785f6f796fdba84f2d8b5b7094addaba1edf1d8324b7843f9fba9c636"
+    },
+    "defaultLinkDiagnosis": {
+      "receipt": "actual-default-link-diagnosis.json",
+      "sha256": "81911dee631b70e1761983c34eebc358a49a60ca036bc4c3d6067e01af80b314"
+    },
+    "guardApplicatorLockOverlayUnchanged": true,
+    "fullCacheAndOtherInstallBytesAndIdentitiesUnchangedAroundGuard": true,
+    "sdkImported": false,
+    "hostProviderTenantCalls": false,
+    "platformAcceptanceClaimed": false
+  }
 }

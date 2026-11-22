@@ -36,7 +36,7 @@ jobs:
           set -euo pipefail
           python -m pip install uv==0.12.10
           uv venv --python "$(command -v python)" "$RUNNER_TEMP/omnigent-sdk"
-          uv pip install --python "$RUNNER_TEMP/omnigent-sdk/bin/python" omnigent==0.16.0
+          uv pip install --link-mode copy --python "$RUNNER_TEMP/omnigent-sdk/bin/python" omnigent==0.16.0
           sdk_python="$RUNNER_TEMP/omnigent-sdk/bin/python"
           sdk_purelib="$("$sdk_python" -I -B -c "import sysconfig; print(sysconfig.get_path('purelib'))")"
           "$sdk_python" -I -B src/native-maintenance/apply_maintenance_patch.py --site-packages "$sdk_purelib" --strict
@@ -97,7 +97,7 @@ jobs:
           set -euo pipefail
           python -m pip install uv==0.12.10
           uv venv --python "$(command -v python)" "$RUNNER_TEMP/omnigent-sdk"
-          uv pip install --python "$RUNNER_TEMP/omnigent-sdk/bin/python" omnigent==0.16.0
+          uv pip install --link-mode copy --python "$RUNNER_TEMP/omnigent-sdk/bin/python" omnigent==0.16.0
           sdk_python="$RUNNER_TEMP/omnigent-sdk/bin/python"
           sdk_purelib="$("$sdk_python" -I -B -c "import sysconfig; print(sysconfig.get_path('purelib'))")"
           "$sdk_python" -I -B src/native-maintenance/apply_maintenance_patch.py --site-packages "$sdk_purelib" --strict

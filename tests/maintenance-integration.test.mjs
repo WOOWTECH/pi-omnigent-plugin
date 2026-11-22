@@ -317,3 +317,24 @@ test('correct managed launcher symlink binds the resolved reviewed SDK script an
   const proof = await f.check(); assert.equal(proof.ok, true); assert.equal(proof.coreVersion, '0.16.0');
   assert.equal(proof.consoleScriptValidated, true); assert.deepEqual(await fs.readFile(f.target), after);
 });
+
+test('existing hardlinked managed SDK stays blocked without reinstall or cache mutation', async t => {
+  const f = await fixture(t), cached = path.join(f.directory, 'cache-common.py');
+  await fs.link(f.target, cached);
+  const baseline = await sourceSnapshot(f.directory);
+  const calls = [];
+  const result = await installDependencies(installOptions(f, {
+    discover: async () => installed(f),
+    run: async (command, args, options) => {
+      calls.push(command); assert.equal(command, f.python, 'must never detach or silently reinstall');
+      return runCommand(command, args, options);
+    },
+  }));
+  assert.equal(result.ok, false);
+  assert.equal(result.changed, false);
+  assert.equal(result.maintenancePreservation.ok, false);
+  assert.deepEqual(calls, [f.python]);
+  assert.deepEqual(await sourceSnapshot(f.directory), baseline);
+  assert.equal((await fs.stat(f.target)).ino, (await fs.stat(cached)).ino);
+  assert.equal((await fs.stat(f.target)).nlink, 2);
+});
