@@ -1,5 +1,7 @@
 # Pi Omnigent Plugin
 
+0.3.35 發布準備：在 SDK 安裝／更新與既有 host 啟動前，驗證指定 Omnigent 0.16.0 的 metadata、Python console entry 與原生維護保留修補。僅自有 uv 環境的已知原始碼可套用修補；映像內 SDK 必須已是精確修補後版本，未知狀態停止啟動。這是待審查／發布的原始碼與套件準備，不代表已發布、各平台驗收或現有 host 已載入修補。範圍與限制見 [maintenance preservation](docs/maintenance-preservation.md) 和 [changelog](CHANGELOG.md)。
+
 原始碼候選版 0.3.34 將共用介面的 Paseo 分頁通用化為 **Agent Connect**，可選擇 Woowtech Smart、Apporo Smart 或 Paseo；需要搭配 `@woowtech/pi-paseo` 0.1.20。套件 ID 與既有設定路徑不變。候選版尚未代表各平台已發布或部署；跨 repo 驗證與五個平台的接續更新見 [Agent Connect rollout](docs/agent-connect-rollout.md)。
 
 將 Pi Agent／Pi Web 容器接到 Omnigent，並在 Pi Web 設定頁提供連線綁定與既有引擎的實際對話驗證。插件會偵測 Claude Code／Codex／Pi，當下有什麼就連結什麼，不補裝缺少的引擎。

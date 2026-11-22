@@ -4,6 +4,7 @@ import { constants } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { probeTimeoutMs } from './common.mjs';
+import { ensureMaintenance } from './maintenance.mjs';
 
 // Pinned releases are changed deliberately, never resolved through "latest" at runtime.
 export const DEPENDENCY_VERSIONS = Object.freeze({
@@ -201,7 +202,7 @@ function blankDiscovery() {
  * update refreshes managed Omnigent and preserves image/global CLIs.
  * Inject run/discover in tests; neither performs shell interpolation.
  */
-export async function installDependencies({ update = false, env = process.env, home, stateDir, run = runCommand, discover: find = discover, platform = process.platform, arch = process.arch, onProgress, fresh = false } = {}) {
+export async function installDependencies({ update = false, env = process.env, home, stateDir, run = runCommand, discover: find = discover, platform = process.platform, arch = process.arch, onProgress, fresh = false, maintenance = ensureMaintenance } = {}) {
   env = environment(env);
   home = path.resolve(home || env.HOME || homedir());
   stateDir = path.resolve(stateDir || env.PI_OMNIGENT_STATE_DIR || defaultStateDir(env, home));
@@ -213,12 +214,13 @@ export async function installDependencies({ update = false, env = process.env, h
   const steps = [];
   let changed = false;
   let discovery = blankDiscovery();
+  let maintenancePreservation = { ok: false, state: 'not-checked' };
   const report = (dependency, action, status) => {
     const step = { dependency, action, status };
     steps.push(step);
     if (onProgress) onProgress(step);
   };
-  const result = () => ({ ...discovery, ok: issues.length === 0, changed, issues, warnings, installed, installedEngines: ENGINE_NAMES.filter(name => discovery[name]?.available), steps });
+  const result = () => ({ ...discovery, ok: issues.length === 0, changed, issues, warnings, installed, installedEngines: ENGINE_NAMES.filter(name => discovery[name]?.available), steps, maintenancePreservation });
   if (!['linux', 'darwin'].includes(platform) || !['x64', 'arm64'].includes(arch)) {
     issues.push(`This plugin requires Linux or macOS on x64 or arm64 (received ${platform}/${arch}).`);
     return result();
@@ -287,6 +289,8 @@ export async function installDependencies({ update = false, env = process.env, h
       const action = discovery.omnigent?.available ? 'update' : 'install';
       const installEnv = {
         ...runtimeEnv(discovery, env),
+        // Strict preservation rejects shared cache inodes; isolate fresh/force installs.
+        UV_LINK_MODE: 'copy',
         UV_CACHE_DIR: path.join(stateDir, 'uv-cache'),
         UV_TOOL_DIR: path.join(stateDir, 'uv', 'tools'),
         UV_TOOL_BIN_DIR: path.join(stateDir, 'bin'),
@@ -316,6 +320,17 @@ export async function installDependencies({ update = false, env = process.env, h
           report('omnigent', action, 'failed');
         }
       }
+    }
+  }
+  // Strict preservation runs after any native convenience install hooks and
+  // on existing image/global installs too. Unknown source is never ready.
+  if (discovery.omnigent?.available) {
+    try { maintenancePreservation = await maintenance(discovery.omnigent, { stateDir, env, run }); }
+    catch { maintenancePreservation = { ok: false }; }
+    if (maintenancePreservation?.ok !== true) {
+      maintenancePreservation = { ok: false, code: 'MAINTENANCE_PRESERVATION_REQUIRED' };
+      issues.push('Omnigent maintenance preservation could not be verified. Use the reviewed SDK source and retry.');
+      report('omnigent', 'maintenance-preservation', 'blocked');
     }
   }
   if (ENGINE_NAMES.some(name => discovery[name]?.available)) {

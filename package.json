@@ -1,6 +1,6 @@
 {
   "name": "@woowtech/pi-omnigent-plugin",
-  "version": "0.3.34",
+  "version": "0.3.35",
   "description": "Install Omnigent and connect existing Pi Web engines through Settings, with actual conversation verification.",
   "type": "module",
   "license": "MIT",
@@ -46,7 +46,16 @@
     "bin/check.mjs",
     "docs/commercial-readiness.md",
     "bin/install-ui.mjs",
-    "integrations/pi-web/"
+    "integrations/pi-web/",
+    "src/native-maintenance/apply_maintenance_patch.py",
+    "src/native-maintenance/source-lock.json",
+    "src/native-maintenance/overlay/omnigent/native/native_bridge_common.py",
+    "src/native-maintenance/bundle-provenance.json",
+    "docs/maintenance-preservation.md",
+    "src/native-maintenance/console-entry.body.py",
+    "src/native-maintenance/console-contract.json",
+    "CHANGELOG.md",
+    "docs/maintenance-release-provenance.json"
   ],
   "overrides": {
     "brace-expansion": "5.0.12",

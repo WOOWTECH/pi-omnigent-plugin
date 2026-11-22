@@ -1,0 +1,20 @@
+{
+  "schema": "plugin-native-maintenance-bundle-provenance/v1",
+  "bundleSha256": "f9ab01b40c9e72d3110c67b3735deb740e9a07416a86d2e01bd9f7c7d9a60739",
+  "bundleManifestSha256": "1b5341f48184336fb5697f258340ec541f80abf3440765234a0d2aecc9d766f4",
+  "sourceLockSha256": "3a3a30222dec807e18f785f34b1fc4201251d4ba43e005c7c8e510edb62133ab",
+  "files": {
+    "src/native-maintenance/apply_maintenance_patch.py": {
+      "bytes": 5949,
+      "sha256": "98355f8dd825b1642d5bb8d4b613954de838754c3b56fa401c7ce03c0f9b24ac"
+    },
+    "src/native-maintenance/source-lock.json": {
+      "bytes": 663,
+      "sha256": "3a3a30222dec807e18f785f34b1fc4201251d4ba43e005c7c8e510edb62133ab"
+    },
+    "src/native-maintenance/overlay/omnigent/native/native_bridge_common.py": {
+      "bytes": 13872,
+      "sha256": "68f4c2a3c0a3aa75436a15828e325bd279995435d83931d93b12516cca303962"
+    }
+  }
+}

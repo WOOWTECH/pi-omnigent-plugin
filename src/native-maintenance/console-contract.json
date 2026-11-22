@@ -1,0 +1,9 @@
+{
+  "schema": "plugin-sdk-console-contract/v1",
+  "distribution": "omnigent",
+  "version": "0.16.0",
+  "consoleScript": "omnigent",
+  "entryPoint": "omnigent.cli:main",
+  "consoleBodySha256": "f2356b7e212bcff63f614285750e50422de13a325ca1491e712637c998325f5b",
+  "supportedShape": "exact observed uv Python body; shebang must name selected interpreter; no shell trampoline"
+}
