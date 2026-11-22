@@ -113,6 +113,14 @@ class FakeClock:
 
 class AdapterTests(unittest.TestCase):
     def setUp(self):
+        # Existing adapter behavior tests mock the new external source guard.
+        # Its real pins/stdlib execution and launch ordering have separate
+        # synthetic installed-SDK / AST-only tests in this integration.
+        maintenance = patch.object(adapter.Plugin, 'require_maintenance_preservation', autospec=True,
+                                   side_effect=lambda plugin: {'pythonExecutable': sys.executable,
+                                                              'consoleScript': plugin.request.get('omnigentBin') or sys.executable})
+        maintenance.start()
+        self.addCleanup(maintenance.stop)
         import yaml
 
         self.tmp = tempfile.TemporaryDirectory()

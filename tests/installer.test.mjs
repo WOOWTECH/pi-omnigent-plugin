@@ -24,7 +24,7 @@ async function isolated(t) {
   return directory;
 }
 function options(directory, overrides = {}) {
-  return { stateDir: directory, home: path.join(directory, 'home'), env: { PATH: '/image/bin', SAFE: 'preserved' }, platform: 'linux', arch: 'x64', ...overrides };
+  return { maintenance: async () => ({ ok: true, state: 'verified' }), stateDir: directory, home: path.join(directory, 'home'), env: { PATH: '/image/bin', SAFE: 'preserved' }, platform: 'linux', arch: 'x64', ...overrides };
 }
 
 test('coalesces version probes, expires them, and detects replaced or removed binaries immediately', async t => {
@@ -384,7 +384,7 @@ test('discovers explicit custom binaries in parallel and finds embedded Omnigent
 test('does not treat a directory on PATH as an executable', async t => {
   const directory = await isolated(t);
   await mkdir(path.join(directory, 'bwrap'));
-  const result = await discover({ PATH: directory, HOME: directory });
+  const result = await discover({ PATH: directory, HOME: directory, PI_OMNIGENT_BIN: path.join(directory, 'missing-omnigent') });
   assert.equal(result.bwrap.available, false);
   assert.equal(result.bwrap.path, null);
 });
@@ -408,6 +408,7 @@ test('defaults managed dependencies to the configured Pi agent directory', async
   const directory = await isolated(t);
   let discovered;
   const result = await installDependencies({
+    maintenance: async () => ({ ok: true, state: 'verified' }),
     home: directory, env: { PATH: '/image/bin', PI_CODING_AGENT_DIR: path.join(directory, 'custom-agent') },
     discover: async env => { discovered = env; return complete(); },
     run: async () => { assert.fail('existing dependencies must not trigger installation'); },
@@ -547,7 +548,7 @@ test('discovers a managed pip-target uv binary on a subsequent invocation', asyn
   const bin = path.join(directory, 'bootstrap', 'bin');
   await mkdir(bin, { recursive: true });
   await writeFile(path.join(bin, 'uv'), `#!${process.execPath}\nprocess.stdout.write('uv 0.12.10');\n`, { mode: 0o700 });
-  const result = await discover({ PATH: '/unavailable', HOME: directory, PI_OMNIGENT_STATE_DIR: directory });
+  const result = await discover({ PATH: '/unavailable', HOME: directory, PI_OMNIGENT_STATE_DIR: directory, PI_OMNIGENT_BIN: path.join(directory, 'missing-omnigent') });
   assert.equal(result.uv.available, true);
   assert.equal(result.uv.version, '0.12.10');
   assert.equal(result.uv.path, path.join(bin, 'uv'));

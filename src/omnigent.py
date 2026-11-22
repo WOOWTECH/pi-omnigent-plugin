@@ -694,7 +694,35 @@ class Plugin:
             raise PluginError('connection_identity_mismatch', '既有連線身分不符；請在 Settings → Omnigent 確認原本的 server 與 host。')
         return expected
 
+    def require_maintenance_preservation(self) -> dict:
+        # This covers existing-install resume and direct adapter starts, which
+        # do not necessarily pass through installDependencies. No SDK import
+        # is needed to find or verify this interpreter's own purelib.
+        binary = self.request.get("omnigentBin") or shutil.which("omnigent")
+        if not isinstance(binary, str) or not Path(binary).is_absolute():
+            raise PluginError("maintenance_preservation_required", "Omnigent 維護保留檢查未完成；請執行修復。")
+        try:
+            checked = subprocess.run([sys.executable, "-I", "-B", str(_SCRIPT_DIR / "maintenance_preservation.py"),
+                                      "--omnigent-bin", binary, "--state-dir", str(self.state_dir)],
+                                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                     text=True, timeout=30, check=False)
+            proof = json.loads(checked.stdout) if checked.returncode == 0 else {}
+            if (not isinstance(proof, dict) or proof.get("schema") != "plugin-native-maintenance-preservation/v2" or proof.get("ok") is not True
+                    or proof.get("sourceSha256") != "68f4c2a3c0a3aa75436a15828e325bd279995435d83931d93b12516cca303962"
+                    or proof.get("state") not in ("applied", "verified") or proof.get("sdkImported") is not False
+                    or proof.get("distribution") != "omnigent" or proof.get("coreVersion") != "0.16.0"
+                    or proof.get("consoleEntryPoint") != "omnigent.cli:main"
+                    or proof.get("consoleScriptValidated") is not True
+                    or proof.get("pythonExecutable") != sys.executable
+                    or proof.get("consoleScript") != str(Path(binary).resolve(strict=True))
+                    or not re.fullmatch(r"[a-f0-9]{64}", proof.get("consoleScriptSha256", ""))):
+                raise ValueError("unverified preservation source")
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            raise PluginError("maintenance_preservation_required", "Omnigent 維護保留檢查未完成；請執行修復。") from None
+        return proof
+
     def ensure_host(self, server: str) -> str:
+        self.require_maintenance_preservation()
         host = self.local_host()
         if host["managerRunning"]:
             return "kit"
@@ -735,9 +763,16 @@ class Plugin:
             with os.fdopen(descriptor, "ab") as log:
                 environment = dict(os.environ)
                 environment["OMNIGENT_HOST_NO_OPEN"] = "1"
+                # Match the isolated verifier's SDK lookup, rather than loading
+                # a user/PYTHONPATH SDK or redirected unchecked bytecode.
+                for key in ("PYTHONPATH", "PYTHONHOME", "PYTHONPYCACHEPREFIX"):
+                    environment.pop(key, None)
+                environment["PYTHONNOUSERSITE"] = "1"
+                environment["PYTHONSAFEPATH"] = "1"
                 for key in ("OMNIGENT_HOST_ID", "OMNIGENT_HOST_NAME", "RUNNER_SERVER_URL", "RUNNER_AUTH_TOKEN", "OMNIGENT_RUNNER_AUTH_TOKEN", "OMNIGENT_HOST_BINDING_TOKEN"):
                     environment.pop(key, None)
-                process = subprocess.Popen([binary, "host", "--server", server, "--non-interactive", "--no-open"],
+                launch = self.require_maintenance_preservation()
+                process = subprocess.Popen([launch["pythonExecutable"], "-I", "-B", launch["consoleScript"], "host", "--server", server, "--non-interactive", "--no-open"],
                                            stdin=subprocess.DEVNULL, stdout=log, stderr=log, cwd=self.workspace,
                                            env=environment, start_new_session=True)
             atomic_json(self.state_dir / "host-process.json", {"pid": process.pid, "server": server,

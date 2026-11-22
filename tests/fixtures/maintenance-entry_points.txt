@@ -1,0 +1,3 @@
+[console_scripts]
+omni = omnigent.cli:main
+omnigent = omnigent.cli:main

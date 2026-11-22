@@ -1,0 +1,25 @@
+{
+  "schema": "maintenance-preservation-release-preparation/v1",
+  "packageName": "@woowtech/pi-omnigent-plugin",
+  "candidateVersion": "0.3.35",
+  "status": "UNPUBLISHED_RELEASE_PREPARATION",
+  "freshMainCommit": "475e0ee1fe3fa4c2a3b78a60b2ee34df77447746",
+  "reviewedV2ManifestSha256": "09e60d2c55e30b9fe295b70d4296b0d8ce94e3bdd89e6ed64882553d7e589c4b",
+  "reviewedRuntimeGuardSha256": "f22a9ee62a1ee9ca51c13ad875df5ca06571033d98ecd1d0802023d7f706ee83",
+  "independentStaticReview": {
+    "sha256": "1f5490cfed6d6c02c8fbb78b3dd24c784cfac27d74959111da503c50ecf8fdc4",
+    "status": "S1_S2_RESOLVED_STATIC_NO_ADDITIONAL_BLOCKER_FOUND"
+  },
+  "externalRootActualAcceptance": {
+    "sha256": "853401e8a7a5d552e269b25f1013fdd99cec66c069796aea8fa2ea0765ffa053",
+    "scope": "Omnigent0.16.0 Python3.12.14 read-only AFTER guard only; no host/provider/network/tenant",
+    "sourceAndThreePycUnchanged": true,
+    "stateDirectoryNotCreated": true
+  },
+  "beforeScope": "Owned synthetic fixtures only",
+  "platformAcceptanceClaimed": false,
+  "alreadyLoadedCodeAttested": false,
+  "productionAdmission": false,
+  "published": false,
+  "maintenanceOnly": true
+}

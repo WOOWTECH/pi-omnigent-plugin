@@ -34,7 +34,7 @@ async function context(options = {}) {
   const execute = options.callAdapter || (async input => {
     const python = dependencies.omnigent?.python;
     if (!python) return { ok: false, error: { code: 'DEPENDENCIES_MISSING', message: 'Omnigent Python 尚未安裝；請執行設定／修復。' } };
-    return runJSON(python, [path.join(loc.root, 'src', 'omnigent.py')], input,
+    return runJSON(python, ['-I', '-B', path.join(loc.root, 'src', 'omnigent.py')], input,
       { env: runtimeEnv(dependencies, env), timeout: input.action === 'verify' ? 300_000 : 120_000 });
   });
   const call = async (action, input = {}) => {
