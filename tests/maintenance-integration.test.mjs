@@ -216,15 +216,21 @@ test('guard errors, malformed proofs, wrong pins and timeout all fail closed wit
     consoleScriptValidated: true, pythonExecutable: '/sdk/bin/python', consoleScript: '/sdk/bin/omnigent',
     consoleScriptSha256: 'a'.repeat(64) };
   const entry = { available: true, path: '/sdk/bin/omnigent', python: '/sdk/bin/python' };
-  for (const response of [{ code: null, error: 'TIMEOUT' }, { code: 1, stdout: 'SENSITIVE' },
-    { code: 0, stdout: 'malformed' }, { code: 0, stdout: 'null' },
+  const refusal = reason => JSON.stringify({ ok: false, code: 'MAINTENANCE_PRESERVATION_REQUIRED', reason });
+  for (const [response, reason] of [[{ code: null, error: 'TIMEOUT' }, 'guard-run-failed'], [{ code: 1, stdout: 'SENSITIVE' }, 'guard-refused'],
+    [{ code: 1, stdout: refusal('/home/SENSITIVE') }, 'guard-refused'], [{ code: 1, stdout: refusal('Unsafe Source') }, 'guard-refused'],
+    [{ code: 1, stdout: JSON.stringify({ ok: false, code: 'OTHER', reason: 'unsafe-source-file' }) }, 'guard-refused'],
+    [{ code: 1, stdout: refusal('unsafe-source-file') }, 'unsafe-source-file'],
+    [{ code: 0, stdout: 'malformed' }, 'unexpected-guard-result'], [{ code: 0, stdout: 'null' }, 'unexpected-guard-result'],
     ...[{ sourceSha256: sha(before) }, { sdkImported: true }, { state: 'checked' }, { purelib: 'relative' }, { coreVersion: '9.9.9' },
       { distribution: 'foreign' }, { consoleScriptValidated: false }, { pythonExecutable: '/foreign/python' }]
-      .map(change => ({ code: 0, stdout: JSON.stringify({ ...valid, ...change }) }))]) {
+      .map(change => [{ code: 0, stdout: JSON.stringify({ ...valid, ...change }) }, 'unexpected-guard-result'])]) {
     const result = await ensureMaintenance(entry, { stateDir: '/state', env: {}, run: async () => response });
-    assert.deepEqual(result, { ok: false, code: 'MAINTENANCE_PRESERVATION_REQUIRED' });
+    assert.deepEqual(result, { ok: false, code: 'MAINTENANCE_PRESERVATION_REQUIRED', reason });
   }
-  assert.equal((await ensureMaintenance(entry, { stateDir: '/state', run: async () => { throw Error('SENSITIVE'); } })).ok, false);
+  assert.deepEqual(await ensureMaintenance(entry, { stateDir: '/state', run: async () => { throw Error('SENSITIVE'); } }),
+    { ok: false, code: 'MAINTENANCE_PRESERVATION_REQUIRED', reason: 'guard-run-failed' });
+  assert.equal((await ensureMaintenance({ available: true, path: '/sdk/bin/omnigent' }, { stateDir: '/state', run: async () => ({ code: 0 }) }))?.reason, 'guard-not-run');
 });
 for (const relative of ['apply_maintenance_patch.py', 'source-lock.json', 'overlay/' + targetRelative]) {
   test(`tampered packaged ${relative} is HOLD`, async t => {
@@ -236,6 +242,7 @@ for (const relative of ['apply_maintenance_patch.py', 'source-lock.json', 'overl
     const result = await runCommand(f.python, ['-I', '-B', path.join(copied, 'maintenance_preservation.py'),
       '--omnigent-bin', f.binary, '--state-dir', f.stateDir]);
     assert.equal(result.code, 1); assert.deepEqual(await sourceSnapshot(f.tool), baseline);
+    assert.deepEqual(JSON.parse(result.stdout), { ok: false, code: 'MAINTENANCE_PRESERVATION_REQUIRED', reason: 'packaged-review-pin-mismatch' });
   });
 }
 test('unchecked stale bytecode cannot override a correct exact-after source', async t => {
@@ -256,7 +263,7 @@ test('bytecode with a correct after-source header but foreign executable payload
 });
 test('package explicitly includes exact runtime payload files; brand/version and hook anchor stay intact', async () => {
   const pkg = JSON.parse(await fs.readFile(path.join(root, 'package.json')));
-  assert.equal(pkg.name, '@woowtech/pi-omnigent-plugin'); assert.equal(pkg.version, '0.3.35');
+  assert.equal(pkg.name, '@woowtech/pi-omnigent-plugin'); assert.equal(pkg.version, '0.3.36');
   const provenance = JSON.parse(await fs.readFile(path.join(root, 'src/native-maintenance/bundle-provenance.json')));
   assert.equal(provenance.bundleSha256, 'f9ab01b40c9e72d3110c67b3735deb740e9a07416a86d2e01bd9f7c7d9a60739');
   for (const [name, record] of Object.entries(provenance.files)) {
@@ -333,6 +340,9 @@ test('existing hardlinked managed SDK stays blocked without reinstall or cache m
   assert.equal(result.ok, false);
   assert.equal(result.changed, false);
   assert.equal(result.maintenancePreservation.ok, false);
+  // The real guard names the cause, so status shows why instead of only "dependencies missing".
+  assert.equal(result.maintenancePreservation.reason, 'unsafe-source-file');
+  assert.ok(result.issues.some(issue => issue.includes('(reason: unsafe-source-file)') && issue.includes('pi-omnigent repair --update')));
   assert.deepEqual(calls, [f.python]);
   assert.deepEqual(await sourceSnapshot(f.directory), baseline);
   assert.equal((await fs.stat(f.target)).ino, (await fs.stat(cached)).ino);

@@ -11,6 +11,7 @@ import base64
 import configparser
 import csv
 from email.parser import BytesHeaderParser
+import errno
 import io
 import hashlib
 import importlib.util
@@ -39,6 +40,22 @@ PINS = {
 
 class PreservationRequired(RuntimeError):
     pass
+
+
+_REASON_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789-")
+
+
+def failure_reason(error: BaseException) -> str:
+    """A fixed-vocabulary token for status/UI: never a path, OS message or SDK output."""
+    if isinstance(error, PreservationRequired):
+        reason = str(error)
+        if 0 < len(reason) <= 64 and reason[0] != "-" and set(reason) <= _REASON_CHARS:
+            return reason
+        return "preservation-required"
+    if isinstance(error, OSError):
+        name = errno.errorcode.get(error.errno) if isinstance(error.errno, int) else None
+        return "os-error-" + name.lower() if name else "os-error"
+    return "unexpected-error"
 
 
 def require(value, reason):
@@ -269,9 +286,11 @@ def main():
     try:
         print(json.dumps(enforce(args.omnigent_bin, args.state_dir), sort_keys=True))
         return 0
-    except Exception:
-        # Do not leak raw filesystem errors or SDK output through status/UI.
-        print(json.dumps({"ok": False, "code": "MAINTENANCE_PRESERVATION_REQUIRED"}))
+    except Exception as error:
+        # Only a fixed reason token leaves; raw filesystem errors and SDK output
+        # never reach status/UI.
+        print(json.dumps({"ok": False, "code": "MAINTENANCE_PRESERVATION_REQUIRED",
+                          "reason": failure_reason(error)}, sort_keys=True))
         return 1
 
 

@@ -4,7 +4,7 @@ import { constants } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { probeTimeoutMs } from './common.mjs';
-import { ensureMaintenance } from './maintenance.mjs';
+import { ensureMaintenance, MAINTENANCE_REASON } from './maintenance.mjs';
 
 // Pinned releases are changed deliberately, never resolved through "latest" at runtime.
 export const DEPENDENCY_VERSIONS = Object.freeze({
@@ -202,6 +202,14 @@ function blankDiscovery() {
  * update refreshes managed Omnigent and preserves image/global CLIs.
  * Inject run/discover in tests; neither performs shell interpolation.
  */
+// The guard's reason token goes into the issue text, so status and logs show
+// why the SDK was refused instead of only "dependencies missing".
+export function maintenanceIssue(reason) {
+  const base = `Omnigent maintenance preservation could not be verified (reason: ${reason}).`;
+  if (reason === 'unsafe-source-file') return `${base} A managed Omnigent file has more than one hard link: installs by plugin 0.3.34 or earlier on Linux share their files with the uv cache. Reinstall it with pi-omnigent repair --update (or rerun a native installer that repairs hard links), then retry.`;
+  return `${base} Use the reviewed SDK source and retry.`;
+}
+
 export async function installDependencies({ update = false, env = process.env, home, stateDir, run = runCommand, discover: find = discover, platform = process.platform, arch = process.arch, onProgress, fresh = false, maintenance = ensureMaintenance } = {}) {
   env = environment(env);
   home = path.resolve(home || env.HOME || homedir());
@@ -328,8 +336,9 @@ export async function installDependencies({ update = false, env = process.env, h
     try { maintenancePreservation = await maintenance(discovery.omnigent, { stateDir, env, run }); }
     catch { maintenancePreservation = { ok: false }; }
     if (maintenancePreservation?.ok !== true) {
-      maintenancePreservation = { ok: false, code: 'MAINTENANCE_PRESERVATION_REQUIRED' };
-      issues.push('Omnigent maintenance preservation could not be verified. Use the reviewed SDK source and retry.');
+      const reason = MAINTENANCE_REASON.test(maintenancePreservation?.reason ?? '') ? maintenancePreservation.reason : 'guard-run-failed';
+      maintenancePreservation = { ok: false, code: 'MAINTENANCE_PRESERVATION_REQUIRED', reason };
+      issues.push(maintenanceIssue(reason));
       report('omnigent', 'maintenance-preservation', 'blocked');
     }
   }

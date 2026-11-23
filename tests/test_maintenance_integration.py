@@ -33,10 +33,13 @@ class AdapterGuardTests(unittest.TestCase):
                       "pythonExecutable": sys.executable, "consoleScript": str(self.directory / "omnigent"),
                       "consoleScriptSha256": "a" * 64}
         self.fail_run = None
+        self.refusal = None
         def run(argv, **options):
             self.events.append(("guard", argv, options))
             if self.fail_run:
                 raise self.fail_run
+            if self.refusal is not None:
+                return types.SimpleNamespace(returncode=1, stdout=self.refusal)
             return types.SimpleNamespace(returncode=0, stdout=json.dumps(self.proof))
         def popen(argv, **options):
             self.events.append(("spawn", argv, options))
@@ -46,7 +49,11 @@ class AdapterGuardTests(unittest.TestCase):
         selected = [n for n in ORIGINAL_CLASS.body if isinstance(n, ast.FunctionDef)
                     and n.name in ("require_maintenance_preservation", "ensure_host")]
         error = next(n for n in TREE.body if isinstance(n, ast.ClassDef) and n.name == "PluginError")
-        program = ast.Module(body=[error, ast.ClassDef(name="FixturePlugin", bases=[], keywords=[],
+        helpers = [n for n in TREE.body
+                   if (isinstance(n, ast.FunctionDef) and n.name in ("maintenance_refusal_reason", "maintenance_message"))
+                   or (isinstance(n, ast.Assign) and any(getattr(x, "id", None) == "_MAINTENANCE_REASON" for x in n.targets))]
+        self.assertEqual(len(helpers), 3)
+        program = ast.Module(body=[error, *helpers, ast.ClassDef(name="FixturePlugin", bases=[], keywords=[],
                              body=selected, decorator_list=[])], type_ignores=[])
         ns = dict(Path=Path, sys=sys, json=json, re=re, subprocess=fake_subprocess, os=os, shutil=shutil,
                   fcntl=fcntl, _SCRIPT_DIR=ROOT / "src", atomic_json=lambda *a: None)
@@ -79,6 +86,36 @@ class AdapterGuardTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, 'MAINTENANCE_PRESERVATION_REQUIRED')
         self.assertEqual([e[0] for e in self.events], ['guard'])
         self.assertFalse(self.plugin.state_dir.exists())
+
+    def test_guard_reason_reaches_the_error_message(self):
+        self.refusal = json.dumps({"ok": False, "code": "MAINTENANCE_PRESERVATION_REQUIRED", "reason": "unsafe-source-file"})
+        with self.assertRaises(self.error) as caught:
+            self.plugin.ensure_host('https://fixture.invalid')
+        self.assertEqual(caught.exception.code, 'MAINTENANCE_PRESERVATION_REQUIRED')
+        self.assertIn('unsafe-source-file', caught.exception.message)
+        self.assertIn('pi-omnigent repair --update', caught.exception.message)
+        self.assertFalse(any(e[0] == 'spawn' for e in self.events))
+
+    def test_refusal_text_that_is_not_a_token_never_reaches_the_message(self):
+        for stdout in ('SENSITIVE /home/user/secret', json.dumps({"ok": False, "code": "MAINTENANCE_PRESERVATION_REQUIRED",
+                                                                  "reason": "/home/user/SENSITIVE"}),
+                       json.dumps({"ok": False, "code": "OTHER", "reason": "unsafe-source-file"})):
+            with self.subTest(stdout=stdout):
+                self.refusal = stdout
+                with self.assertRaises(self.error) as caught:
+                    self.plugin.ensure_host('https://fixture.invalid')
+                self.assertIn('guard-refused', caught.exception.message)
+                self.assertNotIn('SENSITIVE', caught.exception.message)
+
+    def test_failure_kinds_have_fixed_reasons(self):
+        self.proof['sourceSha256'] = '0' * 64
+        with self.assertRaises(self.error) as caught:
+            self.plugin.ensure_host('https://fixture.invalid')
+        self.assertIn('unexpected-guard-result', caught.exception.message)
+        self.fail_run = subprocess.TimeoutExpired('fixture-guard', 30)
+        with self.assertRaises(self.error) as caught:
+            self.plugin.ensure_host('https://fixture.invalid')
+        self.assertIn('guard-run-failed', caught.exception.message)
 
     def test_timeout_and_os_errors_cannot_start_host(self):
         for failure in (subprocess.TimeoutExpired('fixture-guard', 30), OSError('synthetic refusal')):
