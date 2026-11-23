@@ -52,6 +52,28 @@ class PluginError(Exception):
         self.message = message
 
 
+_MAINTENANCE_REASON = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
+
+
+def maintenance_refusal_reason(stdout: object) -> str:
+    """The guard's own fixed refusal token; never raw guard output."""
+    try:
+        value = json.loads(stdout) if isinstance(stdout, str) else None
+    except (ValueError, RecursionError):
+        value = None
+    reason = value.get("reason") if isinstance(value, dict) and value.get("ok") is False \
+        and value.get("code") == "MAINTENANCE_PRESERVATION_REQUIRED" else None
+    return reason if isinstance(reason, str) and _MAINTENANCE_REASON.fullmatch(reason) else "guard-refused"
+
+
+def maintenance_message(reason: str) -> str:
+    if reason == "unsafe-source-file":
+        return ("Omnigent 維護保留檢查不通過（原因：unsafe-source-file）：有檔案是硬連結、不是一般檔案或過大，"
+                "最常見的是 Linux 上由外掛 0.3.34 以前安裝、與 uv 快取共用檔案的 Omnigent；"
+                "請執行 pi-omnigent repair --update 重新安裝後再試。")
+    return f"Omnigent 維護保留檢查未完成（原因：{reason}）；請執行修復。"
+
+
 def normalize_server(value: object) -> str:
     if not isinstance(value, str) or not value.strip():
         raise PluginError("needs_server", "請提供 Omnigent server 網址。")
@@ -700,13 +722,18 @@ class Plugin:
         # is needed to find or verify this interpreter's own purelib.
         binary = self.request.get("omnigentBin") or shutil.which("omnigent")
         if not isinstance(binary, str) or not Path(binary).is_absolute():
-            raise PluginError("maintenance_preservation_required", "Omnigent 維護保留檢查未完成；請執行修復。")
+            raise PluginError("maintenance_preservation_required", maintenance_message("guard-not-run"))
+        reason = "guard-run-failed"
         try:
             checked = subprocess.run([sys.executable, "-I", "-B", str(_SCRIPT_DIR / "maintenance_preservation.py"),
                                       "--omnigent-bin", binary, "--state-dir", str(self.state_dir)],
                                      stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                      text=True, timeout=30, check=False)
-            proof = json.loads(checked.stdout) if checked.returncode == 0 else {}
+            if checked.returncode != 0:
+                reason = maintenance_refusal_reason(checked.stdout)
+                raise ValueError("preservation refused")
+            reason = "unexpected-guard-result"
+            proof = json.loads(checked.stdout)
             if (not isinstance(proof, dict) or proof.get("schema") != "plugin-native-maintenance-preservation/v2" or proof.get("ok") is not True
                     or proof.get("sourceSha256") != "68f4c2a3c0a3aa75436a15828e325bd279995435d83931d93b12516cca303962"
                     or proof.get("state") not in ("applied", "verified") or proof.get("sdkImported") is not False
@@ -717,8 +744,8 @@ class Plugin:
                     or proof.get("consoleScript") != str(Path(binary).resolve(strict=True))
                     or not re.fullmatch(r"[a-f0-9]{64}", proof.get("consoleScriptSha256", ""))):
                 raise ValueError("unverified preservation source")
-        except (OSError, ValueError, subprocess.TimeoutExpired):
-            raise PluginError("maintenance_preservation_required", "Omnigent 維護保留檢查未完成；請執行修復。") from None
+        except (OSError, ValueError, RecursionError, subprocess.TimeoutExpired):
+            raise PluginError("maintenance_preservation_required", maintenance_message(reason)) from None
         return proof
 
     def ensure_host(self, server: str) -> str:
