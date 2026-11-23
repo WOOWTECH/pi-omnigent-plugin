@@ -59,7 +59,7 @@ def maintenance_refusal_reason(stdout: object) -> str:
     """The guard's own fixed refusal token; never raw guard output."""
     try:
         value = json.loads(stdout) if isinstance(stdout, str) else None
-    except ValueError:
+    except (ValueError, RecursionError):
         value = None
     reason = value.get("reason") if isinstance(value, dict) and value.get("ok") is False \
         and value.get("code") == "MAINTENANCE_PRESERVATION_REQUIRED" else None
@@ -68,7 +68,8 @@ def maintenance_refusal_reason(stdout: object) -> str:
 
 def maintenance_message(reason: str) -> str:
     if reason == "unsafe-source-file":
-        return ("Omnigent 檔案有多個硬連結，維護保留檢查不通過（原因：unsafe-source-file）；"
+        return ("Omnigent 維護保留檢查不通過（原因：unsafe-source-file）：有檔案是硬連結、不是一般檔案或過大，"
+                "最常見的是 Linux 上由外掛 0.3.34 以前安裝、與 uv 快取共用檔案的 Omnigent；"
                 "請執行 pi-omnigent repair --update 重新安裝後再試。")
     return f"Omnigent 維護保留檢查未完成（原因：{reason}）；請執行修復。"
 
@@ -743,7 +744,7 @@ class Plugin:
                     or proof.get("consoleScript") != str(Path(binary).resolve(strict=True))
                     or not re.fullmatch(r"[a-f0-9]{64}", proof.get("consoleScriptSha256", ""))):
                 raise ValueError("unverified preservation source")
-        except (OSError, ValueError, subprocess.TimeoutExpired):
+        except (OSError, ValueError, RecursionError, subprocess.TimeoutExpired):
             raise PluginError("maintenance_preservation_required", maintenance_message(reason)) from None
         return proof
 

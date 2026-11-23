@@ -217,7 +217,8 @@ test('guard errors, malformed proofs, wrong pins and timeout all fail closed wit
     consoleScriptSha256: 'a'.repeat(64) };
   const entry = { available: true, path: '/sdk/bin/omnigent', python: '/sdk/bin/python' };
   const refusal = reason => JSON.stringify({ ok: false, code: 'MAINTENANCE_PRESERVATION_REQUIRED', reason });
-  for (const [response, reason] of [[{ code: null, error: 'TIMEOUT' }, 'guard-run-failed'], [{ code: 1, stdout: 'SENSITIVE' }, 'guard-refused'],
+  for (const [response, reason] of [[{ code: null, error: 'TIMEOUT' }, 'guard-run-failed'], [{ code: null, signal: 'SIGTERM' }, 'guard-run-failed'],
+    [{ code: null, signal: 'SIGTERM', stdout: refusal('unsafe-source-file') }, 'guard-run-failed'], [{ code: 1, stdout: 'SENSITIVE' }, 'guard-refused'],
     [{ code: 1, stdout: refusal('/home/SENSITIVE') }, 'guard-refused'], [{ code: 1, stdout: refusal('Unsafe Source') }, 'guard-refused'],
     [{ code: 1, stdout: JSON.stringify({ ok: false, code: 'OTHER', reason: 'unsafe-source-file' }) }, 'guard-refused'],
     [{ code: 1, stdout: refusal('unsafe-source-file') }, 'unsafe-source-file'],

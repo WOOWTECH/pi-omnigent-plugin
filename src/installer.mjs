@@ -206,7 +206,7 @@ function blankDiscovery() {
 // why the SDK was refused instead of only "dependencies missing".
 export function maintenanceIssue(reason) {
   const base = `Omnigent maintenance preservation could not be verified (reason: ${reason}).`;
-  if (reason === 'unsafe-source-file') return `${base} A managed Omnigent file has more than one hard link: installs by plugin 0.3.34 or earlier on Linux share their files with the uv cache. Reinstall it with pi-omnigent repair --update (or rerun a native installer that repairs hard links), then retry.`;
+  if (reason === 'unsafe-source-file') return `${base} A file the guard reads is hard-linked, not a regular file, or too large. The usual cause is a managed Omnigent installed by plugin 0.3.34 or earlier on Linux, which shares its files with the uv cache; reinstall it with pi-omnigent repair --update (or rerun a native installer that repairs hard links), then retry.`;
   return `${base} Use the reviewed SDK source and retry.`;
 }
 

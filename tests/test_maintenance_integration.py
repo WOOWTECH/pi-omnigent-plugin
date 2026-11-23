@@ -97,7 +97,7 @@ class AdapterGuardTests(unittest.TestCase):
         self.assertFalse(any(e[0] == 'spawn' for e in self.events))
 
     def test_refusal_text_that_is_not_a_token_never_reaches_the_message(self):
-        for stdout in ('SENSITIVE /home/user/secret', json.dumps({"ok": False, "code": "MAINTENANCE_PRESERVATION_REQUIRED",
+        for stdout in ('SENSITIVE /home/user/secret', '[' * 100000, json.dumps({"ok": False, "code": "MAINTENANCE_PRESERVATION_REQUIRED",
                                                                   "reason": "/home/user/SENSITIVE"}),
                        json.dumps({"ok": False, "code": "OTHER", "reason": "unsafe-source-file"})):
             with self.subTest(stdout=stdout):

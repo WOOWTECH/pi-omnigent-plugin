@@ -22,7 +22,9 @@ export async function ensureMaintenance(entry, { stateDir, env, run }) {
   try {
     const response = await run(entry.python, ['-I', '-B', path.join(import.meta.dirname, 'maintenance_preservation.py'),
       '--omnigent-bin', entry.path, '--state-dir', stateDir], { env, timeoutMs: 30_000 });
-    if (response?.error) return failure('guard-run-failed');
+    // runCommand reports a timeout as {code: null, signal} when SIGTERM ends the
+    // guard, and adds error: 'TIMEOUT' only when it has to SIGKILL.
+    if (response?.error || response?.code == null || response?.signal) return failure('guard-run-failed');
     if (response?.code !== 0) return failure(refusalReason(response?.stdout));
     let value;
     try { value = JSON.parse(response.stdout); } catch { return failure('unexpected-guard-result'); }
