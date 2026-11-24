@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.37 — Unreleased
+
+- The combined Pi Web adapter pins Agent Connect `@woowtech/pi-paseo` **0.1.22** (adapter `d98667c0…`), which adds the 「允許代理彼此協作」 switch to Settings > Agent Connect. The switch is off by default. When on, agents get Paseo's own MCP tools through `daemon.mcp.injectIntoAgents`: agents, terminals and schedules, plus messaging, mode changes and permission approvals for any agent on the host. Paseo 0.11.2 leaves that setting off, so Agent Connect agents could not hand work to each other through the tools. The settings page states the risk (terminals run commands without permission prompts) and that turning it off reaches only newly opened conversations. The value shown is the daemon config, which a Paseo client can also change.
+- 0.1.22's settings-page change gives it a new adapter digest, so only 0.1.22 is accepted. 0.1.20 and 0.1.21 are refused (`COMBINED_ADAPTER_MISMATCH`), as before for any version outside the exact combined candidate. The combined patch is regenerated as `178236c5…` from the 0.3.36 patch plus only the Paseo settings-page delta; the Omnigent adapter is unchanged.
+
 ## 0.3.36 — Unreleased
 
 - Accept Agent Connect `@woowtech/pi-paseo` 0.1.21 in the combined Pi Web adapter, with 0.1.20 kept as the only other compatible version. 0.1.21 (pi-paseo-plugin #21, d382779 on top of the frozen 0.1.20 source aea2da4a) only changes the Ubuntu pid-file check: upstream Paseo writes `paseo.pid` without a mode, so under umask 002 it is 0664, which 0.1.20 refused (`DAEMON_IDENTITY_UNSAFE`) on every retry. Its `host/adapter.patch` is byte-identical (`814bf6df…`), so the combined patch is unchanged. CI's combined-ui job now builds against d382779.
