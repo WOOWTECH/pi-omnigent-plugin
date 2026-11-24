@@ -1,5 +1,7 @@
 # Pi Omnigent Plugin
 
+0.3.37 發布準備：Agent Connect 改為搭配 `@woowtech/pi-paseo` 0.1.22，設定頁多了「允許代理彼此協作」開關（預設關閉，開啟後代理可以用 Paseo 的工具互相派工）。
+
 0.3.36 發布準備：Agent Connect 改為搭配 `@woowtech/pi-paseo` 0.1.21（修正 Ubuntu 上 pid 檔權限被拒絕；仍相容 0.1.20），維護保留檢查不通過時會在狀態與錯誤訊息裡寫出原因代碼（例如硬連結是 `unsafe-source-file`）。
 
 0.3.35 發布準備：在 SDK 安裝／更新與既有 host 啟動前，驗證指定 Omnigent 0.16.0 的 metadata、Python console entry 與原生維護保留修補。僅自有 uv 環境的已知原始碼可套用修補；映像內 SDK 必須已是精確修補後版本，未知狀態停止啟動。這是待審查／發布的原始碼與套件準備，不代表已發布、各平台驗收或現有 host 已載入修補。範圍與限制見 [maintenance preservation](docs/maintenance-preservation.md) 和 [changelog](CHANGELOG.md)。
