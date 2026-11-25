@@ -41,7 +41,9 @@ head script 在 hydration 前記錄輸入、點選、觸控及捲動。等待中
 
 隔離的 production browser 測試直接載入實際插件／SDK：desktop/mobile 零點擊開啟，既有初始設定提示與空白 URL 欄位可見，且不輸入憑證或發起模型回合。API 測試核對 session 檔案無寫入；瀏覽器核對原始紀錄位元組不變，允許既有 SDK／精靈在正常開啟時追加設定及提示紀錄。Paseo 0.1.7、0.1.8、0.1.9 共用同一份 combined 來源，仍逐版驗證 contributor digest；舊版 prebuilt 若來源不同，`--prebuilt-root` 會拒絕。
 
-0.3.37 起組合補丁只搭配 `@woowtech/pi-paseo` 0.1.22：設定頁新增「允許代理彼此協作」開關，Paseo 的 `host/adapter.patch` 因此改變（`d98667c0…`）。
+0.3.38 起組合補丁只搭配 `@woowtech/pi-paseo` 0.1.23：Paseo 選項改開官方網站 `app.paseo.sh`，內建 `/paseo-web` 網頁與路由移除，Paseo 的 `host/adapter.patch` 因此改變（`2cd41472…`）。
+
+0.3.37 的組合補丁只搭配 `@woowtech/pi-paseo` 0.1.22：設定頁新增「允許代理彼此協作」開關，Paseo 的 `host/adapter.patch` 因此改變（`d98667c0…`）。
 
 0.3.36 的組合補丁搭配 `@woowtech/pi-paseo` 0.1.21，並相容 0.1.20：兩者的 `host/adapter.patch` 逐位元組相同（`814bf6df…`），0.1.21 只修正 Ubuntu 上 pid 檔權限的檢查。
 
