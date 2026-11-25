@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.38 — Unreleased
+
+- The combined Pi Web adapter pins Agent Connect `@woowtech/pi-paseo` **0.1.23** (adapter `2cd41472…`). The Paseo target now opens and pairs at the official `https://app.paseo.sh`, like the Smart targets open their own sites. The bundled `/paseo-web` client (patched Paseo Web 0.13.0-woow.1, about 11 MB downloaded per host) and its Pi Web route are gone, and Agent Connect removes the copy older versions left in its state directory. The settings page accepts a pairing link only for the selected target's official app with an exact `#offer=` entry.
+- The combined patch is regenerated as `a5f5e6eb…` from the 0.3.37 patch plus only the Agent Connect 0.1.23 delta: every Agent Connect file now matches its 0.1.23 adapter, which also drops the combined-only normalization of the old `/paseo-web/#` links. The Omnigent adapter is unchanged. Only 0.1.23 is accepted; 0.1.22 and older are refused (`COMBINED_ADAPTER_MISMATCH`).
+
 ## 0.3.37 — Unreleased
 
 - The combined Pi Web adapter pins Agent Connect `@woowtech/pi-paseo` **0.1.22** (adapter `d98667c0…`), which adds the 「允許代理彼此協作」 switch to Settings > Agent Connect. The switch is off by default. When on, agents get Paseo's own MCP tools through `daemon.mcp.injectIntoAgents`: agents, terminals and schedules, plus messaging, mode changes and permission approvals for any agent on the host. Paseo 0.11.2 leaves that setting off, so Agent Connect agents could not hand work to each other through the tools. The settings page states the risk (terminals run commands without permission prompts) and that turning it off reaches only newly opened conversations. The value shown is the daemon config, which a Paseo client can also change.

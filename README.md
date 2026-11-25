@@ -1,5 +1,7 @@
 # Pi Omnigent Plugin
 
+0.3.38 發布準備：Agent Connect 改為搭配 `@woowtech/pi-paseo` 0.1.23，Paseo 選項改開官方網站 `app.paseo.sh`，不再附內建的 `/paseo-web` 網頁。
+
 0.3.37 發布準備：Agent Connect 改為搭配 `@woowtech/pi-paseo` 0.1.22，設定頁多了「允許代理彼此協作」開關（預設關閉，開啟後代理可以用 Paseo 的工具互相派工）。
 
 0.3.36 發布準備：Agent Connect 改為搭配 `@woowtech/pi-paseo` 0.1.21（修正 Ubuntu 上 pid 檔權限被拒絕；仍相容 0.1.20），維護保留檢查不通過時會在狀態與錯誤訊息裡寫出原因代碼（例如硬連結是 `unsafe-source-file`）。
