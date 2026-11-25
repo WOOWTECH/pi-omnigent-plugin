@@ -1,5 +1,7 @@
 # Pi Omnigent Plugin
 
+0.3.39 發布準備：Agent Connect 改為搭配 `@woowtech/pi-paseo` 0.1.24（受管的 Paseo daemon 由 0.11.2 升到 0.17.4）。
+
 0.3.38 發布準備：Agent Connect 改為搭配 `@woowtech/pi-paseo` 0.1.23，Paseo 選項改開官方網站 `app.paseo.sh`，不再附內建的 `/paseo-web` 網頁。
 
 0.3.37 發布準備：Agent Connect 改為搭配 `@woowtech/pi-paseo` 0.1.22，設定頁多了「允許代理彼此協作」開關（預設關閉，開啟後代理可以用 Paseo 的工具互相派工）。
