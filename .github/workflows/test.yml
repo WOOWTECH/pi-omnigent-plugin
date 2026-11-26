@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       paseo_ref:
-        description: 'Agent Connect source commit or tag; empty uses the frozen 0.1.24 source'
+        description: 'Agent Connect source commit or tag; empty uses the frozen 0.1.25 source'
         required: false
         type: string
   push:
@@ -174,9 +174,8 @@ jobs:
     timeout-minutes: 30
     env:
       PLAYWRIGHT_BROWSERS_PATH: /tmp/paseo-playwright
-      # Frozen 0.1.24 bytes (pi-paseo-plugin #24 merged as ee8f9b43, runtime 0.17.4, on top of
-      # the 0.1.23 source 152e1c3a) are available before a separate release/tag.
-      PASEO_CANDIDATE_REF: ${{ inputs.paseo_ref || 'ee8f9b437dc8e7e4041dc0c9ef73755951cd5bbb' }}
+      # Agent Connect 0.1.25: official 0.17.4 plus the pinned Smart Tasks builtin.
+      PASEO_CANDIDATE_REF: ${{ inputs.paseo_ref || 'cbd4bd7c7901e89d76a773d30baf4c562ba83b84' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
