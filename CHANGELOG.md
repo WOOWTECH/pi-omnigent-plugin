@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.42-rc.4 — Candidate
+
+- Phone-selected pairing: pin Agent Connect 0.1.27-rc.4 (source `a895f725aad645e7594c8405aac17aca409b3558`, archive SHA-256 `3fe3f9e7bad463c6a007703a8db67c2de320b061e93ba7bc79339cae68fe937b`) with Paseo 0.17.5-r4 `8664f2c3f8f5` / `a7full5`. Combined adapter patch bytes remain unchanged; refusal tests keep the exact pair gate.
+
 ## 0.3.42-rc.3 — Candidate
 
 - Pin Agent Connect 0.1.27-rc.3 and its isolated 0.17.5-r3 builtin payload from Smart 2b012f9. Shortcut recording requires the matching Smart Web keyboard guard; the package pair gate stays exact. Combined Pi Web code and adapter hashes are unchanged.

@@ -1,6 +1,6 @@
 # Pi Omnigent Plugin
 
-0.3.42-rc.3 paired candidate：combined adapter 精確固定 Agent Connect 0.1.27-rc.3，對應 Paseo 0.17.5。此為待驗證 source candidate，尚未發布。
+0.3.42-rc.4 phone-selected paired candidate：combined adapter 精確固定 Agent Connect 0.1.27-rc.4（source `a895f725aad645e7594c8405aac17aca409b3558`，archive SHA-256 `3fe3f9e7bad463c6a007703a8db67c2de320b061e93ba7bc79339cae68fe937b`），對應 Paseo 0.17.5-r4 `8664f2c3f8f5` / `a7full5`。Combined Pi Web patch bytes unchanged；此為待驗證 source candidate，尚未發布。
 
 0.3.38 發布準備：Agent Connect 改為搭配 `@woowtech/pi-paseo` 0.1.23，Paseo 選項改開官方網站 `app.paseo.sh`，不再附內建的 `/paseo-web` 網頁。
 

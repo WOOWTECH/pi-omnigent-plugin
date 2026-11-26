@@ -1,5 +1,11 @@
 # Agent Connect shared adapter rollout
 
+## Paired 0.17.5-r4 candidate (2026-11-26)
+
+The phone-selected Omnigent source candidate is **0.3.42-rc.4**, pinned exactly to `@woowtech/pi-paseo` **0.1.27-rc.4**. Agent Connect source commit: `a895f725aad645e7594c8405aac17aca409b3558`; archive: `artifacts/woowtech-pi-paseo-0.1.27-rc.4.tgz`, SHA-256 `3fe3f9e7bad463c6a007703a8db67c2de320b061e93ba7bc79339cae68fe937b`. Its adapter patch digest remains `29b0de5a1ab00518e8a99f3449ae5b8f0d2fa6ec621cd6105edbeb15a6ce3331`. Paired runtime: Paseo 0.17.5-r4, source `8664f2c3f8f5`, payload marker `a7full5`. This remains an unpublished candidate.
+
+The Omnigent combined adapter patch remains byte-identical at SHA-256 `13775483ce327a544b2604f4205db11ec0eec516e0765c44bebf72a133503dbb`; exact contributor versions and archive identity are enforced by manifest and tests.
+
 ## Paired 0.17.5 candidate (2026-11-26)
 
 The Omnigent source candidate is **0.3.42-rc.3**, pinned exactly to `@woowtech/pi-paseo` **0.1.27-rc.3**. The Agent Connect source commit is `88857bd86a4bf982aef6d85122f16b7d4a03d009`; its packaged `host/adapter.patch` digest is `29b0de5a1ab00518e8a99f3449ae5b8f0d2fa6ec621cd6105edbeb15a6ce3331`. The paired Paseo tarball SHA-256 is `ee3a2f8b35bb42f87b85d4811362d134dcbcb9ae8e8845af69cc6d75d27248f4`. This is an unpublished candidate.
