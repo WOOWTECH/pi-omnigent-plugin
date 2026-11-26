@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.42-rc.1 — Candidate
+
+- Pair the combined Pi Web adapter with Agent Connect **0.1.27-rc.1** and its Paseo **0.17.5** runtime. Keep the exact contributor patch digest guard; the Omnigent adapter patch and combined patch bytes are unchanged.
+- Source pair: Agent Connect `e4c568ce3214592574f11243acf5ed7db743d47e`; adapter patch SHA-256 `29b0de5a1ab00518e8a99f3449ae5b8f0d2fa6ec621cd6105edbeb15a6ce3331`.
+
 ## 0.3.41 — Unreleased
 
 - Pair the combined Pi Web adapter with Agent Connect **0.1.26**. Track scheduled startup, explain pending target changes, and recover from request timeouts without retrying lifecycle mutations.

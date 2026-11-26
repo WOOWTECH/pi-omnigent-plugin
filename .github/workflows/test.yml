@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       paseo_ref:
-        description: 'Agent Connect source commit or tag; empty uses the frozen 0.1.26 source'
+        description: 'Agent Connect source commit or tag; empty uses the paired 0.1.27-rc.1 candidate'
         required: false
         type: string
   push:
@@ -174,8 +174,8 @@ jobs:
     timeout-minutes: 30
     env:
       PLAYWRIGHT_BROWSERS_PATH: /tmp/paseo-playwright
-      # Agent Connect 0.1.26: reviewed Start progress and pending-target UI.
-      PASEO_CANDIDATE_REF: ${{ inputs.paseo_ref || '985bff65835ffd986a4b81d84fa3093e9e3133d8' }}
+      # Agent Connect 0.1.27-rc.1: paired with the isolated Paseo 0.17.5 candidate.
+      PASEO_CANDIDATE_REF: ${{ inputs.paseo_ref || 'e4c568ce3214592574f11243acf5ed7db743d47e' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4

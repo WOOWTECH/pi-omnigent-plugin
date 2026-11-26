@@ -5,12 +5,12 @@
   "piWebVersion": "0.10.0",
   "paseo": {
     "packageName": "@woowtech/pi-paseo",
-    "packageVersion": "0.1.26",
+    "packageVersion": "0.1.27-rc.1",
     "adapterPatchSha256": "29b0de5a1ab00518e8a99f3449ae5b8f0d2fa6ec621cd6105edbeb15a6ce3331"
   },
   "omnigent": {
     "packageName": "@woowtech/pi-omnigent-plugin",
-    "packageVersion": "0.3.41",
+    "packageVersion": "0.3.42-rc.1",
     "adapterPatchSha256": "82b251162aff5a68daa6d6b1a1ad9daa0d2059888437860f7391772c6c8ee2cc"
   },
   "patchSha256": "13775483ce327a544b2604f4205db11ec0eec516e0765c44bebf72a133503dbb",
