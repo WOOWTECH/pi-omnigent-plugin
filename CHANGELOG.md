@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.42-rc.3 — Candidate
+
+- Pin Agent Connect 0.1.27-rc.3 and its isolated 0.17.5-r3 builtin payload from Smart 2b012f9. Shortcut recording requires the matching Smart Web keyboard guard; the package pair gate stays exact. Combined Pi Web code and adapter hashes are unchanged.
+
 ## 0.3.42-rc.2 — Candidate
 
 - Pin Agent Connect 0.1.27-rc.2 and its isolated 0.17.5-r2 builtin payload from Smart a61efefca. Fixes preference saves stalling after an unchanged revision. Combined Pi Web code and adapter hashes remain unchanged; the exact package pair gate is retained.

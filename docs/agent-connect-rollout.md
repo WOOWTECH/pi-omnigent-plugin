@@ -2,7 +2,7 @@
 
 ## Paired 0.17.5 candidate (2026-11-26)
 
-The Omnigent source candidate is **0.3.42-rc.2**, pinned exactly to `@woowtech/pi-paseo` **0.1.27-rc.2**. The Agent Connect source commit is `bf563b8171ba64b38bfb117d57619ec814052714`; its packaged `host/adapter.patch` digest is `29b0de5a1ab00518e8a99f3449ae5b8f0d2fa6ec621cd6105edbeb15a6ce3331`. The paired Paseo tarball SHA-256 is `4ce635291b8c87780c54e23410fde27cc0b582c1036e4f36bf08ca8ba9c31143`. This is an unpublished candidate.
+The Omnigent source candidate is **0.3.42-rc.3**, pinned exactly to `@woowtech/pi-paseo` **0.1.27-rc.3**. The Agent Connect source commit is `88857bd86a4bf982aef6d85122f16b7d4a03d009`; its packaged `host/adapter.patch` digest is `29b0de5a1ab00518e8a99f3449ae5b8f0d2fa6ec621cd6105edbeb15a6ce3331`. The paired Paseo tarball SHA-256 is `ee3a2f8b35bb42f87b85d4811362d134dcbcb9ae8e8845af69cc6d75d27248f4`. This is an unpublished candidate.
 
 The Omnigent adapter patch stays at its existing digest. Inspection found no contributor-version literals in `combined.adapter.patch`, so its bytes and digest stay unchanged; the exact versions are enforced by `combined.adapter-meta.json` and the installer tests. Unknown versions remain refused.
 
