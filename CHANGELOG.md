@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.40 — Unreleased
+
+- Pin the combined Pi Web adapter to Agent Connect **0.1.25**, which adds the pinned Better Paseo Tasks builtin to official Paseo 0.17.4. Tasks defaults on, chat enhancements default off, and plugin updates stay product-managed.
+- The Pi Web adapter bytes are unchanged (`5e2c36b4…`). The exact tested package pair advances to 0.3.40/0.1.25; older or newer connector versions remain refused.
+
+
 ## 0.3.39 — Unreleased
 
 - The combined Pi Web adapter pins Agent Connect `@woowtech/pi-paseo` **0.1.24** (adapter `75685c21…`). 0.1.24 moves the managed Paseo daemon from 0.11.2 to **0.17.4** so the official app (app.paseo.sh, 0.17.x) can use daemon features such as the "All changes" diff. Its Pi Web adapter differs from 0.1.23's only in one test (`lib/paseo-name.test.mjs` takes the Paseo version from the plugin instead of hardcoding it), so the combined patch changes only that file.
