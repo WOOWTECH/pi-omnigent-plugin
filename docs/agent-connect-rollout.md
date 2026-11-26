@@ -1,5 +1,13 @@
 # Agent Connect shared adapter rollout
 
+## Paired 0.17.5-r4 / Next.js 16.4.6 candidate (2026-11-26)
+
+The Omnigent candidate is **0.3.42-rc.5**, pinned exactly to Agent Connect `@woowtech/pi-paseo` **0.1.27-rc.5**. Source commit: `867d9065f609aa5e32d88f2d55cf07c5d3fadc3e`; archive `artifacts/woowtech-pi-paseo-0.1.27-rc.5.tgz`, SHA-256 `581d5468020344dc93728da862118a4f8258a1a9a610ca16336e865345dceaa5`; adapter patch SHA-256 `aefb39dd6c378571ea8146bfa27fa153609da7460bc7198c3cfeb471ce02bcd6`. Paseo runtime remains 0.17.5-r4, source `8664f2c3f8f5`, payload marker `a7full5`.
+
+The combined Pi Web dependency graph pins both `next` and `eslint-config-next` to **16.4.6**. The combined patch SHA-256 is `5bbbd15bf9b0734bb4964c79dd620ecbc3e0ccda26af3cec2cb6a488d8eba7aa`; the Omnigent contributor patch remains unchanged. Selected tests and typecheck passed, and the production build exited 0. Full command output and exit code are in `packaging/logs/next-build.log` and `packaging/logs/next-build.exit`.
+
+Previous rc4 build-gate record: [`packaging/logs/rc4-securityfatal.note.md`](../packaging/logs/rc4-securityfatal.note.md). Its original stderr was emitted to the tool stream and was not saved to a logfile.
+
 ## Paired 0.17.5-r4 candidate (2026-11-26)
 
 The phone-selected Omnigent source candidate is **0.3.42-rc.4**, pinned exactly to `@woowtech/pi-paseo` **0.1.27-rc.4**. Agent Connect source commit: `a895f725aad645e7594c8405aac17aca409b3558`; archive: `artifacts/woowtech-pi-paseo-0.1.27-rc.4.tgz`, SHA-256 `3fe3f9e7bad463c6a007703a8db67c2de320b061e93ba7bc79339cae68fe937b`. Its adapter patch digest remains `29b0de5a1ab00518e8a99f3449ae5b8f0d2fa6ec621cd6105edbeb15a6ce3331`. Paired runtime: Paseo 0.17.5-r4, source `8664f2c3f8f5`, payload marker `a7full5`. This remains an unpublished candidate.

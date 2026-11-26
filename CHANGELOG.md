@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.42-rc.5 — Candidate
+
+- Pair Agent Connect 0.1.27-rc.5 (source `867d9065f609aa5e32d88f2d55cf07c5d3fadc3e`, archive SHA-256 `581d5468020344dc93728da862118a4f8258a1a9a610ca16336e865345dceaa5`, adapter SHA-256 `aefb39dd6c378571ea8146bfa27fa153609da7460bc7198c3cfeb471ce02bcd6`) with Omnigent 0.3.42-rc.5 and Paseo 0.17.5-r4 `8664f2c3f8f5` / `a7full5`. Pin Pi Web `next` and `eslint-config-next` to 16.4.6; combined adapter is regenerated and the pair gate remains exact.
+
 ## 0.3.42-rc.4 — Candidate
 
 - Phone-selected pairing: pin Agent Connect 0.1.27-rc.4 (source `a895f725aad645e7594c8405aac17aca409b3558`, archive SHA-256 `3fe3f9e7bad463c6a007703a8db67c2de320b061e93ba7bc79339cae68fe937b`) with Paseo 0.17.5-r4 `8664f2c3f8f5` / `a7full5`. Combined adapter patch bytes remain unchanged; refusal tests keep the exact pair gate.
