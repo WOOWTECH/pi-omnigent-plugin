@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.3.40 — Unreleased
+## 0.3.41 — Unreleased
+
+- Pair the combined Pi Web adapter with Agent Connect **0.1.26**. Track scheduled startup, explain pending target changes, and recover from request timeouts without retrying lifecycle mutations.
+- Preserve the existing Omnigent runtime and exact-version installation gate.
+
+## 0.3.40
 
 - Pin the combined Pi Web adapter to Agent Connect **0.1.25**, which adds the pinned Better Paseo Tasks builtin to official Paseo 0.17.4. Tasks defaults on, chat enhancements default off, and plugin updates stay product-managed.
 - The Pi Web adapter bytes are unchanged (`5e2c36b4…`). The exact tested package pair advances to 0.3.40/0.1.25; older or newer connector versions remain refused.

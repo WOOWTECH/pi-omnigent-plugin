@@ -1,6 +1,6 @@
 # Pi Omnigent Plugin
 
-0.3.40 發布準備：共用介面固定搭配 Agent Connect 0.1.25（官方 Paseo 0.17.4 加入產品管理的 Tasks 內建外掛）。
+0.3.41 發布準備：共用介面固定搭配 Agent Connect 0.1.26，補上啟動進度、待套用品牌與逾時回饋；沿用 Paseo 0.17.4 與 Tasks 封裝。
 
 0.3.38 發布準備：Agent Connect 改為搭配 `@woowtech/pi-paseo` 0.1.23，Paseo 選項改開官方網站 `app.paseo.sh`，不再附內建的 `/paseo-web` 網頁。
 

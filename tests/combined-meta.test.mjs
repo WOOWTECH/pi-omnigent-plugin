@@ -11,12 +11,11 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const sha = data => createHash('sha256').update(data).digest('hex');
 const shipped = JSON.parse(fs.readFileSync(path.join(root, 'integrations/pi-web/combined.adapter-meta.json'), 'utf8'));
 
-// The runtime adds the product-managed Tasks builtin; its Pi Web adapter bytes
-// are unchanged. Keep one exact tested pair for distribution packages.
-test('the combined adapter pins exactly Agent Connect 0.1.25', () => {
+// Keep one exact package pair for the Start progress and pending-target UI fix.
+test('the combined adapter pins exactly Agent Connect 0.1.26', () => {
   assert.equal(shipped.paseo.packageName, '@woowtech/pi-paseo');
   assert.match(shipped.paseo.adapterPatchSha256, /^[a-f0-9]{64}$/);
-  assert.equal(shipped.paseo.packageVersion, '0.1.25');
+  assert.equal(shipped.paseo.packageVersion, '0.1.26');
   assert.deepEqual(shipped.paseo.compatiblePackageVersions ?? [], []);
   assert.equal(shipped.paseo.compatibleAdapters, undefined);
 });
@@ -46,10 +45,10 @@ function packageWithPaseo(t, version) {
     run: async () => { throw passed; } });
 }
 
-for (const version of ['0.1.25']) test(`the installer accepts Paseo ${version} with the shipped manifest`, async t => {
+for (const version of ['0.1.26']) test(`the installer accepts Paseo ${version} with the shipped manifest`, async t => {
   await assert.rejects(packageWithPaseo(t, version), { code: 'GATE_PASSED' });
 });
 
-for (const version of ['0.1.13', '0.1.14', '0.1.15', '0.1.16', '0.1.17', '0.1.18', '0.1.19', '0.1.20', '0.1.21', '0.1.22', '0.1.23', '0.1.24', '0.1.26']) test(`the installer refuses a runtime outside the exact combined candidate ${version} even with matching patch bytes`, async t => {
+for (const version of ['0.1.13', '0.1.14', '0.1.15', '0.1.16', '0.1.17', '0.1.18', '0.1.19', '0.1.20', '0.1.21', '0.1.22', '0.1.23', '0.1.24', '0.1.25', '0.1.27']) test(`the installer refuses a runtime outside the exact combined candidate ${version} even with matching patch bytes`, async t => {
   await assert.rejects(packageWithPaseo(t, version), { code: 'COMBINED_ADAPTER_MISMATCH' });
 });
