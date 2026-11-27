@@ -207,16 +207,28 @@ jobs:
           PI_PASEO_PLUGIN_ROOT: /tmp/pi-paseo
       - run: npx tsc --noEmit
         working-directory: /tmp/pi-web-combined
-      - name: Prepare production JSON HTTP regression probe
-        run: node /tmp/pi-paseo/scripts/production-json-http-regression.mjs prepare /tmp/pi-web-combined
+      - name: Prepare isolated production JSON HTTP regression fixture
+        shell: bash
+        run: |
+          mkdir -p /tmp/pi-web-http-json
+          tar -C /tmp/pi-web-combined --exclude='./node_modules' --exclude='./.next' --exclude='./.git' -cf - . | tar -C /tmp/pi-web-http-json -xf -
+          ln -s /tmp/pi-web-combined/node_modules /tmp/pi-web-http-json/node_modules
+          node /tmp/pi-paseo/scripts/production-json-http-regression.mjs prepare /tmp/pi-web-http-json
+      - name: Build isolated production JSON HTTP regression fixture
+        run: npm run build
+        working-directory: /tmp/pi-web-http-json
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+          CIRCLE_NODE_TOTAL: '3'
+          NODE_OPTIONS: --max-old-space-size=3072
+      - name: Verify production JSON HTTP compression contract
+        run: node /tmp/pi-paseo/scripts/production-json-http-regression.mjs verify /tmp/pi-web-http-json
       - run: npm run build
         working-directory: /tmp/pi-web-combined
         env:
           NEXT_TELEMETRY_DISABLED: '1'
           CIRCLE_NODE_TOTAL: '3'
           NODE_OPTIONS: --max-old-space-size=3072
-      - name: Verify production JSON HTTP compression contract
-        run: node /tmp/pi-paseo/scripts/production-json-http-regression.mjs verify /tmp/pi-web-combined
 
       - name: Real packed-package installer acceptance
         shell: bash
@@ -284,6 +296,6 @@ jobs:
       - name: Clean production JSON HTTP regression probe
         if: always()
         run: |
-          if [ -f /tmp/pi-paseo/scripts/production-json-http-regression.mjs ]; then
-            node /tmp/pi-paseo/scripts/production-json-http-regression.mjs cleanup /tmp/pi-web-combined
+          if [ -d /tmp/pi-web-http-json ] && [ -f /tmp/pi-paseo/scripts/production-json-http-regression.mjs ]; then
+            node /tmp/pi-paseo/scripts/production-json-http-regression.mjs cleanup /tmp/pi-web-http-json
           fi
