@@ -1002,6 +1002,72 @@ index 1c0670c..851a3b9 100644
 +    return response({ error: "Plugin operation could not be completed; check installation and settings" }, { status: 500 });
    }
  }
+diff --git a/app/api/sessions/runtime-route.test.mjs b/app/api/sessions/runtime-route.test.mjs
+index a4f79a0..28f1271 100644
+--- a/app/api/sessions/runtime-route.test.mjs
++++ b/app/api/sessions/runtime-route.test.mjs
+@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
+ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+-import { gunzipSync } from "node:zlib";
+ import test from "node:test";
+ import { createJiti } from "jiti";
+ 
+@@ -76,7 +75,7 @@ test("list versions expose idle session creation, rename and deletion to other w
+   assert.equal((await (await getRunningSessions()).json()).sessionListVersion, deleted.sessionListVersion);
+ });
+ 
+-test("session listing returns a gzip-compressed response when the client accepts it", async (t) => {
++test("session listing returns ordinary JSON for Next's production server", async (t) => {
+   const dir = await mkdtemp(join(tmpdir(), "pi-web-list-gzip-"));
+   const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+   process.env.PI_CODING_AGENT_DIR = dir;
+@@ -99,9 +98,9 @@ test("session listing returns a gzip-compressed response when the client accepts
+   }));
+ 
+   assert.equal(response.status, 200);
+-  assert.equal(response.headers.get("Content-Encoding"), "gzip");
+-  assert.match(response.headers.get("Vary") ?? "", /(?:^|,\s*)Accept-Encoding(?:\s*,|$)/i);
+-  const payload = JSON.parse(gunzipSync(Buffer.from(await response.arrayBuffer())).toString("utf8"));
++  assert.equal(response.headers.get("Content-Encoding"), null);
++  assert.match(response.headers.get("Content-Type") ?? "", /^application\/json\b/i);
++  const payload = await response.json();
+   assert.equal(payload.sessions[0].firstMessage, firstMessage);
+ });
+ 
+@@ -313,9 +312,9 @@ test("live detail and state routes work without a persisted JSONL file", async (
+   });
+ });
+ 
+-test("session detail returns a gzip-compressed response when the client accepts it", async (t) => {
++test("session detail returns ordinary JSON for Next's production server", async (t) => {
+   const previousRegistry = globalThis.__piSessions;
+-  const id = "live-route-gzip-test";
++  const id = "live-route-json-test";
+   const timestamp = "2026-09-05T00:00:00.000Z";
+   const firstMessage = "large session detail content ".repeat(500);
+   const entry = {
+@@ -331,7 +330,7 @@ test("session detail returns a gzip-compressed response when the client accepts
+     getLeafId: () => entry.id,
+     getTree: () => [],
+     getSessionName: () => undefined,
+-    getSessionFile: () => `/tmp/pi-web-live-route-gzip-${process.pid}.jsonl`,
++    getSessionFile: () => `/tmp/pi-web-live-route-json-${process.pid}.jsonl`,
+   };
+   globalThis.__piSessions = new Map([[id, {
+     isAlive: () => true,
+@@ -353,7 +352,8 @@ test("session detail returns a gzip-compressed response when the client accepts
+   );
+ 
+   assert.equal(response.status, 200);
+-  assert.equal(response.headers.get("Content-Encoding"), "gzip");
+-  const payload = JSON.parse(gunzipSync(Buffer.from(await response.arrayBuffer())).toString("utf8"));
++  assert.equal(response.headers.get("Content-Encoding"), null);
++  assert.match(response.headers.get("Content-Type") ?? "", /^application\/json\b/i);
++  const payload = await response.json();
+   assert.equal(payload.info.firstMessage, firstMessage);
+ });
 diff --git a/app/omnigent/page.tsx b/app/omnigent/page.tsx
 new file mode 100644
 index 0000000..a04d263
@@ -3686,6 +3752,117 @@ index 0000000..5fba2c0
 +  if (!body || typeof body !== "object" || Array.isArray(body)) throw new RequestBodyError(400, "Invalid request");
 +  return body as Record<string, unknown>;
 +}
+diff --git a/lib/json-response.test.mjs b/lib/json-response.test.mjs
+index 85e1302..f46eb7a 100644
+--- a/lib/json-response.test.mjs
++++ b/lib/json-response.test.mjs
+@@ -8,33 +8,37 @@ const jiti = createJiti(import.meta.url, {
+ });
+ const { jsonResponse } = await jiti.import("./json-response.ts");
+ 
+-test("does not gzip a large JSON response when the client disables gzip", async () => {
++test("returns a large JSON body uncompressed for Next's production server", async () => {
+   const response = jsonResponse(
+-    new Request("http://localhost/test", { headers: { "Accept-Encoding": "gzip;q=0, br" } }),
++    new Request("http://localhost/test", { headers: { "Accept-Encoding": "gzip" } }),
+     { value: "large payload ".repeat(200) },
+   );
+ 
+   assert.equal(response.headers.get("Content-Encoding"), null);
+-  assert.match(response.headers.get("Vary") ?? "", /(?:^|,\s*)Accept-Encoding(?:\s*,|$)/i);
++  assert.equal(response.headers.get("Content-Length"), null);
+   assert.equal((await response.json()).value, "large payload ".repeat(200));
+ });
+ 
+-test("does not gzip when the gzip quality value is invalid", async () => {
++test("does not preserve stale compression headers when constructing a new JSON body", async () => {
+   const response = jsonResponse(
+-    new Request("http://localhost/test", { headers: { "Accept-Encoding": "gzip;q=invalid, *;q=1" } }),
++    new Request("http://localhost/test", { headers: { "Accept-Encoding": "gzip" } }),
+     { value: "large payload ".repeat(200) },
++    { headers: { "Content-Encoding": "gzip", "Content-Length": "42" } },
+   );
+ 
+   assert.equal(response.headers.get("Content-Encoding"), null);
++  assert.equal(response.headers.get("Content-Length"), null);
+   assert.equal((await response.json()).value, "large payload ".repeat(200));
+ });
+ 
+-test("leaves small JSON responses uncompressed", async () => {
++test("leaves small JSON responses plain and preserves unrelated headers", async () => {
+   const response = jsonResponse(
+     new Request("http://localhost/test", { headers: { "Accept-Encoding": "gzip" } }),
+     { ok: true },
++    { headers: { "Cache-Control": "no-store" } },
+   );
+ 
+   assert.equal(response.headers.get("Content-Encoding"), null);
++  assert.equal(response.headers.get("Cache-Control"), "no-store");
+   assert.deepEqual(await response.json(), { ok: true });
+ });
+diff --git a/lib/json-response.ts b/lib/json-response.ts
+index fd6ccc0..caf8e75 100644
+--- a/lib/json-response.ts
++++ b/lib/json-response.ts
+@@ -1,56 +1,12 @@
+-const MIN_GZIP_BYTES = 1024;
+-
+-function acceptedEncodingQuality(header: string, encoding: string): number {
+-  let wildcardQuality: number | undefined;
+-  for (const item of header.split(",")) {
+-    const [rawName, ...rawParameters] = item.trim().split(";");
+-    const name = rawName.trim().toLowerCase();
+-    let quality = 1;
+-    for (const rawParameter of rawParameters) {
+-      const match = /^\s*q\s*=\s*(.*?)\s*$/i.exec(rawParameter);
+-      if (!match) continue;
+-      const value = match[1];
+-      quality = /^(?:0(?:\.\d{0,3})?|1(?:\.0{0,3})?)$/.test(value) ? Number(value) : 0;
+-    }
+-    if (name === encoding) return quality;
+-    if (name === "*") wildcardQuality = quality;
+-  }
+-  return wildcardQuality ?? 0;
+-}
+-
+-function appendVary(headers: Headers, value: string): void {
+-  const current = headers.get("Vary");
+-  if (!current) {
+-    headers.set("Vary", value);
+-    return;
+-  }
+-  if (!current.split(",").some((entry) => entry.trim().toLowerCase() === value.toLowerCase())) {
+-    headers.set("Vary", `${current}, ${value}`);
+-  }
+-}
+-
+ export function jsonResponse(
+   request: Request,
+   data: unknown,
+   init: ResponseInit = {},
+ ): Response {
+   const body = JSON.stringify(data);
+-  const isLargeEnough = Buffer.byteLength(body) >= MIN_GZIP_BYTES;
+   const headers = new Headers(init.headers);
+   headers.set("Content-Type", "application/json; charset=utf-8");
+-
+-  if (isLargeEnough) {
+-    appendVary(headers, "Accept-Encoding");
+-  }
+-
+-  if (
+-    isLargeEnough
+-    && acceptedEncodingQuality(request.headers.get("Accept-Encoding") ?? "", "gzip") > 0
+-  ) {
+-    headers.set("Content-Encoding", "gzip");
+-    const compressed = new Blob([body]).stream().pipeThrough(new CompressionStream("gzip"));
+-    return new Response(compressed, { ...init, headers });
+-  }
+-
++  headers.delete("Content-Encoding");
++  headers.delete("Content-Length");
+   return new Response(body, { ...init, headers });
+ }
 diff --git a/lib/omnigent-reload.test.mjs b/lib/omnigent-reload.test.mjs
 new file mode 100644
 index 0000000..20ec1fd

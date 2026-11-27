@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.42-rc.6 — Candidate
+
+- Pair Agent Connect 0.1.27-rc.6 (source `ba9f1c408a61193efc47c2914c6edd67c6f681b7`, archive SHA-256 `224c819fc14876c86f5febe0996a26e73ce618682faf611bac1b340b08b71335`, adapter SHA-256 `22d3a604d0c3ddc9305afe07f9f68524bec906fddb16636c08ac2783b4442a6c`) with Omnigent 0.3.42-rc.6 and Paseo 0.17.5-r4 `8664f2c3f8f5` / `a7full5`. Preserve the combined adapter's prior files and add the three shared JSON-response/session-contract files; verify the real Next production HTTP response contract.
+
 ## 0.3.42-rc.5 — Candidate
 
 - Pair Agent Connect 0.1.27-rc.5 (source `867d9065f609aa5e32d88f2d55cf07c5d3fadc3e`, archive SHA-256 `581d5468020344dc93728da862118a4f8258a1a9a610ca16336e865345dceaa5`, adapter SHA-256 `aefb39dd6c378571ea8146bfa27fa153609da7460bc7198c3cfeb471ce02bcd6`) with Omnigent 0.3.42-rc.5 and Paseo 0.17.5-r4 `8664f2c3f8f5` / `a7full5`. Pin Pi Web `next` and `eslint-config-next` to 16.4.6; combined adapter is regenerated and the pair gate remains exact.
