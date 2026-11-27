@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.42 — Stable
+
+- Release 0.3.42 from the accepted 0.3.42-rc.6 with no code changes. The combined Pi Web adapter pins exactly Agent Connect 0.1.27 (source `053a39a7b72e83787a419b97206adc34f45e35bb`, archive SHA-256 `aecf3bdff1505d3745ddc694f1e50fead50a0fc19b3fa2c82205174917143b6f`, adapter SHA-256 `22d3a604d0c3ddc9305afe07f9f68524bec906fddb16636c08ac2783b4442a6c`); the combined patch SHA-256 stays `8d55d6824307023eed5ead7fa89080650d3981fae1746378db9a400fab8a9632` and the Paseo runtime stays 0.17.5-r4 `8664f2c3f8f5`.
+- The installer refuses every other Agent Connect version, including 0.1.27-rc.1 through 0.1.27-rc.6. The workflow's default Agent Connect ref now points at the 0.1.27 source commit.
+
 ## 0.3.42-rc.6 — Candidate
 
 - Pair Agent Connect 0.1.27-rc.6 (source `ba9f1c408a61193efc47c2914c6edd67c6f681b7`, archive SHA-256 `224c819fc14876c86f5febe0996a26e73ce618682faf611bac1b340b08b71335`, adapter SHA-256 `22d3a604d0c3ddc9305afe07f9f68524bec906fddb16636c08ac2783b4442a6c`) with Omnigent 0.3.42-rc.6 and Paseo 0.17.5-r4 `8664f2c3f8f5` / `a7full5`. Preserve the combined adapter's prior files and add the three shared JSON-response/session-contract files; verify the real Next production HTTP response contract.

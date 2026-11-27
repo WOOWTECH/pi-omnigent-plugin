@@ -264,7 +264,7 @@ test('bytecode with a correct after-source header but foreign executable payload
 });
 test('package explicitly includes exact runtime payload files; brand/version and hook anchor stay intact', async () => {
   const pkg = JSON.parse(await fs.readFile(path.join(root, 'package.json')));
-  assert.equal(pkg.name, '@woowtech/pi-omnigent-plugin'); assert.equal(pkg.version, '0.3.42-rc.6');
+  assert.equal(pkg.name, '@woowtech/pi-omnigent-plugin'); assert.equal(pkg.version, '0.3.42');
   const provenance = JSON.parse(await fs.readFile(path.join(root, 'src/native-maintenance/bundle-provenance.json')));
   assert.equal(provenance.bundleSha256, 'f9ab01b40c9e72d3110c67b3735deb740e9a07416a86d2e01bd9f7c7d9a60739');
   for (const [name, record] of Object.entries(provenance.files)) {
