@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       paseo_ref:
-        description: 'Agent Connect source commit or tag; empty uses the frozen 0.1.26 source'
+        description: 'Agent Connect source commit or tag; empty uses the paired 0.1.27 release'
         required: false
         type: string
   push:
@@ -174,8 +174,8 @@ jobs:
     timeout-minutes: 30
     env:
       PLAYWRIGHT_BROWSERS_PATH: /tmp/paseo-playwright
-      # Agent Connect 0.1.26: reviewed Start progress and pending-target UI.
-      PASEO_CANDIDATE_REF: ${{ inputs.paseo_ref || '985bff65835ffd986a4b81d84fa3093e9e3133d8' }}
+      # Agent Connect 0.1.27: paired with the Paseo 0.17.5-r4 runtime.
+      PASEO_CANDIDATE_REF: ${{ inputs.paseo_ref || '053a39a7b72e83787a419b97206adc34f45e35bb' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -201,17 +201,34 @@ jobs:
       - run: npm audit --audit-level=high --no-fund
         working-directory: /tmp/pi-web-combined
       - name: Combined settings, Agent Connect targets and actual host contract
-        run: node --test lib/paseo-*.test.mjs lib/settings-navigation.test.mjs lib/i18n/registry.test.mjs app/api/plugin-paseo/route.test.mjs app/api/omnigent/route.test.mjs components/PaseoPluginPanel.behavior.test.mjs components/SettingsPanel.test.mjs
+        run: node --experimental-strip-types --test lib/paseo-*.test.mjs lib/settings-navigation.test.mjs lib/i18n/registry.test.mjs app/api/plugin-paseo/route.test.mjs app/api/omnigent/route.test.mjs components/PaseoPluginPanel.behavior.test.mjs components/SettingsPanel.test.mjs lib/json-response.test.mjs app/api/sessions/runtime-route.test.mjs
         working-directory: /tmp/pi-web-combined
         env:
           PI_PASEO_PLUGIN_ROOT: /tmp/pi-paseo
       - run: npx tsc --noEmit
         working-directory: /tmp/pi-web-combined
+      - name: Prepare isolated production JSON HTTP regression fixture
+        shell: bash
+        run: |
+          mkdir -p /tmp/pi-web-http-json
+          tar -C /tmp/pi-web-combined --exclude='./node_modules' --exclude='./.next' --exclude='./.git' -cf - . | tar -C /tmp/pi-web-http-json -xf -
+          ln -s /tmp/pi-web-combined/node_modules /tmp/pi-web-http-json/node_modules
+          node /tmp/pi-paseo/scripts/production-json-http-regression.mjs prepare /tmp/pi-web-http-json
+      - name: Build isolated production JSON HTTP regression fixture
+        run: npm run build
+        working-directory: /tmp/pi-web-http-json
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+          CIRCLE_NODE_TOTAL: '3'
+          NODE_OPTIONS: --max-old-space-size=3072
+      - name: Verify production JSON HTTP compression contract
+        run: node /tmp/pi-paseo/scripts/production-json-http-regression.mjs verify /tmp/pi-web-http-json
       - run: npm run build
         working-directory: /tmp/pi-web-combined
         env:
           NEXT_TELEMETRY_DISABLED: '1'
           CIRCLE_NODE_TOTAL: '3'
+          NODE_OPTIONS: --max-old-space-size=3072
 
       - name: Real packed-package installer acceptance
         shell: bash
@@ -275,3 +292,10 @@ jobs:
           name: settings-only-combined-${{ env.PASEO_VERSION }}-browser
           path: /tmp/pi-web-combined/settings-only-browser.json
           retention-days: 30
+
+      - name: Clean production JSON HTTP regression probe
+        if: always()
+        run: |
+          if [ -d /tmp/pi-web-http-json ] && [ -f /tmp/pi-paseo/scripts/production-json-http-regression.mjs ]; then
+            node /tmp/pi-paseo/scripts/production-json-http-regression.mjs cleanup /tmp/pi-web-http-json
+          fi

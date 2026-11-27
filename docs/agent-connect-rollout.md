@@ -1,5 +1,29 @@
 # Agent Connect shared adapter rollout
 
+## 0.3.42 stable pair (2026-11-27)
+
+Omnigent **0.3.42** is pinned exactly to Agent Connect `@woowtech/pi-paseo` **0.1.27**. Source commit `053a39a7b72e83787a419b97206adc34f45e35bb`; archive SHA-256 `aecf3bdff1505d3745ddc694f1e50fead50a0fc19b3fa2c82205174917143b6f`; adapter patch SHA-256 `22d3a604d0c3ddc9305afe07f9f68524bec906fddb16636c08ac2783b4442a6c`; combined patch SHA-256 `8d55d6824307023eed5ead7fa89080650d3981fae1746378db9a400fab8a9632`. The code is identical to the accepted 0.3.42-rc.6; only version labels, the workflow's default Agent Connect ref and the changelog changed. rc.6 was installed on the aicoder native host and passed lifecycle, phone Tasks, task-title and Tailscale checks on 2026-11-27.
+
+## Paired 0.17.5-r4 / Next.js 16.4.6 candidate (2026-11-26)
+
+The Omnigent candidate is **0.3.42-rc.5**, pinned exactly to Agent Connect `@woowtech/pi-paseo` **0.1.27-rc.5**. Source commit: `867d9065f609aa5e32d88f2d55cf07c5d3fadc3e`; archive `artifacts/woowtech-pi-paseo-0.1.27-rc.5.tgz`, SHA-256 `581d5468020344dc93728da862118a4f8258a1a9a610ca16336e865345dceaa5`; adapter patch SHA-256 `aefb39dd6c378571ea8146bfa27fa153609da7460bc7198c3cfeb471ce02bcd6`. Paseo runtime remains 0.17.5-r4, source `8664f2c3f8f5`, payload marker `a7full5`.
+
+The combined Pi Web dependency graph pins both `next` and `eslint-config-next` to **16.4.6**. The combined patch SHA-256 is `5bbbd15bf9b0734bb4964c79dd620ecbc3e0ccda26af3cec2cb6a488d8eba7aa`; the Omnigent contributor patch remains unchanged. Selected tests and typecheck passed, and the production build exited 0. Full command output and exit code are in `packaging/logs/next-build.log` and `packaging/logs/next-build.exit`.
+
+Previous rc4 build-gate record: [`packaging/logs/rc4-securityfatal.note.md`](../packaging/logs/rc4-securityfatal.note.md). Its original stderr was emitted to the tool stream and was not saved to a logfile.
+
+## Paired 0.17.5-r4 candidate (2026-11-26)
+
+The phone-selected Omnigent source candidate is **0.3.42-rc.4**, pinned exactly to `@woowtech/pi-paseo` **0.1.27-rc.4**. Agent Connect source commit: `a895f725aad645e7594c8405aac17aca409b3558`; archive: `artifacts/woowtech-pi-paseo-0.1.27-rc.4.tgz`, SHA-256 `3fe3f9e7bad463c6a007703a8db67c2de320b061e93ba7bc79339cae68fe937b`. Its adapter patch digest remains `29b0de5a1ab00518e8a99f3449ae5b8f0d2fa6ec621cd6105edbeb15a6ce3331`. Paired runtime: Paseo 0.17.5-r4, source `8664f2c3f8f5`, payload marker `a7full5`. This remains an unpublished candidate.
+
+The Omnigent combined adapter patch remains byte-identical at SHA-256 `13775483ce327a544b2604f4205db11ec0eec516e0765c44bebf72a133503dbb`; exact contributor versions and archive identity are enforced by manifest and tests.
+
+## Paired 0.17.5 candidate (2026-11-26)
+
+The Omnigent source candidate is **0.3.42-rc.3**, pinned exactly to `@woowtech/pi-paseo` **0.1.27-rc.3**. The Agent Connect source commit is `88857bd86a4bf982aef6d85122f16b7d4a03d009`; its packaged `host/adapter.patch` digest is `29b0de5a1ab00518e8a99f3449ae5b8f0d2fa6ec621cd6105edbeb15a6ce3331`. The paired Paseo tarball SHA-256 is `ee3a2f8b35bb42f87b85d4811362d134dcbcb9ae8e8845af69cc6d75d27248f4`. This is an unpublished candidate.
+
+The Omnigent adapter patch stays at its existing digest. Inspection found no contributor-version literals in `combined.adapter.patch`, so its bytes and digest stay unchanged; the exact versions are enforced by `combined.adapter-meta.json` and the installer tests. Unknown versions remain refused.
+
 This source candidate generalizes the existing Paseo integration as **Agent Connect**. Its settings select Woowtech Smart, Apporo Smart, or Paseo. Package IDs, state directories, API paths, and the internal `paseo` settings section stay compatible with existing installations. The combined UI preserves the Omnigent section and its existing behavior.
 
 ## Coordinated source candidates

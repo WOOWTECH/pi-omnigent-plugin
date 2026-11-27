@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.3.42 — Stable
+
+- Release 0.3.42 from the accepted 0.3.42-rc.6 with no code changes. The combined Pi Web adapter pins exactly Agent Connect 0.1.27 (source `053a39a7b72e83787a419b97206adc34f45e35bb`, archive SHA-256 `aecf3bdff1505d3745ddc694f1e50fead50a0fc19b3fa2c82205174917143b6f`, adapter SHA-256 `22d3a604d0c3ddc9305afe07f9f68524bec906fddb16636c08ac2783b4442a6c`); the combined patch SHA-256 stays `8d55d6824307023eed5ead7fa89080650d3981fae1746378db9a400fab8a9632` and the Paseo runtime stays 0.17.5-r4 `8664f2c3f8f5`.
+- The installer refuses every other Agent Connect version, including 0.1.27-rc.1 through 0.1.27-rc.6. The workflow's default Agent Connect ref now points at the 0.1.27 source commit.
+
+## 0.3.42-rc.6 — Candidate
+
+- Pair Agent Connect 0.1.27-rc.6 (source `ba9f1c408a61193efc47c2914c6edd67c6f681b7`, archive SHA-256 `224c819fc14876c86f5febe0996a26e73ce618682faf611bac1b340b08b71335`, adapter SHA-256 `22d3a604d0c3ddc9305afe07f9f68524bec906fddb16636c08ac2783b4442a6c`) with Omnigent 0.3.42-rc.6 and Paseo 0.17.5-r4 `8664f2c3f8f5` / `a7full5`. Preserve the combined adapter's prior files and add the three shared JSON-response/session-contract files; verify the real Next production HTTP response contract.
+
+## 0.3.42-rc.5 — Candidate
+
+- Pair Agent Connect 0.1.27-rc.5 (source `867d9065f609aa5e32d88f2d55cf07c5d3fadc3e`, archive SHA-256 `581d5468020344dc93728da862118a4f8258a1a9a610ca16336e865345dceaa5`, adapter SHA-256 `aefb39dd6c378571ea8146bfa27fa153609da7460bc7198c3cfeb471ce02bcd6`) with Omnigent 0.3.42-rc.5 and Paseo 0.17.5-r4 `8664f2c3f8f5` / `a7full5`. Pin Pi Web `next` and `eslint-config-next` to 16.4.6; combined adapter is regenerated and the pair gate remains exact.
+
+## 0.3.42-rc.4 — Candidate
+
+- Phone-selected pairing: pin Agent Connect 0.1.27-rc.4 (source `a895f725aad645e7594c8405aac17aca409b3558`, archive SHA-256 `3fe3f9e7bad463c6a007703a8db67c2de320b061e93ba7bc79339cae68fe937b`) with Paseo 0.17.5-r4 `8664f2c3f8f5` / `a7full5`. Combined adapter patch bytes remain unchanged; refusal tests keep the exact pair gate.
+
+## 0.3.42-rc.3 — Candidate
+
+- Pin Agent Connect 0.1.27-rc.3 and its isolated 0.17.5-r3 builtin payload from Smart 2b012f9. Shortcut recording requires the matching Smart Web keyboard guard; the package pair gate stays exact. Combined Pi Web code and adapter hashes are unchanged.
+
+## 0.3.42-rc.2 — Candidate
+
+- Pin Agent Connect 0.1.27-rc.2 and its isolated 0.17.5-r2 builtin payload from Smart a61efefca. Fixes preference saves stalling after an unchanged revision. Combined Pi Web code and adapter hashes remain unchanged; the exact package pair gate is retained.
+
+## 0.3.42-rc.1 — Candidate
+
+- Pair the combined Pi Web adapter with Agent Connect **0.1.27-rc.1** and its Paseo **0.17.5** runtime. Keep the exact contributor patch digest guard; the Omnigent adapter patch and combined patch bytes are unchanged.
+- Source pair: Agent Connect `e4c568ce3214592574f11243acf5ed7db743d47e`; adapter patch SHA-256 `29b0de5a1ab00518e8a99f3449ae5b8f0d2fa6ec621cd6105edbeb15a6ce3331`.
+
 ## 0.3.41 — Unreleased
 
 - Pair the combined Pi Web adapter with Agent Connect **0.1.26**. Track scheduled startup, explain pending target changes, and recover from request timeouts without retrying lifecycle mutations.
